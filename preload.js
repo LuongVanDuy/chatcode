@@ -7,11 +7,12 @@ contextBridge.exposeInMainWorld('personalCode', {
   listFiles: (projectId) => ipcRenderer.invoke('files:list', projectId),
   readFile: (projectId, relPath) => ipcRenderer.invoke('files:read', projectId, relPath),
   search: (projectId, query) => ipcRenderer.invoke('files:search', projectId, query),
-  writeFile: (projectId, relPath, content) => ipcRenderer.invoke('files:write', projectId, relPath, content),
   runTask: (projectId, command) => ipcRenderer.invoke('tasks:run', projectId, command),
   gitStatus: (projectId) => ipcRenderer.invoke('git:status', projectId),
   gitDiff: (projectId) => ipcRenderer.invoke('git:diff', projectId),
-  getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveAISettings: (settings) => ipcRenderer.invoke('settings:ai', settings),
-  runAgent: (projectId, message, history) => ipcRenderer.invoke('agent:run', projectId, message, history)
+  connectionStatus: () => ipcRenderer.invoke('connection:status'),
+  startConnection: () => ipcRenderer.invoke('connection:start'),
+  copyConnection: () => ipcRenderer.invoke('connection:copy'),
+  rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
+  onConnectionChanged: (callback) => ipcRenderer.on('connection:changed', (_, value) => callback(value))
 });
