@@ -7,8 +7,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "dist:win": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable"
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:portable": "electron-builder --win portable --publish never"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "2.0.0",
