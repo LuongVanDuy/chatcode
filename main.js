@@ -6,7 +6,6 @@ const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const { createSupportService, installChildProcessAudit } = require('./core/support');
 
-// Install process auditing before loading modules that destructure child_process.
 const support = createSupportService(app);
 installChildProcessAudit(support);
 
@@ -32,6 +31,7 @@ if (!gotLock) app.quit();
 
 const asset = name => path.join(__dirname, 'assets', name);
 const store = createStore(app, PORT);
+const recentTaskNotifications = new Map();
 function send(channel, value) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, value); }
 
 function showWindow() {
@@ -41,18 +41,31 @@ function showWindow() {
   mainWindow.focus();
 }
 
-function notifyActivity(entry) {
-  send('activity:changed', entry);
+function emitTaskNotification(project, target) {
   const state = store.read();
-  if (!state.settings.activityNotifications || entry.category !== 'task') return;
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) return;
+  if (!state.settings.activityNotifications) return { emitted:false, count:0, reason:'disabled' };
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) return { emitted:false, count:0, reason:'foreground' };
+  if (!Notification.isSupported()) return { emitted:false, count:0, reason:'unsupported' };
+  const key = `${String(project || '')}\n${String(target || '')}`;
+  const now = Date.now(), last = recentTaskNotifications.get(key) || 0;
+  if (now - last < 5000) return { emitted:false, count:0, reason:'deduped' };
   try {
-    if (Notification.isSupported()) new Notification({
+    new Notification({
       title: 'Tác vụ đã hoàn tất',
-      body: `${entry.project || 'Dự án'}${entry.target ? ` · ${entry.target}` : ''}`,
+      body: `${project || 'Dự án'}${target ? ` · ${target}` : ''}`,
       icon: fs.existsSync(asset('icon.png')) ? asset('icon.png') : undefined
     }).show();
-  } catch {}
+    recentTaskNotifications.set(key, now);
+    for (const [itemKey, at] of recentTaskNotifications) if (now - at > 30000) recentTaskNotifications.delete(itemKey);
+    return { emitted:true, count:1, reason:'emitted' };
+  } catch (error) {
+    return { emitted:false, count:0, reason:String(error?.message || error || 'notification-error').slice(0,160) };
+  }
+}
+
+function notifyActivity(entry) {
+  send('activity:changed', entry);
+  if (entry.category === 'task') emitTaskNotification(entry.project, entry.target);
 }
 
 const usage = createUsageService(store, { onActivity: notifyActivity, onReset: () => send('activity:reset') });
@@ -62,7 +75,9 @@ const approvals = createApprovalService(store, {
   onAttention: item => send('approval:attention', item)
 });
 const projects = createProjectService(store, { onIndexChanged: value => send('index:changed', value), recordActivity: usage.record });
-const safeTools = createSafeToolApi(projects, store, approvals, backups);
+const safeTools = createSafeToolApi(projects, store, approvals, backups, {
+  notifyTaskCompleted: ({ project, command }) => emitTaskNotification(project, command)
+});
 
 async function ensureMcpServer() {
   if (mcpRuntime) return mcpRuntime;
