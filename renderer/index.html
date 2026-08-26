@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,31 +9,84 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">PC</div><div><strong>Personal ChatCode</strong><span>local-first workspace</span></div></div>
+      <div class="brand"><div class="brand-mark">PC</div><div><strong>Personal ChatCode</strong><span>ChatGPT ↔ local projects</span></div></div>
       <button id="addProject" class="primary full">+ Add project</button>
       <div class="section-label">PROJECTS</div>
       <div id="projects" class="project-list"></div>
-      <div class="sidebar-foot">No telemetry · secrets blocked</div>
+      <div class="sidebar-foot">No OpenAI API key · no telemetry</div>
     </aside>
+
     <main class="main">
       <header class="topbar">
-        <div><h1 id="projectName">Choose a project</h1><div id="projectPath" class="muted">Add a folder to begin.</div></div>
+        <div><h1 id="projectName">Personal ChatCode</h1><div id="projectPath" class="muted">Connect ChatGPT, then let it work with folders you explicitly add.</div></div>
         <div id="permissionPills" class="pills"></div>
       </header>
+
       <nav class="tabs">
-        <button data-tab="chat" class="active">Chat</button><button data-tab="files">Files</button><button data-tab="search">Search</button><button data-tab="tasks">Tasks</button><button data-tab="git">Git</button><button data-tab="settings">Settings</button>
+        <button data-tab="connect" class="active">Connect ChatGPT</button>
+        <button data-tab="files">Files</button>
+        <button data-tab="search">Search</button>
+        <button data-tab="tasks">Tasks</button>
+        <button data-tab="git">Git</button>
+        <button data-tab="permissions">Permissions</button>
       </nav>
-      <section id="emptyState" class="empty"><div class="orb">⌘</div><h2>Your AI, inside your project.</h2><p>Add a folder. Read-only is the default. Enable write/tasks only when you want the agent to act.</p></section>
-      <section id="workspace" class="workspace hidden">
-        <div id="tab-chat" class="tab-panel active">
-          <div id="chatLog" class="chat-log"><div class="message assistant"><div class="role">Personal ChatCode</div><div class="content">Project connected. Ask me to inspect, explain, fix, or test it.</div></div></div>
-          <div class="composer"><textarea id="chatInput" rows="3" placeholder="Fix the checkout bug and run the tests…"></textarea><button id="sendChat" class="primary">Send</button></div>
+
+      <section id="workspace" class="workspace">
+        <div id="tab-connect" class="tab-panel active">
+          <div class="settings-grid">
+            <div class="panel-card">
+              <h3>ChatGPT connection</h3>
+              <p class="muted">ChatGPT is the AI. This app only exposes controlled MCP tools for your local projects.</p>
+              <div id="connectionBadge" class="pill">STARTING</div>
+              <label>Remote MCP URL<input id="connectionUrl" readonly placeholder="Creating secure connection…" /></label>
+              <div class="toolbar">
+                <button id="copyConnection" class="primary">Copy connection link</button>
+                <button id="restartConnection" class="ghost">Reconnect</button>
+                <button id="rotateConnection" class="ghost">Rotate secret</button>
+              </div>
+              <p id="connectionMessage" class="muted"></p>
+            </div>
+            <div class="panel-card">
+              <h3>Use it in ChatGPT</h3>
+              <ol class="steps">
+                <li>Add at least one project on the left.</li>
+                <li>Copy the MCP URL from this page.</li>
+                <li>In ChatGPT, create/add your custom MCP app/plugin and paste the URL.</li>
+                <li>Back in a chat, ask: <strong>“Use Personal ChatCode and list my projects.”</strong></li>
+              </ol>
+              <p class="muted">Keep this app running while ChatGPT is working with your computer. The tunnel URL can change after restart; the secret path protects the MCP endpoint from casual discovery.</p>
+            </div>
+          </div>
         </div>
-        <div id="tab-files" class="tab-panel"><div class="two-col"><div><div class="panel-title">Files <button id="refreshFiles" class="ghost small">Refresh</button></div><div id="fileList" class="file-list"></div></div><div><div class="panel-title" id="fileTitle">Preview</div><pre id="filePreview" class="code">Select a text file.</pre></div></div></div>
-        <div id="tab-search" class="tab-panel"><div class="toolbar"><input id="searchInput" placeholder="Search code, symbols, filenames…" /><button id="searchButton" class="primary">Search</button></div><div id="searchResults" class="search-results"></div></div>
-        <div id="tab-tasks" class="tab-panel"><div class="panel-card"><h3>Run an allow-listed task</h3><p class="muted">Examples: npm test, npm run build, pytest, cargo test, go test ./...</p><div class="toolbar"><input id="taskInput" placeholder="npm test" /><button id="taskButton" class="primary">Run</button></div><pre id="taskOutput" class="code tall"></pre></div></div>
+
+        <div id="tab-files" class="tab-panel">
+          <div id="projectRequiredFiles" class="empty compact"><h2>Select a project</h2><p>Choose a project from the left to browse its files.</p></div>
+          <div id="filesContent" class="two-col hidden"><div><div class="panel-title">Files <button id="refreshFiles" class="ghost small">Refresh</button></div><div id="fileList" class="file-list"></div></div><div><div class="panel-title" id="fileTitle">Preview</div><pre id="filePreview" class="code">Select a text file.</pre></div></div>
+        </div>
+
+        <div id="tab-search" class="tab-panel">
+          <div class="toolbar"><input id="searchInput" placeholder="Search code, filenames…" /><button id="searchButton" class="primary">Search</button></div>
+          <div id="searchResults" class="search-results"></div>
+        </div>
+
+        <div id="tab-tasks" class="tab-panel">
+          <div class="panel-card"><h3>Run an allow-listed task manually</h3><p class="muted">ChatGPT uses the same permission. Examples: npm test, npm run build, pytest, cargo test, go test ./...</p><div class="toolbar"><input id="taskInput" placeholder="npm test" /><button id="taskButton" class="primary">Run</button></div><pre id="taskOutput" class="code tall"></pre></div>
+        </div>
+
         <div id="tab-git" class="tab-panel"><div class="toolbar"><button id="gitStatus" class="primary">Status</button><button id="gitDiff" class="ghost">Diff</button></div><pre id="gitOutput" class="code tall"></pre></div>
-        <div id="tab-settings" class="tab-panel"><div class="settings-grid"><div class="panel-card"><h3>Project permissions</h3><label class="toggle"><input id="permWrite" type="checkbox" /> <span>Allow AI to create/modify files</span></label><label class="toggle"><input id="permTasks" type="checkbox" /> <span>Allow AI to run development tasks</span></label><label class="toggle"><input id="permGit" type="checkbox" /> <span>Allow local Git writes (reserved)</span></label><button id="saveProject" class="primary">Save permissions</button></div><div class="panel-card"><h3>AI provider</h3><label>OpenAI-compatible base URL<input id="aiBaseUrl" placeholder="https://api.openai.com/v1" /></label><label>Model<input id="aiModel" placeholder="your-model-name" /></label><label>API key<input id="aiApiKey" type="password" placeholder="Stored with OS encryption" /></label><button id="saveAI" class="primary">Save AI settings</button><p id="aiStatus" class="muted"></p></div></div></div>
+
+        <div id="tab-permissions" class="tab-panel">
+          <div id="permissionsEmpty" class="empty compact"><h2>Select a project</h2><p>Permissions are independent for each folder.</p></div>
+          <div id="permissionsContent" class="panel-card hidden">
+            <h3>AI permissions for this project</h3>
+            <label class="toggle"><input id="permWrite" type="checkbox" /> <span>Create/modify text files</span></label>
+            <label class="toggle"><input id="permManage" type="checkbox" /> <span>Delete/rename/move files</span></label>
+            <label class="toggle"><input id="permTasks" type="checkbox" /> <span>Run allow-listed development tasks</span></label>
+            <label class="toggle"><input id="permGit" type="checkbox" /> <span>Stage and commit Git locally</span></label>
+            <button id="saveProject" class="primary">Save permissions</button>
+            <p class="muted">Read/search and Git status/diff are available by default. Common secrets such as .env, .ssh and private keys are blocked.</p>
+          </div>
+        </div>
       </section>
     </main>
   </div>
