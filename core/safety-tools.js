@@ -9,7 +9,7 @@ function requirePermission(project, key, label) { if (!project.permissions?.[key
 function recoveryShape(snapshot) { return { snapshot_created:!!snapshot, snapshot_id:snapshot?.id || null, ...(snapshot ? { recoveryId:snapshot.id } : {}) }; }
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 
-function createSafeToolApi(projects, store, approvals, backups) {
+function createSafeToolApi(projects, store, approvals, backups, { notifyTaskCompleted } = {}) {
   const base = projects.toolApi;
   const brain = createBrainService(store, projects);
   const jobs = new Map();
@@ -17,6 +17,19 @@ function createSafeToolApi(projects, store, approvals, backups) {
   function pruneJobs() {
     const cutoff = Date.now() - 30 * 60 * 1000;
     for (const [id, job] of jobs) if (new Date(job.createdAt).getTime() < cutoff) jobs.delete(id);
+  }
+
+  async function taskNotification(project, command, taskResult) {
+    if (typeof notifyTaskCompleted !== 'function') {
+      const fallback = !!store.settings().activityNotifications;
+      return { emitted:fallback, count:fallback ? 1 : 0, reason:'headless-fallback' };
+    }
+    try {
+      const result = await notifyTaskCompleted({ project:project.name, projectId:project.id, command:String(command || ''), result:taskResult });
+      return { emitted:!!result?.emitted, count:Math.max(0, Number(result?.count) || 0), reason:String(result?.reason || '') };
+    } catch (error) {
+      return { emitted:false, count:0, reason:String(error?.message || error || 'notification-error').slice(0,160) };
+    }
   }
 
   async function maybeExisting(project, rel) {
@@ -200,8 +213,9 @@ function createSafeToolApi(projects, store, approvals, backups) {
 
       const taskApproval = approvalResults.task || { required:false, status:'not_required', approval_id:null };
       for (const command of tasks) {
-        const taskStart = nowMs(), taskResult = await base.runTask(project.id, command), notification = !!store.settings().activityNotifications;
-        const item = { command, ...taskResult, approval:taskApproval, notification_emitted:notification, notification_count:notification ? 1 : 0, duration_ms:nowMs() - taskStart };
+        const taskStart = nowMs(), taskResult = await base.runTask(project.id, command);
+        const notification = await taskNotification(project, command, taskResult);
+        const item = { command, ...taskResult, approval:taskApproval, notification_emitted:notification.emitted, notification_count:notification.count, notification_reason:notification.reason, duration_ms:nowMs() - taskStart };
         taskOutputs.push(item);
         verification.push({ operation:'task', command, ok:!!taskResult.ok, check:'exit-code', code:taskResult.code });
       }
@@ -319,8 +333,8 @@ function createSafeToolApi(projects, store, approvals, backups) {
     async runTask(ref, commandLine) {
       const project = store.getProject(ref); requirePermission(project, 'tasks', 'chạy tác vụ');
       const command = String(commandLine || '').trim(), approval = await approvals.request(project.id, 'task', { target:command.slice(0,220), detail:'Chạy development task theo allowlist của ChatCode.' });
-      const started = nowMs(), taskResult = await base.runTask(project.id, command), notification = !!store.settings().activityNotifications;
-      return { ...taskResult, approval, notification_emitted:notification, notification_count:notification ? 1 : 0, telemetry:{ filesystem_ms:0, git_ms:0, brain_refresh_ms:0, total_ms:nowMs() - started } };
+      const started = nowMs(), taskResult = await base.runTask(project.id, command), notification = await taskNotification(project, command, taskResult);
+      return { ...taskResult, approval, notification_emitted:notification.emitted, notification_count:notification.count, notification_reason:notification.reason, telemetry:{ filesystem_ms:0, git_ms:0, brain_refresh_ms:0, total_ms:nowMs() - started } };
     },
     gitStatus:(...args) => base.gitStatus(...args),
     gitDiff:(...args) => base.gitDiff(...args),
