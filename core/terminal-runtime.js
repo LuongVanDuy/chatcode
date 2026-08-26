@@ -146,7 +146,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
   }
 
   function shellCommand(command) {
-    if (process.platform === 'win32') return { file:process.env.ComSpec || 'cmd.exe', args:['/d','/s','/c',command] };
+    if (process.platform === 'win32') return { file:process.env.ComSpec || 'cmd.exe', args:['/d','/c',command] };
     return { file:'/bin/sh', args:['-lc',command] };
   }
 
