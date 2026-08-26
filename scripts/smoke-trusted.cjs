@@ -19,10 +19,10 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
 
   const app = { getPath(name) { if (name !== 'userData') throw new Error(`Unexpected path ${name}`); return userData; } };
 
-  // Production installs process auditing before projects.js captures execFile.
-  // Trusted Workspace must preserve that ordering so npm.cmd stays hidden and
-  // runnable on Windows.
+  // Production installs process auditing before runtime patches and before
+  // projects.js captures child_process methods.
   installChildProcessAudit(createSupportService(app));
+  require('../core/runtime-bootstrap').installRuntimePatches();
   const { createProjectService } = require('../core/projects');
   const { createApprovalService } = require('../core/approvals');
   const { createSafeToolApi } = require('../core/safety-tools');
@@ -80,6 +80,7 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
   assert.match(task.stdout, /TRUSTED_TASK_OK/);
   assert.equal(task.approval?.mode, 'trusted_workspace');
   assert.equal(approvals.list().length, 0);
+  assert.equal(typeof api.exec, 'function', 'Stage 2 bootstrap must expose Trusted terminal exec.');
 
   let secretBlocked = null;
   try { await api.readFile('trusted-test', '.env'); } catch (error) { secretBlocked = error; }
@@ -122,6 +123,7 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
   try { await api.writeFile('trusted-test', 'safe-again.txt', 'NO'); } catch (error) { denied = error; }
   assert.equal(denied?.code, 'PERMISSION_DENIED', 'Returning to Safe must restore previous permission enforcement.');
 
+  await api.shutdownTerminalJobs();
   approvals.shutdown();
   projects.shutdown();
   await fsp.rm(temp, { recursive:true, force:true });

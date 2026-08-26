@@ -31,6 +31,8 @@ jobs:
         run: npm run test:safety
       - name: Smoke test Trusted Workspace
         run: npm run test:trusted
+      - name: Smoke test Trusted Terminal Runtime
+        run: npm run test:terminal
       - name: Smoke test Project Brain
         run: npm run test:brain
       - name: Smoke test WordPress Brain
@@ -63,14 +65,14 @@ jobs:
       - name: Smoke test remote MCP tunnel
         run: npm run test:tunnel
       - name: Publish updater GitHub Release
-        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+        if: ${{ success() && startsWith(github.ref, 'refs/tags/v') }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
-          if ($env:GITHUB_REF -like 'refs/tags/*' -and $env:GITHUB_REF_NAME -ne $tag) {
+          if ($env:GITHUB_REF_NAME -ne $tag) {
             throw "Tag $env:GITHUB_REF_NAME không khớp package version $tag."
           }
           $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1

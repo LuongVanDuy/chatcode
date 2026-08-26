@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('personalCode', {
   readFile: (id, rel) => ipcRenderer.invoke('files:read', id, rel),
   search: (id, query) => ipcRenderer.invoke('files:search', id, query),
   runTask: (id, command) => ipcRenderer.invoke('tasks:run', id, command),
+  execTerminal: (id, command, options) => ipcRenderer.invoke('terminal:exec', id, command, options || {}),
+  terminalJobStatus: (jobId, options) => ipcRenderer.invoke('terminal:status', jobId, options || {}),
+  terminalJobs: id => ipcRenderer.invoke('terminal:list', id || ''),
+  stopTerminalJob: jobId => ipcRenderer.invoke('terminal:stop', jobId),
   gitStatus: id => ipcRenderer.invoke('git:status', id),
   gitDiff: id => ipcRenderer.invoke('git:diff', id),
 
@@ -64,7 +68,8 @@ contextBridge.exposeInMainWorld('personalCode', {
   onApprovalChanged: callback => ipcRenderer.on('approval:changed', (_, value) => callback(value)),
   onApprovalAttention: callback => ipcRenderer.on('approval:attention', (_, value) => callback(value)),
   onBackupsChanged: callback => ipcRenderer.on('backups:changed', () => callback()),
-  onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value))
+  onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value)),
+  onTerminalChanged: callback => ipcRenderer.on('terminal:changed', (_, value) => callback(value))
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
