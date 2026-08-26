@@ -85,4 +85,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('v08-runtime.js', 'v08-runtime');
   await load('v081-runtime.js', 'v081-runtime');
   await load('v09-runtime.js', 'v09-runtime');
+  await load('v091-runtime.js', 'v091-runtime');
 });
