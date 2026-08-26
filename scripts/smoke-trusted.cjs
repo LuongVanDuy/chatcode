@@ -5,9 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { createStore } = require('../core/store');
-const { createProjectService } = require('../core/projects');
-const { createApprovalService } = require('../core/approvals');
-const { createSafeToolApi } = require('../core/safety-tools');
+const { createSupportService, installChildProcessAudit } = require('../core/support');
 
 const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
 
@@ -20,6 +18,15 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
   await fsp.writeFile(path.join(root, '.env'), 'SECRET=before', 'utf8');
 
   const app = { getPath(name) { if (name !== 'userData') throw new Error(`Unexpected path ${name}`); return userData; } };
+
+  // Production installs process auditing before projects.js captures execFile.
+  // Trusted Workspace must preserve that ordering so npm.cmd stays hidden and
+  // runnable on Windows.
+  installChildProcessAudit(createSupportService(app));
+  const { createProjectService } = require('../core/projects');
+  const { createApprovalService } = require('../core/approvals');
+  const { createSafeToolApi } = require('../core/safety-tools');
+
   const store = createStore(app, 47820);
   const initial = store.ensure();
   initial.projects = [{
