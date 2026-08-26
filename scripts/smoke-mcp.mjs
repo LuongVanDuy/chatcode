@@ -5,7 +5,7 @@ import { startMcpHttpServer } from '../mcp-server.mjs';
 const port = 47921;
 const token = 'ci-smoke-token';
 const api = {
-  listProjects: async () => [{ id:'demo', name:'demo', root:'C:/demo', permissions:{ write:false, manageFiles:false, tasks:false, gitWrite:false } }],
+  listProjects: async () => [{ id:'demo', name:'demo', root:'C:/demo', permissions:{ write:false, manageFiles:false, tasks:false, gitWrite:false }, workspace_mode:'trusted' }],
   listFiles: async () => ['README.md','src/index.js'],
   search: async (_project, query) => [{ path:'src/index.js', score:2, snippet:`match:${query}` }],
   readFile: async (_project, path) => ({ path, content:path === 'README.md' ? '# Demo' : 'console.log("demo")' }),
@@ -22,6 +22,9 @@ const api = {
   deleteFile: async () => { throw new Error('Create/delete/rename permission is disabled for project "demo"'); },
   renameFile: async () => { throw new Error('Create/delete/rename permission is disabled for project "demo"'); },
   runTask: async () => { throw new Error('Task permission is disabled for project "demo"'); },
+  exec: async (_project, command, opts) => ({ ok:true, job_id:'term-1', command, cwd:opts.cwd || '.', status:opts.background ? 'running' : 'completed', stdout:'TERM_OK', stderr:'', stdout_offset:7, stderr_offset:0, terminal:{ hidden:true } }),
+  jobStatus: async jobId => ({ ok:true, job_id:jobId, status:'completed', stdout:'TERM_OK', stderr:'', stdout_offset:7, stderr_offset:0 }),
+  jobStop: async jobId => ({ ok:true, job_id:jobId, status:'stopping', stop_requested:true }),
   gitStatus: async () => ({ ok:true, code:0, stdout:'## main', stderr:'' }),
   gitDiff: async () => ({ ok:true, code:0, stdout:'', stderr:'' }),
   gitStage: async () => { throw new Error('Git write permission is disabled for project "demo"'); },
@@ -42,8 +45,9 @@ try {
   const legacy = ['list_projects','list_files','search_project','read_file','read_files','write_file','delete_file','rename_file','run_task','git_status','git_diff','git_stage','git_commit'];
   const brain = ['project_brain','find_symbols','find_references','related_files','project_context'];
   const fast = ['inspect_project','apply_and_verify','operation_status'];
-  for (const expected of [...legacy,...brain,...fast]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
-  assert.equal(names.length, 21, `expected 21 MCP tools, got ${names.length}`);
+  const terminal = ['exec','job_status','job_stop'];
+  for (const expected of [...legacy,...brain,...fast,...terminal]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
+  assert.equal(names.length, 24, `expected 24 MCP tools, got ${names.length}`);
 
   const projects = await client.callTool({ name:'list_projects', arguments:{} }); assert.equal(JSON.parse(projects.content[0].text)[0].name, 'demo');
   const read = await client.callTool({ name:'read_file', arguments:{ project:'demo', path:'README.md' } }); assert.equal(JSON.parse(read.content[0].text).content, '# Demo');
@@ -52,10 +56,15 @@ try {
   const inspect = await client.callTool({ name:'inspect_project', arguments:{ project:'demo', query:'checkout address' } }); assert.equal(JSON.parse(inspect.content[0].text).primary_language, 'JavaScript');
   const apply = await client.callTool({ name:'apply_and_verify', arguments:{ project:'demo', changes:[], tasks:['node --version'] } }); assert.equal(JSON.parse(apply.content[0].text).status, 'completed');
 
+  const terminalExec = await client.callTool({ name:'exec', arguments:{ project:'demo', command:'node --version', background:true } });
+  const execValue = JSON.parse(terminalExec.content[0].text); assert.equal(execValue.status, 'running'); assert.equal(execValue.job_id, 'term-1');
+  const terminalStatus = await client.callTool({ name:'job_status', arguments:{ job_id:'term-1', stdout_offset:0, stderr_offset:0 } }); assert.equal(JSON.parse(terminalStatus.content[0].text).stdout, 'TERM_OK');
+  const terminalStop = await client.callTool({ name:'job_stop', arguments:{ job_id:'term-1' } }); assert.equal(JSON.parse(terminalStop.content[0].text).stop_requested, true);
+
   const deniedWrite = await client.callTool({ name:'write_file', arguments:{ project:'demo', path:'x.txt', content:'x' } });
   assert.equal(deniedWrite.isError, true); const denied = JSON.parse(deniedWrite.content[0].text); assert.equal(denied.ok, false); assert.equal(denied.error.code, 'PERMISSION_DENIED');
 
-  console.log(`MCP smoke test passed: ${names.length} tools, legacy + Brain + fast path + structured errors OK`);
+  console.log(`MCP smoke test passed: ${names.length} tools, legacy + Brain + fast path + Trusted terminal + structured errors OK`);
 } finally {
   try { await client.close(); } catch {}
   try { await server.close(); } catch {}
