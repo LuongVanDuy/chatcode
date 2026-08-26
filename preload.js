@@ -11,7 +11,11 @@ contextBridge.exposeInMainWorld('personalCode', {
   gitStatus: (projectId) => ipcRenderer.invoke('git:status', projectId),
   gitDiff: (projectId) => ipcRenderer.invoke('git:diff', projectId),
   connectionStatus: () => ipcRenderer.invoke('connection:status'),
+  connectionConfig: () => ipcRenderer.invoke('connection:config'),
+  saveConnectionConfig: (config) => ipcRenderer.invoke('connection:save-config', config),
+  clearTunnelToken: () => ipcRenderer.invoke('connection:clear-token'),
   startConnection: () => ipcRenderer.invoke('connection:start'),
+  stopConnection: () => ipcRenderer.invoke('connection:stop'),
   copyConnection: () => ipcRenderer.invoke('connection:copy'),
   rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
   onConnectionChanged: (callback) => ipcRenderer.on('connection:changed', (_, value) => callback(value))
