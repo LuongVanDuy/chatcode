@@ -32,9 +32,9 @@ function activityMeta(tool, args = {}) {
     case 'delete_file': return { category:'manage', project, target:String(args.path || '') };
     case 'rename_file': return { category:'manage', project, target:`${String(args.from || '')} → ${String(args.to || '')}` };
     case 'run_task': return { category:'task', project, target:String(args.command || '').slice(0,140) };
-    case 'exec': return { category:'task', project, target:`Terminal: ${String(args.command || '').slice(0,140)}` };
+    case 'exec': return { category:args.background ? 'other' : 'task', project, target:`Terminal: ${String(args.command || '').slice(0,140)}` };
     case 'job_status': return { category:'read', project:'', target:`Terminal job ${String(args.job_id || '').slice(0,80)}` };
-    case 'job_stop': return { category:'task', project:'', target:`Stop terminal job ${String(args.job_id || '').slice(0,80)}` };
+    case 'job_stop': return { category:'other', project:'', target:`Stop terminal job ${String(args.job_id || '').slice(0,80)}` };
     case 'git_status': return { category:'git', project, target:'Git status' };
     case 'git_diff': return { category:'git', project, target:args.staged ? 'Git diff (staged)' : 'Git diff' };
     case 'git_stage': return { category:'git', project, target:`Stage ${Array.isArray(args.paths) ? args.paths.length : 0} tệp` };
