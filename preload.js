@@ -58,3 +58,11 @@ contextBridge.exposeInMainWorld('personalCode', {
   onBackupsChanged: callback => ipcRenderer.on('backups:changed', () => callback()),
   onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value))
 });
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (document.querySelector('script[data-v07-runtime]')) return;
+  const script = document.createElement('script');
+  script.src = 'v07-runtime.js';
+  script.dataset.v07Runtime = '1';
+  document.head.appendChild(script);
+});
