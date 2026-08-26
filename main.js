@@ -38,11 +38,11 @@ function showWindow() {
 function notifyActivity(entry) {
   send('activity:changed', entry);
   const state = store.read();
-  if (!state.settings.activityNotifications || !entry.ok || !['write', 'manage', 'task', 'git'].includes(entry.category)) return;
+  if (!state.settings.activityNotifications || entry.category !== 'task') return;
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) return;
   try {
     if (Notification.isSupported()) new Notification({
-      title: 'ChatGPT vừa thao tác dự án',
+      title: 'Tác vụ đã hoàn tất',
       body: `${entry.project || 'Dự án'}${entry.target ? ` · ${entry.target}` : ''}`,
       icon: fs.existsSync(asset('icon.png')) ? asset('icon.png') : undefined
     }).show();
@@ -53,19 +53,9 @@ const usage = createUsageService(store, { onActivity: notifyActivity, onReset: (
 const backups = createBackupService(app, store, { onChanged: () => send('backups:changed') });
 const approvals = createApprovalService(store, {
   onChanged: list => { send('approval:changed', list); updateTrayMenu(); },
-  onAttention: item => {
-    send('approval:attention', item);
-    try {
-      if (!Notification.isSupported()) return;
-      const notification = new Notification({
-        title: `ChatGPT cần xác nhận · ${item.actionLabel}`,
-        body: `${item.project}${item.target ? ` · ${item.target}` : ''}`,
-        icon: fs.existsSync(asset('icon.png')) ? asset('icon.png') : undefined
-      });
-      notification.on('click', () => { showWindow(); send('approval:attention', item); });
-      notification.show();
-    } catch {}
-  }
+  // Keep approval attention inside ChatCode/tray; do not create a second Windows
+  // notification for every approval request.
+  onAttention: item => send('approval:attention', item)
 });
 const projects = createProjectService(store, { onIndexChanged: value => send('index:changed', value), recordActivity: usage.record });
 const safeTools = createSafeToolApi(projects, store, approvals, backups);
@@ -126,7 +116,7 @@ function updateTrayMenu() {
 
 function createTray() {
   if (tray) return;
-  const icon = fs.existsSync(asset('icon.png')) ? nativeImage.createFromPath(asset('icon.png')).resize({ width: 24, height: 24 }) : nativeImage.createEmpty();
+  const icon = fs.existsSync(asset('icon.png')) ? nativeImage.createFromPath(asset('icon.png')).resize({ width:24, height:24 }) : nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.on('double-click', showWindow);
   tray.on('click', () => { if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) showWindow(); });
@@ -135,11 +125,11 @@ function createTray() {
 
 function createWindow(showInitially = true) {
   mainWindow = new BrowserWindow({
-    width: 1480, height: 930, minWidth: 1100, minHeight: 720, show: false,
-    backgroundColor: '#f5f7fa', title: 'ChatCode Cá Nhân',
-    icon: fs.existsSync(asset('icon.png')) ? asset('icon.png') : undefined,
-    autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+    width:1480, height:930, minWidth:1100, minHeight:720, show:false,
+    backgroundColor:'#f5f7fa', title:'ChatCode Cá Nhân',
+    icon:fs.existsSync(asset('icon.png')) ? asset('icon.png') : undefined,
+    autoHideMenuBar:true,
+    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false, sandbox:true }
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -157,9 +147,9 @@ function updateProject(incoming) {
   if (index < 0) throw new Error('Không tìm thấy dự án.');
   state.projects[index] = {
     ...state.projects[index],
-    name: String(incoming.name || state.projects[index].name),
-    permissions: { ...state.projects[index].permissions, ...(incoming.permissions || {}) },
-    safety: store.normalizeSafety({ ...state.projects[index].safety, ...(incoming.safety || {}) })
+    name:String(incoming.name || state.projects[index].name),
+    permissions:{ ...state.projects[index].permissions, ...(incoming.permissions || {}) },
+    safety:store.normalizeSafety({ ...state.projects[index].safety, ...(incoming.safety || {}) })
   };
   store.write(state);
   return state.projects[index];
@@ -167,9 +157,9 @@ function updateProject(incoming) {
 
 function applyPreset(id, preset) {
   const presets = {
-    readonly: { write: false, manageFiles: false, tasks: false, gitWrite: false },
-    development: { write: true, manageFiles: true, tasks: true, gitWrite: false },
-    full: { write: true, manageFiles: true, tasks: true, gitWrite: true }
+    readonly:{ write:false, manageFiles:false, tasks:false, gitWrite:false },
+    development:{ write:true, manageFiles:true, tasks:true, gitWrite:false },
+    full:{ write:true, manageFiles:true, tasks:true, gitWrite:true }
   };
   const state = store.read();
   const index = state.projects.findIndex(project => project.id === id);
@@ -192,26 +182,24 @@ function saveSafety(id, incoming = {}) {
 async function exportConfig() {
   const state = store.read();
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'Sao lưu cấu hình ChatCode',
-    defaultPath: `ChatCode-Config-${new Date().toISOString().slice(0, 10)}.json`,
-    filters: [{ name: 'ChatCode config', extensions: ['json'] }]
+    title:'Sao lưu cấu hình ChatCode',
+    defaultPath:`ChatCode-Config-${new Date().toISOString().slice(0,10)}.json`,
+    filters:[{ name:'ChatCode config', extensions:['json'] }]
   });
   if (result.canceled || !result.filePath) return null;
   const payload = {
-    schema: 'chatcode-config-v1',
-    exportedAt: new Date().toISOString(),
-    appVersion: app.getVersion(),
-    note: 'Tunnel Token và MCP secret không được xuất ra file backup.',
-    connection: { mode: state.connection.mode, domain: state.connection.domain },
-    settings: store.settings(state),
-    projects: state.projects.map(project => ({ id: project.id, name: project.name, root: project.root, permissions: project.permissions, safety: project.safety }))
+    schema:'chatcode-config-v1', exportedAt:new Date().toISOString(), appVersion:app.getVersion(),
+    note:'Tunnel Token và MCP secret không được xuất ra file backup.',
+    connection:{ mode:state.connection.mode, domain:state.connection.domain },
+    settings:store.settings(state),
+    projects:state.projects.map(project => ({ id:project.id, name:project.name, root:project.root, permissions:project.permissions, safety:project.safety }))
   };
   await fsp.writeFile(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
-  return { path: result.filePath, projectCount: payload.projects.length };
+  return { path:result.filePath, projectCount:payload.projects.length };
 }
 
 async function importConfig() {
-  const pick = await dialog.showOpenDialog(mainWindow, { title: 'Khôi phục cấu hình ChatCode', properties: ['openFile'], filters: [{ name: 'ChatCode config', extensions: ['json'] }] });
+  const pick = await dialog.showOpenDialog(mainWindow, { title:'Khôi phục cấu hình ChatCode', properties:['openFile'], filters:[{ name:'ChatCode config', extensions:['json'] }] });
   if (pick.canceled || !pick.filePaths[0]) return null;
   const payload = JSON.parse(await fsp.readFile(pick.filePaths[0], 'utf8'));
   if (payload?.schema !== 'chatcode-config-v1' || !Array.isArray(payload.projects)) throw new Error('File backup không đúng định dạng ChatCode.');
@@ -234,15 +222,10 @@ async function importConfig() {
     importedIds.add(id);
     importedProjects.push({
       id,
-      name: String(raw.name || path.basename(resolved) || resolved),
-      root: resolved,
-      permissions: {
-        write: !!raw.permissions?.write,
-        manageFiles: !!raw.permissions?.manageFiles,
-        tasks: !!raw.permissions?.tasks,
-        gitWrite: !!raw.permissions?.gitWrite
-      },
-      safety: store.normalizeSafety(raw.safety)
+      name:String(raw.name || path.basename(resolved) || resolved),
+      root:resolved,
+      permissions:{ write:!!raw.permissions?.write, manageFiles:!!raw.permissions?.manageFiles, tasks:!!raw.permissions?.tasks, gitWrite:!!raw.permissions?.gitWrite },
+      safety:store.normalizeSafety(raw.safety)
     });
   }
 
@@ -252,50 +235,31 @@ async function importConfig() {
     next.connection.mode = payload.connection.mode === 'quick' ? 'quick' : 'custom';
     if (payload.connection.domain != null) next.connection.domain = store.normalizeDomain(payload.connection.domain);
   }
-  if (payload.settings && typeof payload.settings === 'object') {
-    next.settings = { ...next.settings, ...payload.settings };
-  }
-  // Keep connection.token and tunnelTokenEnc from the current machine.
+  if (payload.settings && typeof payload.settings === 'object') next.settings = { ...next.settings, ...payload.settings };
   store.write(next);
   projects.shutdown();
   await projects.initialize();
   applyLogin(store.read().settings.launchAtLogin);
   connection.restartWatchdog();
   connection.start().catch(() => {});
-  return { path: pick.filePaths[0], projectCount: importedProjects.length };
+  return { path:pick.filePaths[0], projectCount:importedProjects.length };
 }
 
 ipcMain.handle('projects:list', () => store.read().projects);
 ipcMain.handle('projects:add', async () => {
-  const pick = await dialog.showOpenDialog(mainWindow, { title: 'Chọn thư mục dự án', properties: ['openDirectory'] });
+  const pick = await dialog.showOpenDialog(mainWindow, { title:'Chọn thư mục dự án', properties:['openDirectory'] });
   if (pick.canceled || !pick.filePaths[0]) return null;
   const state = store.read();
   const root = path.resolve(pick.filePaths[0]);
   const existing = state.projects.find(project => path.resolve(project.root) === root);
   if (existing) return existing;
-  const project = {
-    id: crypto.randomUUID(), name: path.basename(root) || root, root,
-    permissions: { write: false, manageFiles: false, tasks: false, gitWrite: false },
-    safety: store.normalizeSafety({})
-  };
-  state.projects.push(project);
-  store.write(state);
-  projects.watch(project);
-  projects.reindex(project.id).catch(() => {});
-  return project;
+  const project = { id:crypto.randomUUID(), name:path.basename(root) || root, root, permissions:{ write:false, manageFiles:false, tasks:false, gitWrite:false }, safety:store.normalizeSafety({}) };
+  state.projects.push(project); store.write(state); projects.watch(project); projects.reindex(project.id).catch(() => {}); return project;
 });
 ipcMain.handle('projects:update', (_, incoming) => updateProject(incoming));
 ipcMain.handle('projects:preset', (_, id, preset) => applyPreset(id, preset));
 ipcMain.handle('projects:safety', (_, id, safety) => saveSafety(id, safety));
-ipcMain.handle('projects:remove', (_, id) => {
-  const state = store.read();
-  const before = state.projects.length;
-  state.projects = state.projects.filter(project => project.id !== id);
-  if (state.projects.length === before) throw new Error('Không tìm thấy dự án.');
-  store.write(state);
-  projects.cleanup(id);
-  return true;
-});
+ipcMain.handle('projects:remove', (_, id) => { const state=store.read(), before=state.projects.length; state.projects=state.projects.filter(project=>project.id!==id); if(state.projects.length===before)throw new Error('Không tìm thấy dự án.'); store.write(state); projects.cleanup(id); return true; });
 ipcMain.handle('projects:index-status', (_, id) => projects.status(id));
 ipcMain.handle('projects:reindex', (_, id) => projects.reindex(id));
 
@@ -309,13 +273,8 @@ ipcMain.handle('git:diff', (_, id) => projects.toolApi.gitDiff(id, false));
 ipcMain.handle('approval:list', () => approvals.list());
 ipcMain.handle('approval:respond', (_, id, decision) => approvals.respond(id, decision));
 ipcMain.handle('approval:clear-session', () => approvals.clearSession());
-
 ipcMain.handle('backups:list', (_, projectId) => backups.list(projectId || ''));
-ipcMain.handle('backups:restore', async (_, id) => {
-  const result = await backups.restore(id, projects.secureResolve);
-  projects.reindex(result.projectId).catch(() => {});
-  return result;
-});
+ipcMain.handle('backups:restore', async (_, id) => { const result=await backups.restore(id, projects.secureResolve); projects.reindex(result.projectId).catch(()=>{}); return result; });
 ipcMain.handle('backups:remove', (_, id) => backups.remove(id));
 ipcMain.handle('backups:clear', (_, projectId) => backups.clear(projectId || ''));
 ipcMain.handle('config:export', () => exportConfig());
@@ -326,16 +285,11 @@ ipcMain.handle('connection:config', () => store.connectionConfig());
 ipcMain.handle('connection:save-config', (_, config) => connection.saveConfig(config));
 ipcMain.handle('connection:clear-token', () => connection.clearToken());
 ipcMain.handle('connection:start', () => connection.start());
-ipcMain.handle('connection:stop', () => connection.stop({ intentional: true }));
+ipcMain.handle('connection:stop', () => connection.stop({ intentional:true }));
 ipcMain.handle('connection:diagnose', () => connection.diagnose());
-ipcMain.handle('connection:copy', () => {
-  const url = connection.snapshot().connectionUrl;
-  if (!url) throw new Error('URL MCP chưa sẵn sàng.');
-  clipboard.writeText(url);
-  return true;
-});
-ipcMain.handle('connection:rotate', async () => { await connection.rotate(); const state = store.read(); state.connection.tokenRotatedAt = new Date().toISOString(); store.write(state); return connection.snapshot(); });
-ipcMain.handle('connection:copy-diagnostic', async () => { const diagnostic = await connection.diagnose(); clipboard.writeText(connection.report(diagnostic)); return true; });
+ipcMain.handle('connection:copy', () => { const url=connection.snapshot().connectionUrl; if(!url)throw new Error('URL MCP chưa sẵn sàng.'); clipboard.writeText(url); return true; });
+ipcMain.handle('connection:rotate', async () => { await connection.rotate(); const state=store.read(); state.connection.tokenRotatedAt=new Date().toISOString(); store.write(state); return connection.snapshot(); });
+ipcMain.handle('connection:copy-diagnostic', async () => { const diagnostic=await connection.diagnose(); clipboard.writeText(connection.report(diagnostic)); return true; });
 
 ipcMain.handle('usage:snapshot', (_, days) => usage.snapshot(days));
 ipcMain.handle('usage:clear', () => usage.clear());
@@ -345,7 +299,7 @@ ipcMain.handle('update:status', () => updater.snapshot());
 ipcMain.handle('update:check', () => updater.check());
 ipcMain.handle('update:download', () => updater.download());
 ipcMain.handle('update:install', () => updater.install());
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, port: PORT, packaged: app.isPackaged, updateSource: 'GitHub Releases' }));
+ipcMain.handle('app:info', () => ({ version:app.getVersion(), platform:process.platform, port:PORT, packaged:app.isPackaged, updateSource:'GitHub Releases' }));
 ipcMain.handle('app:hide', () => { mainWindow?.hide(); return true; });
 
 if (gotLock) {
@@ -358,8 +312,8 @@ if (gotLock) {
     createTray();
     createWindow(!process.argv.includes('--background'));
     await projects.initialize();
-    try { await ensureMcpServer(); connection.start({ fromWatchdog: true }).catch(() => {}); }
-    catch (error) { connectionChanged({ ...connection.snapshot(), status: 'local-error', error: String(error.message || error) }); }
+    try { await ensureMcpServer(); connection.start({ fromWatchdog:true }).catch(() => {}); }
+    catch (error) { connectionChanged({ ...connection.snapshot(), status:'local-error', error:String(error.message || error) }); }
     connection.restartWatchdog();
     updater.autoCheck();
     powerMonitor.on('resume', () => connection.resume());
