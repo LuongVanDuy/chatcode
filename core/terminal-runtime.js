@@ -146,8 +146,14 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
   }
 
   function shellCommand(command) {
-    if (process.platform === 'win32') return { file:process.env.ComSpec || 'cmd.exe', args:['/d','/c',command] };
-    return { file:'/bin/sh', args:['-lc',command] };
+    if (process.platform === 'win32') {
+      return {
+        file:process.env.ComSpec || 'cmd.exe',
+        args:['/d','/q'],
+        stdin:`${command}\r\nexit /b %errorlevel%\r\n`
+      };
+    }
+    return { file:'/bin/sh', args:['-lc',command], stdin:null };
   }
 
   function stopTree(job, force = true) {
@@ -209,7 +215,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
         windowsHide:true,
         shell:false,
         detached:process.platform !== 'win32',
-        stdio:['ignore','pipe','pipe'],
+        stdio:[shell.stdin == null ? 'ignore' : 'pipe','pipe','pipe'],
         env:{ ...process.env, CHATCODE_WORKSPACE:project.root, CHATCODE_PROJECT_ID:project.id }
       });
       job.child = child; job.pid = child.pid || null;
@@ -220,6 +226,10 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
     child.stdout?.setEncoding('utf8'); child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', chunk => { appendStream(job, 'stdout', chunk); emit(job); });
     child.stderr?.on('data', chunk => { appendStream(job, 'stderr', chunk); emit(job); });
+    if (shell.stdin != null && child.stdin) {
+      child.stdin.on('error', () => {});
+      child.stdin.end(shell.stdin);
+    }
     job.done = new Promise(resolve => {
       child.once('error', error => {
         appendStream(job, 'stderr', `${job.stderr ? '\n' : ''}${error?.message || error}`);
