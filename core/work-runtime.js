@@ -1,5 +1,6 @@
 const fs = require('fs');
 const fsp = fs.promises;
+const path = require('path');
 const crypto = require('crypto');
 const { chatError, normalizeError } = require('./errors');
 
@@ -37,7 +38,7 @@ function parseUnifiedDiff(value) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line.startsWith('diff --git ') || line.startsWith('index ') || line.startsWith('new file mode ') || line.startsWith('deleted file mode ')) continue;
+    if (line.startsWith('diff --git ') || line.startsWith('index ') || line.startsWith('new file mode ') || line.startsWith('deleted file mode ') || line.startsWith('similarity index ')) continue;
     if (line.startsWith('--- ')) {
       if (!String(lines[i + 1] || '').startsWith('+++ ')) throw chatError('PATCH_CONFLICT', 'Unified diff thiếu +++ sau ---.', { line:i + 1 });
       file = { oldPath:patchPath(line.slice(4)), newPath:patchPath(lines[i + 1].slice(4)), hunks:[] };
@@ -51,14 +52,22 @@ function parseUnifiedDiff(value) {
     if (!header) throw chatError('PATCH_CONFLICT', 'Hunk header không hợp lệ.', { line:i + 1, header:line.slice(0,160) });
     const hunk = { ...header, lines:[], noNewline:false };
     file.hunks.push(hunk);
-    for (i++; i < lines.length; i++) {
+    let oldSeen = 0, newSeen = 0;
+    while (oldSeen < header.oldCount || newSeen < header.newCount) {
+      i++;
+      if (i >= lines.length) throw chatError('PATCH_CONFLICT', 'Unified diff kết thúc trước khi hunk đủ số dòng.', { hunk:file.hunks.length });
       const hline = lines[i];
-      if (hline.startsWith('@@') || hline.startsWith('--- ') || hline.startsWith('diff --git ')) { i--; break; }
       if (hline === '\\ No newline at end of file') { hunk.noNewline = true; continue; }
-      if (hline === '' && i === lines.length - 1) continue;
-      if (![' ', '+', '-'].includes(hline[0])) throw chatError('PATCH_CONFLICT', 'Dòng hunk không hợp lệ.', { line:i + 1, content:hline.slice(0,160) });
-      hunk.lines.push({ type:hline[0], text:hline.slice(1) });
+      const type = hline[0];
+      if (![' ', '+', '-'].includes(type)) throw chatError('PATCH_CONFLICT', 'Dòng hunk không hợp lệ.', { line:i + 1, content:hline.slice(0,160) });
+      const text = hline.slice(1);
+      if (type === ' ') { oldSeen++; newSeen++; }
+      else if (type === '-') oldSeen++;
+      else newSeen++;
+      if (oldSeen > header.oldCount || newSeen > header.newCount) throw chatError('PATCH_CONFLICT', 'Hunk chứa nhiều dòng hơn header khai báo.', { hunk:file.hunks.length, old_seen:oldSeen, new_seen:newSeen });
+      hunk.lines.push({ type, text });
     }
+    if (lines[i + 1] === '\\ No newline at end of file') { hunk.noNewline = true; i++; }
   }
 
   if (!files.length) throw chatError('PATCH_CONFLICT', 'Không tìm thấy file header ---/+++ trong unified diff.');
@@ -105,6 +114,7 @@ function applyFilePatch(original, filePatch) {
     lines.splice(start, consumed, ...replacement);
     delta += replacement.length - consumed;
   }
+  if (filePatch.newPath === '/dev/null') return '';
   const last = filePatch.hunks[filePatch.hunks.length - 1];
   let finalNewline = filePatch.oldPath === '/dev/null' ? !last.noNewline : source.finalNewline;
   if (last.noNewline) finalNewline = false;
@@ -184,7 +194,7 @@ function createWorkRuntime(projects, store, backups, api) {
       try { await fsp.unlink(target); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
       return { path:op.path, action:'remove-created' };
     }
-    await fsp.mkdir(require('path').dirname(target), { recursive:true });
+    await fsp.mkdir(path.dirname(target), { recursive:true });
     const verified = await projects.secureResolve(project, op.path, { mustExist:false });
     await fsp.writeFile(verified, String(op.beforeContent ?? ''), 'utf8');
     return { path:op.path, action:'restore-before' };
