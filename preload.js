@@ -59,13 +59,21 @@ contextBridge.exposeInMainWorld('personalCode', {
   onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value))
 });
 
-window.addEventListener('DOMContentLoaded', () => {
-  for (const [version, src] of [['v07','v07-runtime.js'], ['v08','v08-runtime.js']]) {
-    if (document.querySelector(`script[data-${version}-runtime]`)) continue;
+window.addEventListener('DOMContentLoaded', async () => {
+  const load = (src, key) => new Promise(resolve => {
+    const existing = document.querySelector(`script[data-${key}]`);
+    if (existing) return resolve();
     const script = document.createElement('script');
     script.src = src;
     script.async = false;
-    script.dataset[`${version}Runtime`] = '1';
+    script.dataset[key.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = '1';
+    script.onload = () => resolve();
+    script.onerror = () => resolve();
     document.head.appendChild(script);
-  }
+  });
+
+  await load('vendor/lucide.js', 'lucide-vendor');
+  await load('v07-runtime.js', 'v07-runtime');
+  await load('v08-runtime.js', 'v08-runtime');
+  await load('v081-runtime.js', 'v081-runtime');
 });
