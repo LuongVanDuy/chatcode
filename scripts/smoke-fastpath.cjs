@@ -30,12 +30,13 @@ async function waitFor(fn, timeout = 5000) { const started = Date.now(); while (
   assert.ok(inspect.telemetry.total_ms >= 0 && inspect.telemetry.brain_refresh_ms >= 0 && inspect.telemetry.git_ms >= 0, 'inspect telemetry missing');
 
   const apply = await safe.applyAndVerify('p1', [
+    { op:'patch', path:'src/app.js', edits:[{ find:'return value.trim();', replace:'return String(value).trim();' }] },
     { op:'write', path:'src/chatcode-alpha.js', content:`export function chatcodeAdd(a,b){ return a+b; }\nexport const MARK='FASTPATH_OK';\n` },
     { op:'write', path:'src/chatcode-beta.js', content:`import { chatcodeAdd } from './chatcode-alpha.js';\nexport function run(){ return chatcodeAdd(20,22); }\n` }
   ], [`node -e "console.log('FASTPATH_TASK_OK')"`]);
-  assert.equal(apply.status, 'completed'); assert.equal(apply.changes.length, 2); assert.equal(apply.tasks.length, 1); assert.match(apply.tasks[0].stdout, /FASTPATH_TASK_OK/); assert.equal(apply.tasks[0].notification_count, 1);
+  assert.equal(apply.status, 'completed'); assert.equal(apply.changes.length, 3); assert.equal(apply.tasks.length, 1); assert.match(apply.tasks[0].stdout, /FASTPATH_TASK_OK/); assert.equal(apply.tasks[0].notification_count, 1);
   assert.ok(apply.telemetry.write_to_searchable_ms >= 0 && apply.telemetry.brain_refresh_ms >= 0, 'apply telemetry missing');
-  assert.match(apply.git_diff, /chatcode-alpha|chatcode-beta/);
+  assert.match(apply.git_diff, /String\(value\)\.trim/);
 
   const symbols = await safe.findSymbols('p1', 'chatcodeAdd'); assert.ok(symbols.some(x => x.path === 'src/chatcode-alpha.js'), 'Brain did not refresh after fast write');
   const related = await safe.relatedFiles('p1', 'src/chatcode-alpha.js'); assert.ok(related.some(x => x.path === 'src/chatcode-beta.js'), 'dependency graph missing after fast write');
