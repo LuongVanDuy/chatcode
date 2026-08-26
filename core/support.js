@@ -99,6 +99,7 @@ function installChildProcessAudit(service) {
   if (childProcess.__chatcodeAuditInstalled) return;
   childProcess.__chatcodeAuditInstalled = true;
 
+  const hidden = options => process.platform === 'win32' ? { ...(options || {}), windowsHide:true } : { ...(options || {}) };
   const attach = (child, executable, args, options = {}) => {
     const started = Date.now(), source = classifyProcess(executable, args);
     service.appendEvent({ type:'process', phase:'spawn', source, executable, args, pid:child?.pid, windowsHide:options?.windowsHide === true }).catch(() => {});
@@ -110,17 +111,38 @@ function installChildProcessAudit(service) {
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = function patchedSpawn(command, args, options) {
     const actualArgs = Array.isArray(args) ? args : [];
-    const actualOptions = (Array.isArray(args) ? options : args) || {};
-    const child = originalSpawn.apply(this, arguments);
+    let actualOptions, child;
+    if (Array.isArray(args)) {
+      actualOptions = hidden(options && typeof options === 'object' ? options : {});
+      child = originalSpawn.call(this, command, args, actualOptions);
+    } else {
+      actualOptions = hidden(args && typeof args === 'object' ? args : {});
+      child = originalSpawn.call(this, command, actualOptions);
+    }
     return attach(child, command, actualArgs, actualOptions);
   };
 
   const originalExecFile = childProcess.execFile;
-  childProcess.execFile = function patchedExecFile(file, args, options) {
-    const actualArgs = Array.isArray(args) ? args : [];
-    const actualOptions = (Array.isArray(args) ? options : args) || {};
-    const child = originalExecFile.apply(this, arguments);
-    return attach(child, file, actualArgs, actualOptions && typeof actualOptions === 'object' ? actualOptions : {});
+  childProcess.execFile = function patchedExecFile(file, ...rest) {
+    let actualArgs = [], actualOptions = {}, callArgs;
+    if (Array.isArray(rest[0])) {
+      actualArgs = rest[0];
+      if (rest[1] && typeof rest[1] === 'object' && typeof rest[1] !== 'function') {
+        actualOptions = hidden(rest[1]);
+        callArgs = [file, actualArgs, actualOptions, ...rest.slice(2)];
+      } else {
+        actualOptions = hidden({});
+        callArgs = [file, actualArgs, actualOptions, ...rest.slice(1)];
+      }
+    } else if (rest[0] && typeof rest[0] === 'object' && typeof rest[0] !== 'function') {
+      actualOptions = hidden(rest[0]);
+      callArgs = [file, actualOptions, ...rest.slice(1)];
+    } else {
+      actualOptions = hidden({});
+      callArgs = [file, actualOptions, ...rest];
+    }
+    const child = originalExecFile.apply(this, callArgs);
+    return attach(child, file, actualArgs, actualOptions);
   };
 }
 
