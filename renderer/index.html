@@ -10,253 +10,279 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">⌘</div>
+        <div class="brand-mark">C</div>
         <div class="brand-copy">
-          <strong>ChatCode Cá Nhân</strong>
-          <span>ChatGPT ↔ máy của bạn</span>
+          <strong>ChatCode</strong>
+          <span>Cá Nhân</span>
         </div>
       </div>
 
-      <button id="addProject" class="btn btn-primary btn-block">
-        <span class="btn-icon">＋</span>
-        Thêm dự án
-      </button>
+      <nav class="main-nav" aria-label="Điều hướng">
+        <button class="nav-item active" data-screen="dashboard">
+          <span class="nav-icon">⌂</span><span>Tổng quan</span>
+        </button>
+        <button class="nav-item" data-screen="connection">
+          <span class="nav-icon">↗</span><span>Kết nối ChatGPT</span>
+          <i id="navConnectionDot" class="nav-dot"></i>
+        </button>
+      </nav>
 
-      <div class="sidebar-section">
-        <div class="section-heading">
-          <span>DỰ ÁN</span>
-          <span id="projectCount" class="count-badge">0</span>
+      <div class="project-section">
+        <div class="section-title">
+          <span>Dự án</span>
+          <span id="projectCount" class="count">0</span>
         </div>
         <div id="projects" class="project-list"></div>
+        <button id="addProject" class="add-project" type="button"><span>＋</span> Thêm dự án</button>
       </div>
 
-      <div class="sidebar-footer">
-        <div class="mini-status">
+      <div class="sidebar-spacer"></div>
+
+      <button class="nav-item bottom-nav" data-screen="settings">
+        <span class="nav-icon">⚙</span><span>Cài đặt</span>
+      </button>
+
+      <div class="sidebar-status">
+        <div class="status-line">
           <span id="sidebarStatusDot" class="status-dot"></span>
-          <div>
-            <strong id="sidebarStatusText">Chưa kết nối</strong>
-            <span>MCP cục bộ · cổng 47820</span>
-          </div>
+          <strong id="sidebarStatusText">Đang khởi động</strong>
         </div>
-        <div class="privacy-note">Không API OpenAI · Không telemetry</div>
+        <span id="sidebarStatusDetail">MCP · localhost:47820</span>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar-title">
-          <h1 id="projectName">Tổng quan</h1>
-          <div id="projectPath" class="subtitle">Kết nối ChatGPT rồi chọn thư mục bạn muốn chia sẻ.</div>
+        <div>
+          <div id="topEyebrow" class="top-eyebrow">CHATCODE CÁ NHÂN</div>
+          <h1 id="topTitle">Tổng quan</h1>
+          <p id="topSubtitle">Cầu nối riêng giữa ChatGPT và các thư mục bạn cho phép.</p>
         </div>
-        <div class="topbar-actions">
-          <div id="permissionPills" class="permission-pills"></div>
+        <div class="top-actions">
           <div id="topConnectionBadge" class="connection-chip">
-            <span class="status-dot"></span>
-            <span>Chưa kết nối</span>
+            <span class="status-dot"></span><span>Đang kiểm tra</span>
           </div>
+          <button id="hideToTray" class="icon-button" type="button" title="Ẩn xuống khay hệ thống">—</button>
         </div>
       </header>
 
-      <nav class="tabs" aria-label="Điều hướng chính">
-        <button data-tab="connect" class="active"><span>◉</span>Kết nối</button>
-        <button data-tab="files"><span>▤</span>Tệp</button>
-        <button data-tab="search"><span>⌕</span>Tìm kiếm</button>
-        <button data-tab="tasks"><span>▶</span>Tác vụ</button>
-        <button data-tab="git"><span>⑂</span>Git</button>
-        <button data-tab="permissions"><span>◈</span>Quyền truy cập</button>
-      </nav>
+      <div class="content">
+        <section id="screen-dashboard" class="screen active">
+          <div class="dashboard-grid">
+            <article class="hero-card card">
+              <div class="hero-main">
+                <div class="hero-kicker">TRẠNG THÁI HỆ THỐNG</div>
+                <h2 id="dashboardStatusTitle">Đang kiểm tra kết nối…</h2>
+                <p id="dashboardStatusDetail">ChatCode đang chuẩn bị MCP và Cloudflare Tunnel.</p>
+                <div class="hero-actions">
+                  <button id="dashboardPrimaryAction" class="btn btn-primary" type="button">Mở cấu hình kết nối</button>
+                  <button id="dashboardDiagnose" class="btn btn-secondary" type="button">Kiểm tra MCP</button>
+                </div>
+              </div>
+              <div class="hero-signal"><span id="heroPulse" class="pulse"></span><span>ChatGPT ↔ Máy của bạn</span></div>
+            </article>
 
-      <section id="workspace" class="workspace">
-        <div id="tab-connect" class="tab-panel active">
-          <div class="page-container connect-page">
-            <div class="page-intro">
-              <div>
-                <div class="eyebrow">CHATGPT CONNECTOR</div>
-                <h2>Kết nối ChatGPT với dự án trên máy</h2>
-                <p>ChatGPT là nơi bạn trò chuyện. Ứng dụng này chỉ cung cấp MCP tools để ChatGPT đọc, sửa và chạy dự án theo đúng quyền bạn cấp.</p>
-              </div>
-              <div id="connectionHeroStatus" class="hero-status">
-                <span class="status-dot"></span>
-                <div><strong>Chưa kết nối</strong><span>Đang kiểm tra cấu hình</span></div>
-              </div>
+            <div class="metric-row">
+              <article class="metric-card card"><span class="metric-label">Dự án đã chia sẻ</span><strong id="metricProjects">0</strong><small>Chỉ các thư mục bạn thêm thủ công</small></article>
+              <article class="metric-card card"><span class="metric-label">Kết nối</span><strong id="metricConnection">—</strong><small id="metricDomain">Chưa cấu hình domain</small></article>
+              <article class="metric-card card"><span class="metric-label">Chạy nền</span><strong id="metricBackground">Bật</strong><small>Đóng cửa sổ không tắt MCP</small></article>
             </div>
 
-            <div class="connect-grid">
-              <div class="card cloud-card">
-                <div class="card-header">
-                  <div>
-                    <div class="card-icon cloud-icon">☁</div>
-                    <div>
-                      <h3>Cloudflare Tunnel</h3>
-                      <p>Chọn domain riêng hoặc dùng Quick Tunnel tạm thời.</p>
-                    </div>
-                  </div>
-                </div>
+            <article class="card dashboard-projects">
+              <div class="card-heading">
+                <div><span class="eyebrow">WORKSPACES</span><h3>Dự án của bạn</h3></div>
+                <button id="dashboardAddProject" class="btn btn-secondary" type="button">＋ Thêm dự án</button>
+              </div>
+              <div id="dashboardProjectGrid" class="project-grid"></div>
+            </article>
+          </div>
+        </section>
 
-                <div class="segmented" role="tablist" aria-label="Chế độ Cloudflare">
-                  <button id="modeCustom" class="active" type="button">Domain của tôi</button>
-                  <button id="modeQuick" type="button">Quick Tunnel</button>
-                </div>
+        <section id="screen-connection" class="screen">
+          <div class="page-header">
+            <div><span class="eyebrow">KẾT NỐI TOÀN CỤC</span><h2>ChatGPT Connector</h2><p>Cấu hình này dùng chung cho tất cả dự án. Bạn chỉ thiết lập Cloudflare một lần.</p></div>
+            <div id="connectionHeaderStatus" class="header-status"><span class="status-dot"></span><span>Đang kiểm tra</span></div>
+          </div>
 
-                <div id="customConfig" class="config-panel">
-                  <label class="field">
-                    <span class="field-label">Domain</span>
-                    <span class="field-help">Hostname đã gắn vào Cloudflare Tunnel</span>
-                    <div class="input-prefix-wrap">
-                      <span class="input-prefix">https://</span>
-                      <input id="cloudDomain" autocomplete="off" spellcheck="false" placeholder="mcp.example.com" />
-                    </div>
-                  </label>
-
-                  <label class="field">
-                    <span class="field-label">Tunnel Token / Key</span>
-                    <span class="field-help">Bạn có thể dán token <code>eyJ...</code> hoặc cả lệnh <code>cloudflared ... --token ...</code></span>
-                    <div class="secret-input">
-                      <input id="cloudToken" type="password" autocomplete="off" spellcheck="false" placeholder="Nhập Tunnel Token" />
-                      <button id="toggleToken" class="icon-btn" type="button" title="Hiện/ẩn token">◉</button>
-                    </div>
-                    <div id="savedTokenHint" class="saved-hint hidden">✓ Đã lưu token an toàn bằng Windows Secure Storage</div>
-                  </label>
-
-                  <div class="setup-note">
-                    <span class="note-icon">i</span>
-                    <div>
-                      <strong>Cấu hình Cloudflare một lần</strong>
-                      <p>Trong tunnel của domain này, Published Application phải trỏ về <code>http://localhost:47820</code>. Sau đó ứng dụng sẽ tự chạy tunnel bằng token của bạn.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div id="quickConfig" class="config-panel hidden">
-                  <div class="setup-note neutral">
-                    <span class="note-icon">i</span>
-                    <div>
-                      <strong>Không cần domain hay token</strong>
-                      <p>Cloudflare tạo một URL <code>trycloudflare.com</code> tạm thời. URL có thể đổi mỗi lần ứng dụng khởi động lại.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="button-row primary-actions">
-                  <button id="saveAndConnect" class="btn btn-primary" type="button">
-                    <span class="button-spinner"></span>
-                    <span class="button-label">Lưu & Kết nối</span>
-                  </button>
-                  <button id="restartConnection" class="btn btn-secondary" type="button">Kiểm tra lại</button>
-                  <button id="stopConnection" class="btn btn-quiet" type="button">Ngắt kết nối</button>
-                </div>
-                <div id="connectionMessage" class="inline-message"></div>
+          <div class="two-column">
+            <article class="card connection-card">
+              <div class="card-heading compact">
+                <div><span class="eyebrow">CLOUDFLARE</span><h3>Đường truyền công khai</h3><p>Domain riêng được khuyến nghị cho kết nối ổn định.</p></div>
               </div>
 
-              <div class="card mcp-card">
-                <div class="card-header compact-header">
-                  <div>
-                    <div class="card-icon link-icon">↗</div>
-                    <div>
-                      <h3>URL kết nối ChatGPT</h3>
-                      <p>Chỉ xuất hiện khi domain/tunnel đã được kiểm tra thành công.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="url-box">
-                  <div class="url-state"><span id="urlStatusDot" class="status-dot"></span><span id="urlStatusText">Chưa sẵn sàng</span></div>
-                  <input id="connectionUrl" readonly placeholder="URL MCP sẽ xuất hiện tại đây" />
-                  <button id="copyConnection" class="btn btn-primary btn-block" type="button">Sao chép URL MCP</button>
-                </div>
-
-                <div class="divider"></div>
-
-                <div class="mini-actions">
-                  <button id="rotateConnection" class="text-button" type="button">Đổi secret MCP</button>
-                  <button id="clearCloudToken" class="text-button danger" type="button">Xóa Tunnel Token đã lưu</button>
-                </div>
+              <div class="segmented">
+                <button id="modeCustom" class="active" type="button">Domain riêng</button>
+                <button id="modeQuick" type="button">Quick Tunnel</button>
               </div>
-            </div>
 
-            <div class="card steps-card">
-              <div class="steps-title">
-                <div><div class="eyebrow">CÀI MỘT LẦN</div><h3>Đưa connector vào ChatGPT</h3></div>
-                <span class="secure-badge">MCP qua HTTPS</span>
+              <div id="customConfig" class="config-section">
+                <label class="field">
+                  <span>Domain</span>
+                  <div class="input-prefix"><i>https://</i><input id="cloudDomain" autocomplete="off" spellcheck="false" placeholder="mcp.example.com" /></div>
+                  <small>Published Application phải trỏ tới <code>http://localhost:47820</code>.</small>
+                </label>
+                <label class="field">
+                  <span>Tunnel Token</span>
+                  <div class="secret-field"><input id="cloudToken" type="password" autocomplete="off" spellcheck="false" placeholder="Nhập token eyJ…" /><button id="toggleToken" type="button">Hiện</button></div>
+                  <small id="savedTokenHint" class="saved-hint hidden">Đã lưu an toàn bằng Windows Secure Storage.</small>
+                </label>
               </div>
-              <div class="steps-grid">
-                <div class="step"><span>1</span><div><strong>Thêm dự án</strong><p>Chọn thư mục ở thanh bên trái và cấp đúng quyền cần dùng.</p></div></div>
-                <div class="step"><span>2</span><div><strong>Sao chép URL MCP</strong><p>Sau khi trạng thái chuyển sang “Đã kết nối”, sao chép URL phía trên.</p></div></div>
-                <div class="step"><span>3</span><div><strong>Thêm vào ChatGPT</strong><p>Tạo custom MCP app/connector trong ChatGPT và dán URL này vào.</p></div></div>
-                <div class="step"><span>4</span><div><strong>Bắt đầu làm việc</strong><p>Trong chat, yêu cầu ChatGPT dùng ChatCode Cá Nhân để đọc hoặc sửa dự án.</p></div></div>
+
+              <div id="quickConfig" class="config-section hidden">
+                <div class="info-box"><strong>Quick Tunnel</strong><p>Không cần domain hoặc token. URL có thể thay đổi sau mỗi lần khởi động.</p></div>
               </div>
+
+              <div class="button-row">
+                <button id="saveAndConnect" class="btn btn-primary" type="button"><span class="button-label">Lưu & Kết nối</span></button>
+                <button id="restartConnection" class="btn btn-secondary" type="button">Kết nối lại</button>
+                <button id="stopConnection" class="btn btn-ghost" type="button">Ngắt</button>
+              </div>
+              <div id="connectionMessage" class="inline-message"></div>
+            </article>
+
+            <div class="stack">
+              <article class="card mcp-card">
+                <span class="eyebrow">MCP ENDPOINT</span>
+                <h3>URL dùng trong ChatGPT</h3>
+                <p>Secret nằm trong URL. Chỉ chia sẻ URL này với ChatGPT của bạn.</p>
+                <div class="endpoint-box">
+                  <input id="connectionUrl" readonly placeholder="URL sẽ xuất hiện khi kết nối thành công" />
+                  <button id="copyConnection" class="btn btn-primary" type="button">Sao chép</button>
+                </div>
+                <div class="sub-actions">
+                  <button id="rotateConnection" class="link-button" type="button">Đổi secret MCP</button>
+                  <button id="clearCloudToken" class="link-button danger hidden" type="button">Xóa Tunnel Token</button>
+                </div>
+              </article>
+
+              <article class="card diagnostic-card">
+                <div class="card-heading compact"><div><span class="eyebrow">CHẨN ĐOÁN</span><h3>Kiểm tra end-to-end</h3></div><button id="diagnoseConnection" class="btn btn-secondary btn-small" type="button">Chạy kiểm tra</button></div>
+                <div id="diagnosticResults" class="diagnostic-list"><div class="diagnostic-empty">Kiểm tra MCP cục bộ, HTTPS, initialize và tools/list trong một lần.</div></div>
+              </article>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div id="tab-files" class="tab-panel">
-          <div id="projectRequiredFiles" class="empty-state">
-            <div class="empty-icon">▤</div>
-            <h2>Chọn một dự án</h2>
-            <p>Chọn dự án ở thanh bên trái để duyệt và xem nội dung file.</p>
-          </div>
-          <div id="filesContent" class="files-layout hidden">
-            <div class="file-browser card no-padding">
-              <div class="panel-header"><div><strong>Tệp dự án</strong><span id="fileCount">0 tệp</span></div><button id="refreshFiles" class="icon-btn" title="Làm mới">↻</button></div>
-              <div id="fileList" class="file-list"></div>
+        <section id="screen-project" class="screen">
+          <div class="project-header card">
+            <div class="project-identity">
+              <div id="projectAvatar" class="large-avatar">P</div>
+              <div><span class="eyebrow">DỰ ÁN ĐANG MỞ</span><h2 id="projectName">Dự án</h2><p id="projectPath"></p></div>
             </div>
-            <div class="file-preview card no-padding">
-              <div class="panel-header"><div><strong id="fileTitle">Xem nội dung</strong><span>Chỉ đọc trong ứng dụng</span></div></div>
-              <pre id="filePreview" class="code-view">Chọn một file văn bản để xem.</pre>
+            <div id="permissionPills" class="permission-pills"></div>
+          </div>
+
+          <nav class="project-tabs">
+            <button class="active" data-project-tab="overview">Tổng quan</button>
+            <button data-project-tab="files">Tệp</button>
+            <button data-project-tab="search">Tìm kiếm</button>
+            <button data-project-tab="tasks">Tác vụ</button>
+            <button data-project-tab="git">Git</button>
+            <button data-project-tab="permissions">Quyền truy cập</button>
+          </nav>
+
+          <div id="project-tab-overview" class="project-panel active">
+            <div class="project-overview-grid">
+              <article class="card project-summary">
+                <span class="eyebrow">PROJECT ACCESS</span>
+                <h3>ChatGPT có thể làm gì?</h3>
+                <div id="overviewPermissions" class="overview-permissions"></div>
+              </article>
+              <article class="card quick-actions-card">
+                <span class="eyebrow">THAO TÁC NHANH</span>
+                <h3>Làm việc với dự án</h3>
+                <div class="quick-action-grid">
+                  <button data-open-tab="files"><strong>Duyệt tệp</strong><span>Xem cấu trúc và nội dung code</span></button>
+                  <button data-open-tab="search"><strong>Tìm trong code</strong><span>Tìm tên file và nội dung</span></button>
+                  <button data-open-tab="tasks"><strong>Chạy tác vụ</strong><span>Test, build và lệnh allow-list</span></button>
+                  <button data-open-tab="git"><strong>Xem Git</strong><span>Status và diff hiện tại</span></button>
+                </div>
+              </article>
+              <article class="card project-danger-card">
+                <span class="eyebrow">QUẢN LÝ DỰ ÁN</span>
+                <h3>Thư mục được chia sẻ</h3>
+                <p>Gỡ dự án chỉ xóa quyền truy cập khỏi ChatCode, không xóa bất kỳ file nào trên máy.</p>
+                <button id="removeProject" class="btn btn-danger-outline" type="button">Gỡ dự án khỏi ChatCode</button>
+              </article>
             </div>
           </div>
-        </div>
 
-        <div id="tab-search" class="tab-panel">
-          <div class="page-container narrow-page">
-            <div class="section-page-header"><div><div class="eyebrow">TÌM TRONG DỰ ÁN</div><h2>Tìm code và nội dung</h2><p>Tìm theo tên file hoặc nội dung văn bản, giống tool ChatGPT sẽ sử dụng.</p></div></div>
-            <div class="search-bar card"><span>⌕</span><input id="searchInput" placeholder="Ví dụ: authentication, payment service, TODO..." /><button id="searchButton" class="btn btn-primary">Tìm kiếm</button></div>
-            <div id="searchResults" class="search-results"></div>
+          <div id="project-tab-files" class="project-panel">
+            <div class="files-layout">
+              <article class="card file-browser no-padding">
+                <div class="panel-heading"><div><strong>Tệp dự án</strong><span id="fileCount">0 tệp</span></div><button id="refreshFiles" class="icon-button" type="button" title="Làm mới">↻</button></div>
+                <div id="fileList" class="file-list"></div>
+              </article>
+              <article class="card file-preview no-padding">
+                <div class="panel-heading"><div><strong id="fileTitle">Xem nội dung</strong><span>Chỉ đọc trong giao diện</span></div></div>
+                <pre id="filePreview" class="code-view">Chọn một file văn bản để xem.</pre>
+              </article>
+            </div>
           </div>
-        </div>
 
-        <div id="tab-tasks" class="tab-panel">
-          <div class="page-container narrow-page">
-            <div class="section-page-header"><div><div class="eyebrow">TÁC VỤ PHÁT TRIỂN</div><h2>Chạy lệnh có kiểm soát</h2><p>Chỉ các công cụ phát triển trong allow-list mới được chạy. Quyền Tác vụ phải được bật cho dự án.</p></div></div>
-            <div class="card task-card">
-              <div class="command-row"><span class="prompt">$</span><input id="taskInput" spellcheck="false" placeholder="npm test" /><button id="taskButton" class="btn btn-primary">Chạy</button></div>
+          <div id="project-tab-search" class="project-panel">
+            <article class="card tool-page">
+              <div class="tool-heading"><span class="eyebrow">SEARCH</span><h3>Tìm trong dự án</h3><p>Tìm theo tên file hoặc nội dung văn bản.</p></div>
+              <div class="search-row"><input id="searchInput" placeholder="Ví dụ: checkout, function login, TODO…" /><button id="searchButton" class="btn btn-primary" type="button">Tìm kiếm</button></div>
+              <div id="searchResults" class="search-results"></div>
+            </article>
+          </div>
+
+          <div id="project-tab-tasks" class="project-panel">
+            <article class="card tool-page">
+              <div class="tool-heading"><span class="eyebrow">TASK RUNNER</span><h3>Chạy tác vụ phát triển</h3><p>Chỉ lệnh trong allow-list và chỉ khi quyền Tác vụ được bật.</p></div>
+              <div class="command-row"><span>$</span><input id="taskInput" spellcheck="false" placeholder="npm test" /><button id="taskButton" class="btn btn-primary" type="button">Chạy</button></div>
               <div class="quick-commands"><button data-command="npm test">npm test</button><button data-command="npm run build">npm run build</button><button data-command="pytest">pytest</button></div>
               <pre id="taskOutput" class="terminal">Kết quả lệnh sẽ hiển thị tại đây.</pre>
-            </div>
+            </article>
           </div>
-        </div>
 
-        <div id="tab-git" class="tab-panel">
-          <div class="page-container narrow-page">
-            <div class="section-page-header"><div><div class="eyebrow">GIT</div><h2>Theo dõi thay đổi</h2><p>Xem trạng thái và diff của dự án. Stage/commit chỉ dành cho ChatGPT khi bạn bật quyền Git.</p></div></div>
-            <div class="button-row"><button id="gitStatus" class="btn btn-primary">Xem trạng thái</button><button id="gitDiff" class="btn btn-secondary">Xem thay đổi</button></div>
-            <pre id="gitOutput" class="terminal large">Chọn một thao tác Git để xem kết quả.</pre>
+          <div id="project-tab-git" class="project-panel">
+            <article class="card tool-page">
+              <div class="tool-heading"><span class="eyebrow">GIT</span><h3>Theo dõi thay đổi</h3><p>Xem status và diff mà không rời ChatCode.</p></div>
+              <div class="button-row"><button id="gitStatus" class="btn btn-primary" type="button">Git status</button><button id="gitDiff" class="btn btn-secondary" type="button">Git diff</button></div>
+              <pre id="gitOutput" class="terminal large">Chọn thao tác để xem kết quả.</pre>
+            </article>
           </div>
-        </div>
 
-        <div id="tab-permissions" class="tab-panel">
-          <div id="permissionsEmpty" class="empty-state">
-            <div class="empty-icon">◈</div>
-            <h2>Chọn một dự án</h2>
-            <p>Mỗi thư mục có bộ quyền riêng và mặc định chỉ cho phép đọc.</p>
+          <div id="project-tab-permissions" class="project-panel">
+            <article class="card permissions-card">
+              <div class="tool-heading"><span class="eyebrow">PERMISSIONS</span><h3>Quyền riêng cho dự án này</h3><p>Đọc và tìm kiếm luôn bật. Các quyền thay đổi dữ liệu là opt-in.</p></div>
+              <div class="permission-list">
+                <div class="permission-row fixed"><div><strong>Đọc & tìm kiếm</strong><span>Đọc file, search, Git status/diff</span></div><span class="permission-value">Luôn bật</span></div>
+                <label class="permission-row"><div><strong>Ghi file</strong><span>Tạo và thay đổi file văn bản</span></div><span class="switch"><input id="permWrite" type="checkbox" /><i></i></span></label>
+                <label class="permission-row"><div><strong>Quản lý file</strong><span>Xóa, đổi tên và di chuyển file</span></div><span class="switch"><input id="permManage" type="checkbox" /><i></i></span></label>
+                <label class="permission-row"><div><strong>Chạy tác vụ</strong><span>Test/build bằng danh sách lệnh an toàn</span></div><span class="switch"><input id="permTasks" type="checkbox" /><i></i></span></label>
+                <label class="permission-row"><div><strong>Git write</strong><span>Stage và commit cục bộ, không push</span></div><span class="switch"><input id="permGit" type="checkbox" /><i></i></span></label>
+              </div>
+              <div id="permissionSaved" class="saved-line">Thay đổi được lưu tự động.</div>
+            </article>
           </div>
-          <div id="permissionsContent" class="page-container permissions-page hidden">
-            <div class="section-page-header"><div><div class="eyebrow">AN TOÀN THEO DỰ ÁN</div><h2>Quyền ChatGPT</h2><p>Chỉ bật những hành động bạn thực sự muốn ChatGPT được phép thực hiện.</p></div></div>
-            <div class="permission-grid">
-              <label class="permission-card always-on"><div class="permission-icon">R</div><div><strong>Đọc & tìm kiếm</strong><p>Đọc file, tìm code, xem Git status/diff.</p></div><span class="permission-state fixed">Luôn bật</span></label>
-              <label class="permission-card"><div class="permission-icon">W</div><div><strong>Ghi file</strong><p>Tạo mới hoặc thay đổi nội dung file văn bản.</p></div><span class="switch"><input id="permWrite" type="checkbox" /><i></i></span></label>
-              <label class="permission-card"><div class="permission-icon">M</div><div><strong>Quản lý file</strong><p>Xóa, đổi tên hoặc di chuyển file trong dự án.</p></div><span class="switch"><input id="permManage" type="checkbox" /><i></i></span></label>
-              <label class="permission-card"><div class="permission-icon">▶</div><div><strong>Chạy tác vụ</strong><p>Chạy test, build và lệnh phát triển trong allow-list.</p></div><span class="switch"><input id="permTasks" type="checkbox" /><i></i></span></label>
-              <label class="permission-card"><div class="permission-icon">G</div><div><strong>Ghi Git</strong><p>Stage file và tạo commit cục bộ. Không tự push.</p></div><span class="switch"><input id="permGit" type="checkbox" /><i></i></span></label>
-            </div>
-            <div class="permission-footer"><div class="security-copy"><strong>File bí mật luôn bị chặn</strong><span>.env, .ssh, private key và credentials không được cung cấp cho ChatGPT.</span></div><button id="saveProject" class="btn btn-primary">Lưu quyền truy cập</button></div>
+        </section>
+
+        <section id="screen-settings" class="screen">
+          <div class="page-header"><div><span class="eyebrow">ỨNG DỤNG</span><h2>Cài đặt</h2><p>Điều khiển cách ChatCode chạy nền trên Windows.</p></div></div>
+          <div class="settings-grid">
+            <article class="card settings-card">
+              <h3>Chạy nền</h3>
+              <label class="setting-row"><div><strong>Đóng cửa sổ → thu xuống System Tray</strong><span>Giữ MCP và Cloudflare chạy để ChatGPT không bị 502 Upstream.</span></div><span class="switch"><input id="settingCloseToTray" type="checkbox" /><i></i></span></label>
+              <label class="setting-row"><div><strong>Khởi động cùng Windows</strong><span>Tự chạy nền và kết nối lại sau khi đăng nhập Windows.</span></div><span class="switch"><input id="settingLaunchAtLogin" type="checkbox" /><i></i></span></label>
+            </article>
+            <article class="card settings-card">
+              <h3>Thông tin hệ thống</h3>
+              <div class="info-table"><div><span>Phiên bản</span><strong id="appVersion">—</strong></div><div><span>MCP local port</span><strong>47820</strong></div><div><span>OpenAI API</span><strong>Không sử dụng</strong></div><div><span>Telemetry</span><strong>Không</strong></div></div>
+            </article>
+            <article class="card settings-card full-span">
+              <h3>Mô hình hoạt động</h3>
+              <div class="flow-line"><span>ChatGPT</span><i>→</i><span>Cloudflare HTTPS</span><i>→</i><span>ChatCode chạy nền</span><i>→</i><span>Dự án được cấp quyền</span></div>
+            </article>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   </div>
 
-  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+  <div id="toastContainer" class="toast-container"></div>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage, Tray, Menu, nativeImage } = require('electron');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -11,13 +11,20 @@ const IGNORE_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'ta
 const SENSITIVE_NAMES = new Set(['.env', '.env.local', '.env.production', 'id_rsa', 'id_ed25519', 'credentials.json']);
 const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte','.csv']);
 const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
+const TRAY_ICON_DATA = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAArklEQVR4nO2WuQ2AMAxFDaKHDmaA/UdhB0o2gAoJIccXQT8ScR3bT99H3PTjfBDQWmTyClAEQGd9uG+rO/gwLeqbRpuCSGIPiFiCHMm1OEkFnk4WOSMxTE0YSW71YwHu5NHknD9XCvgYVgA4gHkTEvn2grV54QrAAVwleLsTOIMrUAHKBNA+EI9pH5tJgSiExU88yXJdRETpERYVyDX3Uhz1KL0MdhV/bWWO4a8ATnVYNW4vbwHSAAAAAElFTkSuQmCC';
 
 let mainWindow;
+let tray;
+let isQuitting = false;
 let mcpRuntime = null;
 let tunnelProcess = null;
 let tunnel = { status: 'stopped', publicBaseUrl: '', error: '', mode: 'custom' };
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
+
 function dataFile() { return path.join(app.getPath('userData'), 'personal-chatcode.json'); }
+
 function defaultState() {
   return {
     projects: [],
@@ -27,6 +34,10 @@ function defaultState() {
       mode: 'custom',
       domain: '',
       tunnelTokenEnc: ''
+    },
+    settings: {
+      closeToTray: true,
+      launchAtLogin: false
     }
   };
 }
@@ -78,6 +89,10 @@ function normalizeState(raw) {
   state.connection.mode = state.connection.mode === 'quick' ? 'quick' : 'custom';
   try { state.connection.domain = normalizeDomain(state.connection.domain); } catch { state.connection.domain = ''; }
   state.connection.tunnelTokenEnc = String(state.connection.tunnelTokenEnc || '');
+  state.settings = {
+    closeToTray: state.settings?.closeToTray !== false,
+    launchAtLogin: !!state.settings?.launchAtLogin
+  };
   return state;
 }
 
@@ -104,6 +119,31 @@ function publicConnectionConfig(state = readState()) {
     hasTunnelToken: !!state.connection.tunnelTokenEnc,
     localPort: PORT
   };
+}
+
+function publicAppSettings(state = readState()) {
+  return {
+    closeToTray: !!state.settings.closeToTray,
+    launchAtLogin: !!state.settings.launchAtLogin
+  };
+}
+
+function applyLoginSettings(enabled) {
+  try {
+    const options = { openAtLogin: !!enabled };
+    if (process.platform === 'win32' && app.isPackaged && enabled) options.args = ['--background'];
+    app.setLoginItemSettings(options);
+  } catch {}
+}
+
+function saveAppSettings(incoming = {}) {
+  const state = readState();
+  if (typeof incoming.closeToTray === 'boolean') state.settings.closeToTray = incoming.closeToTray;
+  if (typeof incoming.launchAtLogin === 'boolean') state.settings.launchAtLogin = incoming.launchAtLogin;
+  writeState(state);
+  applyLoginSettings(state.settings.launchAtLogin);
+  updateTrayMenu();
+  return publicAppSettings(state);
 }
 
 function getProject(ref) {
@@ -319,8 +359,40 @@ function connectionSnapshot() {
   };
 }
 
+function updateTrayMenu() {
+  if (!tray) return;
+  const snap = connectionSnapshot();
+  const statusLabel = snap.status === 'connected' ? 'Đã kết nối ChatGPT' : snap.status === 'error' ? 'Kết nối đang lỗi' : 'Chưa kết nối';
+  const menu = Menu.buildFromTemplate([
+    { label: statusLabel, enabled: false },
+    { type: 'separator' },
+    { label: 'Mở ChatCode Cá Nhân', click: showMainWindow },
+    {
+      label: 'Sao chép URL MCP',
+      enabled: !!snap.connectionUrl,
+      click: () => { if (snap.connectionUrl) clipboard.writeText(snap.connectionUrl); }
+    },
+    {
+      label: 'Kết nối lại',
+      click: () => startTunnel().catch(() => {})
+    },
+    { type: 'separator' },
+    {
+      label: 'Thoát hoàn toàn',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+  tray.setContextMenu(menu);
+  tray.setToolTip(`ChatCode Cá Nhân · ${statusLabel}`);
+}
+
 function notifyConnection() {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('connection:changed', connectionSnapshot());
+  const snapshot = connectionSnapshot();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('connection:changed', snapshot);
+  updateTrayMenu();
 }
 
 async function stopTunnel() {
@@ -529,41 +601,132 @@ async function rotateConnectionToken() {
   return startTunnel();
 }
 
-function createWindow() {
+async function diagnoseConnection() {
+  await ensureMcpServer();
+  const snap = connectionSnapshot();
+  const checks = [];
+
+  async function check(name, url, options = {}) {
+    const started = Date.now();
+    try {
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) });
+      const text = await response.text();
+      checks.push({ name, ok: response.ok, status: response.status, ms: Date.now() - started, detail: text.slice(0, 500) });
+      return { response, text };
+    } catch (error) {
+      checks.push({ name, ok: false, status: 0, ms: Date.now() - started, detail: String(error?.message || error) });
+      return null;
+    }
+  }
+
+  await check('MCP cục bộ', `http://127.0.0.1:${PORT}/health`);
+  if (snap.publicBaseUrl) await check('Cloudflare HTTPS', `${snap.publicBaseUrl}/health?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' } });
+
+  if (snap.connectionUrl) {
+    const initializeBody = {
+      jsonrpc: '2.0',
+      id: 901,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'chatcode-self-test', version: app.getVersion() }
+      }
+    };
+    await check('MCP initialize', snap.connectionUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify(initializeBody)
+    });
+
+    const toolsBody = { jsonrpc: '2.0', id: 902, method: 'tools/list', params: {} };
+    await check('MCP tools/list', snap.connectionUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify(toolsBody)
+    });
+  }
+
+  return { ok: checks.length > 0 && checks.every(item => item.ok), checks };
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow(true);
+  mainWindow.show();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return tray;
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_DATA}`);
+  tray = new Tray(icon);
+  tray.on('double-click', showMainWindow);
+  tray.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) showMainWindow();
+  });
+  updateTrayMenu();
+  return tray;
+}
+
+function createWindow(showInitially = true) {
   mainWindow = new BrowserWindow({
-    width: 1460,
-    height: 920,
-    minWidth: 1080,
-    minHeight: 700,
-    backgroundColor: '#f5f7fb',
+    width: 1420,
+    height: 900,
+    minWidth: 1060,
+    minHeight: 680,
+    show: false,
+    backgroundColor: '#f7f8fb',
     title: 'ChatCode Cá Nhân',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.on('close', event => {
+    if (isQuitting) return;
+    const settings = readState().settings;
+    if (settings.closeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
+  if (showInitially) mainWindow.once('ready-to-show', () => mainWindow?.show());
 }
 
-app.whenReady().then(async () => {
-  ensureStatePersisted();
-  createWindow();
-  try {
-    await ensureMcpServer();
-    startTunnel().catch(err => {
+if (gotSingleInstanceLock) {
+  app.on('second-instance', showMainWindow);
+
+  app.whenReady().then(async () => {
+    const state = ensureStatePersisted();
+    applyLoginSettings(state.settings.launchAtLogin);
+    createTray();
+    const backgroundStart = process.argv.includes('--background');
+    createWindow(!backgroundStart);
+    try {
+      await ensureMcpServer();
+      startTunnel().catch(err => {
+        tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode: readState().connection.mode };
+        notifyConnection();
+      });
+    } catch (err) {
       tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode: readState().connection.mode };
       notifyConnection();
-    });
-  } catch (err) {
-    tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode: readState().connection.mode };
-    notifyConnection();
-  }
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
+    }
+    app.on('activate', showMainWindow);
+  });
+}
 
 app.on('before-quit', () => {
+  isQuitting = true;
   if (tunnelProcess && !tunnelProcess.killed) {
     try { tunnelProcess.kill(); } catch {}
   }
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+app.on('window-all-closed', () => {
+  const settings = readState().settings;
+  if (!settings.closeToTray || (process.platform === 'darwin' && !tray)) app.quit();
+});
 
 ipcMain.handle('projects:list', () => readState().projects);
 ipcMain.handle('projects:add', async () => {
@@ -586,6 +749,14 @@ ipcMain.handle('projects:update', (_, incoming) => {
   writeState(state);
   return state.projects[i];
 });
+ipcMain.handle('projects:remove', (_, id) => {
+  const state = readState();
+  const before = state.projects.length;
+  state.projects = state.projects.filter(p => p.id !== id);
+  if (state.projects.length === before) throw new Error('Không tìm thấy dự án.');
+  writeState(state);
+  return true;
+});
 ipcMain.handle('files:list', async (_, id) => toolApi.listFiles(id));
 ipcMain.handle('files:read', async (_, id, rel) => (await toolApi.readFile(id, rel)).content);
 ipcMain.handle('files:search', async (_, id, query) => toolApi.search(id, query));
@@ -598,6 +769,7 @@ ipcMain.handle('connection:save-config', (_, config) => saveConnectionConfig(con
 ipcMain.handle('connection:clear-token', () => clearTunnelToken());
 ipcMain.handle('connection:start', () => startTunnel());
 ipcMain.handle('connection:stop', () => stopTunnel());
+ipcMain.handle('connection:diagnose', () => diagnoseConnection());
 ipcMain.handle('connection:copy', () => {
   const url = connectionSnapshot().connectionUrl;
   if (!url) throw new Error('URL MCP chưa sẵn sàng. Hãy kết nối Cloudflare trước.');
@@ -605,3 +777,7 @@ ipcMain.handle('connection:copy', () => {
   return true;
 });
 ipcMain.handle('connection:rotate', () => rotateConnectionToken());
+ipcMain.handle('settings:get', () => publicAppSettings());
+ipcMain.handle('settings:update', (_, settings) => saveAppSettings(settings));
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, port: PORT }));
+ipcMain.handle('app:hide', () => { mainWindow?.hide(); return true; });
