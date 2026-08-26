@@ -51,7 +51,11 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   const approvals = createApprovalService(store);
   const backups = createBackupService(app, store);
   const api = createSafeToolApi(projects, store, approvals, backups, { notifyTaskCompleted:() => ({ emitted:false, count:0, reason:'test' }) });
-  await projects.initialize();
+  // Stress create/delete through explicit reindex like the existing fast-path smoke.
+  // Recursive fs.watch is covered by the production app and separate project tests;
+  // Node 24 on Windows can assert inside libuv when a temp recursive watcher is torn
+  // through rapid fixture deletion, which is unrelated to Stage 3 patch semantics.
+  await projects.reindex('editing');
 
   for (const name of ['startWork','applyPatch','workStatus','finishWork','rollbackWork']) assert.equal(typeof api[name], 'function', `${name} missing`);
 
