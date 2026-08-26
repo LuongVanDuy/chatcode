@@ -5,169 +5,191 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;'
 const state = {
   projects: [],
   current: null,
-  screen: 'dashboard',
+  route: 'dashboard',
   projectTab: 'overview',
   connectionMode: 'custom',
   connectionConfig: null,
   connection: null,
   settings: null,
-  appInfo: null
+  usage: null,
+  usageDays: 14,
+  appInfo: null,
+  fileCountCache: new Map(),
+  usageTimer: null
 };
 
 const STATUS = {
-  connected: { title: 'Đã kết nối', detail: 'ChatGPT có thể gọi MCP qua HTTPS.', tone: 'success' },
-  verifying: { title: 'Đang xác minh', detail: 'Đang kiểm tra đường truyền công khai.', tone: 'progress' },
-  starting: { title: 'Đang kết nối', detail: 'Đang khởi động Cloudflare Tunnel.', tone: 'progress' },
-  'installing-tunnel': { title: 'Đang chuẩn bị', detail: 'Đang cài cloudflared lần đầu.', tone: 'progress' },
-  'config-required': { title: 'Cần cấu hình', detail: 'Thiết lập kết nối Cloudflare một lần.', tone: 'warning' },
-  stopped: { title: 'Đã ngắt', detail: 'MCP công khai hiện không khả dụng.', tone: 'neutral' },
-  error: { title: 'Kết nối lỗi', detail: 'Kiểm tra lại Cloudflare hoặc dịch vụ cục bộ.', tone: 'error' }
+  connected: { title: 'Đã kết nối', detail: 'ChatGPT có thể gọi MCP qua HTTPS', tone: 'success' },
+  verifying: { title: 'Đang xác minh', detail: 'Đang kiểm tra domain và MCP', tone: 'progress' },
+  starting: { title: 'Đang kết nối', detail: 'Đang mở Cloudflare Tunnel', tone: 'progress' },
+  'installing-tunnel': { title: 'Đang chuẩn bị', detail: 'Đang cài cloudflared lần đầu', tone: 'progress' },
+  'config-required': { title: 'Cần cấu hình', detail: 'Thiết lập domain và Tunnel Token một lần', tone: 'warning' },
+  stopped: { title: 'Đã ngắt', detail: 'Tunnel đang dừng', tone: 'neutral' },
+  error: { title: 'Kết nối lỗi', detail: 'Kiểm tra Cloudflare hoặc mạng', tone: 'error' }
+};
+
+const PAGE_META = {
+  dashboard: ['CHATCODE CÁ NHÂN', 'Tổng quan', 'Theo dõi kết nối, dự án và hoạt động của ChatGPT trên máy này.'],
+  connection: ['KẾT NỐI TOÀN CỤC', 'Kết nối ChatGPT', 'Domain và Tunnel Token chỉ cấu hình một lần cho toàn bộ dự án.'],
+  activity: ['AUDIT LOG', 'Hoạt động', 'Xem ChatGPT đã đọc, ghi, chạy task hoặc thao tác Git ở đâu.'],
+  settings: ['ỨNG DỤNG', 'Cài đặt', 'Điều khiển cách ChatCode chạy nền và khởi động cùng Windows.']
 };
 
 function toast(message, type = 'success') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.innerHTML = `<span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '!' : 'i'}</span><div>${esc(message)}</div>`;
+  el.innerHTML = `<span>${type === 'success' ? '✓' : type === 'error' ? '!' : 'i'}</span><div>${esc(message)}</div>`;
   $('toastContainer').appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => {
     el.classList.remove('show');
-    setTimeout(() => el.remove(), 180);
-  }, 3200);
+    setTimeout(() => el.remove(), 220);
+  }, 3300);
 }
 
-function statusMeta(status) {
-  return STATUS[status] || STATUS.stopped;
+function statusMeta(status) { return STATUS[status] || STATUS.stopped; }
+function formatNumber(value) { return Number(value || 0).toLocaleString('vi-VN'); }
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${(value / 1024).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} KB`;
+  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+  return `${(value / 1024 ** 3).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} GB`;
 }
-
-function persistNavigation() {
-  localStorage.setItem('chatcode.screen', state.screen);
-  localStorage.setItem('chatcode.projectId', state.current?.id || '');
-  localStorage.setItem('chatcode.projectTab', state.projectTab);
+function formatDuration(ms) {
+  const n = Number(ms || 0);
+  return n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} s`;
+}
+function formatUptime(sec) {
+  const s = Math.max(0, Number(sec || 0));
+  if (s < 60) return `${Math.floor(s)} giây`;
+  if (s < 3600) return `${Math.floor(s / 60)} phút`;
+  if (s < 86400) return `${Math.floor(s / 3600)} giờ ${Math.floor((s % 3600) / 60)} phút`;
+  return `${Math.floor(s / 86400)} ngày ${Math.floor((s % 86400) / 3600)} giờ`;
+}
+function formatTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+}
+function activityLabel(category, tool) {
+  if (category === 'read') return 'Đọc / phân tích';
+  if (category === 'write') return 'Ghi file';
+  if (category === 'manage') return 'Quản lý file';
+  if (category === 'task') return 'Tác vụ';
+  if (category === 'git') return 'Git';
+  return tool || 'Khác';
+}
+function activityGlyph(category, ok) {
+  if (!ok) return '!';
+  return ({ read:'R', write:'W', manage:'M', task:'T', git:'G' })[category] || '•';
 }
 
 async function init() {
   try {
-    const [projects, config, connection, settings, appInfo] = await Promise.all([
+    const [projects, config, connection, settings, usage, appInfo] = await Promise.all([
       api.listProjects(),
       api.connectionConfig(),
       api.connectionStatus(),
       api.getSettings(),
+      api.usageSnapshot(state.usageDays),
       api.appInfo()
     ]);
-
     state.projects = projects;
     state.connectionConfig = config;
     state.connectionMode = config?.mode || 'custom';
     state.connection = connection;
     state.settings = settings;
+    state.usage = usage;
     state.appInfo = appInfo;
-
-    const savedProjectId = localStorage.getItem('chatcode.projectId');
-    state.current = state.projects.find(p => p.id === savedProjectId) || null;
-    state.projectTab = ['overview','files','search','tasks','git','permissions'].includes(localStorage.getItem('chatcode.projectTab'))
-      ? localStorage.getItem('chatcode.projectTab')
-      : 'overview';
-    const savedScreen = localStorage.getItem('chatcode.screen');
-    state.screen = ['dashboard','connection','settings','project'].includes(savedScreen) ? savedScreen : 'dashboard';
-    if (state.screen === 'project' && !state.current) state.screen = 'dashboard';
 
     renderProjects();
     renderDashboardProjects();
     renderConnectionConfig();
     renderConnection(connection);
+    renderUsage();
+    renderActivity();
     renderSettings();
-    renderProject();
-    showScreen(state.screen, false);
-    if (state.screen === 'project') setProjectTab(state.projectTab, false);
+    routeTo('dashboard');
 
-    api.onConnectionChanged(value => {
-      state.connection = value;
-      renderConnection(value);
+    api.onConnectionChanged(connectionValue => {
+      state.connection = connectionValue;
+      renderConnection(connectionValue);
     });
+    api.onActivityChanged(() => refreshUsageSoon());
+    api.onActivityReset(() => refreshUsage());
   } catch (error) {
     toast(error.message || String(error), 'error');
   }
 }
 
-function showScreen(name, persist = true) {
-  if (!['dashboard','connection','settings','project'].includes(name)) name = 'dashboard';
-  if (name === 'project' && !state.current) name = 'dashboard';
-  state.screen = name;
-  document.querySelectorAll('.screen').forEach(el => el.classList.toggle('active', el.id === `screen-${name}`));
-  document.querySelectorAll('[data-screen]').forEach(el => el.classList.toggle('active', el.dataset.screen === name));
-  document.querySelectorAll('.project-item').forEach(el => el.classList.toggle('active', name === 'project' && el.dataset.id === state.current?.id));
-  renderTopbar();
-  if (persist) persistNavigation();
+function refreshUsageSoon() {
+  clearTimeout(state.usageTimer);
+  state.usageTimer = setTimeout(() => refreshUsage(), 220);
 }
 
-function renderTopbar() {
-  const title = $('topTitle');
-  const subtitle = $('topSubtitle');
-  const eyebrow = $('topEyebrow');
-  if (state.screen === 'project' && state.current) {
-    eyebrow.textContent = 'DỰ ÁN';
-    title.textContent = state.current.name;
-    subtitle.textContent = state.current.root;
-  } else if (state.screen === 'connection') {
-    eyebrow.textContent = 'CẤU HÌNH TOÀN CỤC';
-    title.textContent = 'Kết nối ChatGPT';
-    subtitle.textContent = 'Một kết nối MCP dùng chung cho tất cả dự án.';
-  } else if (state.screen === 'settings') {
-    eyebrow.textContent = 'ỨNG DỤNG';
-    title.textContent = 'Cài đặt';
-    subtitle.textContent = 'Chạy nền, khởi động Windows và thông tin hệ thống.';
-  } else {
-    eyebrow.textContent = 'CHATCODE CÁ NHÂN';
-    title.textContent = 'Tổng quan';
-    subtitle.textContent = 'Cầu nối riêng giữa ChatGPT và các thư mục bạn cho phép.';
-  }
+async function refreshUsage() {
+  try {
+    state.usage = await api.usageSnapshot(state.usageDays);
+    renderUsage();
+    renderActivity();
+    if (state.route === 'project' && state.current) renderProjectOverviewActivity();
+  } catch {}
 }
 
 function renderProjects() {
   $('projectCount').textContent = String(state.projects.length);
   $('projects').innerHTML = state.projects.length
     ? state.projects.map(p => `
-      <button class="project-item ${state.screen === 'project' && state.current?.id === p.id ? 'active' : ''}" data-id="${esc(p.id)}" type="button">
-        <span class="project-avatar">${esc((p.name || 'P').slice(0, 1).toUpperCase())}</span>
-        <span class="project-copy"><strong>${esc(p.name)}</strong><small>${esc(shortPath(p.root))}</small></span>
+      <button class="project-item ${state.route === 'project' && state.current?.id === p.id ? 'active' : ''}" data-project-id="${esc(p.id)}">
+        <span class="project-avatar">${esc((p.name || 'P').slice(0,1).toUpperCase())}</span>
+        <span class="project-copy"><strong>${esc(p.name)}</strong><small>${esc(p.root)}</small></span>
       </button>`).join('')
-    : `<div class="project-empty"><span>Chưa có dự án</span><small>Thêm thư mục để bắt đầu.</small></div>`;
-  document.querySelectorAll('.project-item').forEach(el => el.onclick = () => selectProject(el.dataset.id));
-}
-
-function shortPath(value) {
-  const text = String(value || '');
-  return text.length > 38 ? `…${text.slice(-37)}` : text;
+    : `<div class="empty-block">Chưa có dự án nào.</div>`;
+  document.querySelectorAll('[data-project-id]').forEach(el => el.onclick = () => selectProject(el.dataset.projectId));
 }
 
 function renderDashboardProjects() {
-  $('metricProjects').textContent = String(state.projects.length);
-  $('dashboardProjectGrid').innerHTML = state.projects.length
-    ? state.projects.map(p => {
-      const perms = p.permissions || {};
-      const enabled = [perms.write, perms.manageFiles, perms.tasks, perms.gitWrite].filter(Boolean).length;
-      return `<button class="dashboard-project" data-dashboard-project="${esc(p.id)}" type="button">
-        <span class="dashboard-project-avatar">${esc((p.name || 'P').slice(0,1).toUpperCase())}</span>
-        <span class="dashboard-project-copy"><strong>${esc(p.name)}</strong><small>${esc(p.root)}</small><i>${enabled}/4 quyền nâng cao đang bật</i></span>
-        <span class="chevron">›</span>
-      </button>`;
-    }).join('')
-    : `<div class="dashboard-empty"><strong>Chưa có dự án nào</strong><span>Thêm thư mục đầu tiên. Cấu hình domain không cần làm lại cho từng dự án.</span></div>`;
+  $('dashboardProjects').innerHTML = state.projects.length
+    ? state.projects.map(p => `<button class="project-card" data-dashboard-project="${esc(p.id)}"><span class="project-avatar">${esc((p.name || 'P').slice(0,1).toUpperCase())}</span><div><strong>${esc(p.name)}</strong><span>${esc(p.root)}</span></div></button>`).join('')
+    : `<div class="empty-block">Thêm thư mục đầu tiên để ChatGPT có workspace làm việc.</div>`;
   document.querySelectorAll('[data-dashboard-project]').forEach(el => el.onclick = () => selectProject(el.dataset.dashboardProject));
 }
 
-function selectProject(id) {
-  state.current = state.projects.find(p => p.id === id) || null;
-  if (!state.current) return;
-  state.projectTab = 'overview';
+function routeTo(route) {
+  if (route === 'project' && !state.current) route = 'dashboard';
+  state.route = route;
+  document.querySelectorAll('.route').forEach(el => el.classList.toggle('active', el.id === `route-${route}`));
+  document.querySelectorAll('.side-link[data-route]').forEach(el => el.classList.toggle('active', route !== 'project' && el.dataset.route === route));
   renderProjects();
-  renderProject();
-  showScreen('project');
-  setProjectTab('overview');
+
+  if (route === 'project' && state.current) {
+    $('pageEyebrow').textContent = 'PROJECT WORKSPACE';
+    $('pageTitle').textContent = state.current.name;
+    $('pageSubtitle').textContent = state.current.root;
+  } else {
+    const meta = PAGE_META[route] || PAGE_META.dashboard;
+    $('pageEyebrow').textContent = meta[0];
+    $('pageTitle').textContent = meta[1];
+    $('pageSubtitle').textContent = meta[2];
+  }
+  if (route === 'activity') renderActivity();
+  if (route === 'dashboard') renderUsage();
 }
 
-function renderProject() {
+async function selectProject(id) {
+  const project = state.projects.find(p => p.id === id);
+  if (!project) return;
+  state.current = project;
+  state.projectTab = 'overview';
+  renderProjectHeader();
+  setProjectTab('overview');
+  routeTo('project');
+  renderProjectOverviewActivity();
+  await loadProjectOverview();
+}
+
+function renderProjectHeader() {
   const p = state.current;
   if (!p) return;
   $('projectName').textContent = p.name;
@@ -179,67 +201,100 @@ function renderProject() {
   $('permGit').checked = !!p.permissions?.gitWrite;
   $('taskButton').disabled = !p.permissions?.tasks;
   renderPermissionPills();
-  renderOverviewPermissions();
+  renderProjectPermissionSummary();
 }
 
 function renderPermissionPills() {
   const p = state.current?.permissions || {};
-  const items = [['Đọc', true], ['Ghi', p.write], ['Quản lý', p.manageFiles], ['Tác vụ', p.tasks], ['Git', p.gitWrite]];
-  $('permissionPills').innerHTML = items.map(([label, on]) => `<span class="permission-pill ${on ? 'on' : ''}"><i></i>${label}</span>`).join('');
+  const values = [['Đọc', true], ['Ghi', p.write], ['Quản lý', p.manageFiles], ['Task', p.tasks], ['Git', p.gitWrite]];
+  $('permissionPills').innerHTML = values.map(([label,on]) => `<span class="permission-pill ${on ? 'on' : ''}">${label}</span>`).join('');
+  $('projectPermissionCount').textContent = `${values.filter(([,on]) => on).length}/5`;
 }
 
-function renderOverviewPermissions() {
-  const p = state.current?.permissions || {};
-  const items = [
-    ['Đọc & tìm kiếm', true, 'Luôn bật'],
-    ['Ghi file', p.write, p.write ? 'Được phép' : 'Đang tắt'],
-    ['Quản lý file', p.manageFiles, p.manageFiles ? 'Được phép' : 'Đang tắt'],
-    ['Chạy tác vụ', p.tasks, p.tasks ? 'Được phép' : 'Đang tắt'],
-    ['Git write', p.gitWrite, p.gitWrite ? 'Được phép' : 'Đang tắt']
-  ];
-  $('overviewPermissions').innerHTML = items.map(([label,on,text]) => `<div><span><i class="mini-dot ${on ? 'on' : ''}"></i>${label}</span><strong class="${on ? 'enabled' : ''}">${text}</strong></div>`).join('');
-}
-
-function setProjectTab(name, persist = true) {
+function renderProjectPermissionSummary() {
   if (!state.current) return;
-  if (!['overview','files','search','tasks','git','permissions'].includes(name)) name = 'overview';
-  state.projectTab = name;
-  document.querySelectorAll('[data-project-tab]').forEach(el => el.classList.toggle('active', el.dataset.projectTab === name));
-  document.querySelectorAll('.project-panel').forEach(el => el.classList.toggle('active', el.id === `project-tab-${name}`));
-  if (name === 'files') loadFiles();
-  if (persist) persistNavigation();
+  const p = state.current.permissions || {};
+  const rows = [['Đọc & tìm kiếm', true], ['Ghi file', p.write], ['Quản lý file', p.manageFiles], ['Tác vụ', p.tasks], ['Git write', p.gitWrite]];
+  $('projectPermissionSummary').innerHTML = rows.map(([label,on]) => `<div class="permission-summary-row"><span>${label}</span><b class="${on ? 'on' : ''}">${on ? 'Đang bật' : 'Đang tắt'}</b></div>`).join('');
+}
+
+function setProjectTab(tab) {
+  state.projectTab = tab;
+  document.querySelectorAll('[data-project-tab]').forEach(el => el.classList.toggle('active', el.dataset.projectTab === tab));
+  document.querySelectorAll('.project-tab').forEach(el => el.classList.toggle('active', el.id === `project-tab-${tab}`));
+  if (tab === 'files') loadFiles();
+  if (tab === 'overview') loadProjectOverview();
+}
+
+async function loadProjectOverview() {
+  if (!state.current) return;
+  renderProjectOverviewActivity();
+  const projectId = state.current.id;
+  if (state.fileCountCache.has(projectId)) $('projectFileCount').textContent = formatNumber(state.fileCountCache.get(projectId));
+  else $('projectFileCount').textContent = '…';
+  $('projectGitSummary').textContent = 'Đang kiểm tra';
+  try {
+    const [files, git] = await Promise.all([api.listFiles(projectId), api.gitStatus(projectId)]);
+    state.fileCountCache.set(projectId, files.length);
+    $('projectFileCount').textContent = formatNumber(files.length);
+    const out = String(git?.stdout || '').trim();
+    if (!git?.ok) $('projectGitSummary').textContent = 'Không có Git';
+    else if (!out) $('projectGitSummary').textContent = 'Sạch';
+    else {
+      const lines = out.split(/\r?\n/);
+      const changes = lines.slice(1).filter(Boolean).length;
+      $('projectGitSummary').textContent = changes ? `${changes} thay đổi` : (lines[0].replace(/^##\s*/, '') || 'Sạch');
+    }
+  } catch {
+    $('projectGitSummary').textContent = 'Không xác định';
+  }
+}
+
+function renderProjectOverviewActivity() {
+  if (!state.current) return;
+  const recent = (state.usage?.recent || []).filter(item => item.projectId === state.current.id || item.project === state.current.name);
+  $('projectActionCount').textContent = formatNumber(recent.length);
+  $('projectActivity').innerHTML = renderActivityRows(recent.slice(0,6));
 }
 
 function renderConnection(connection = {}) {
-  state.connection = connection;
   const status = connection.status || 'stopped';
   const meta = statusMeta(status);
   const connected = status === 'connected';
+  const domain = connection.domain || state.connectionConfig?.domain || '';
 
-  $('topConnectionBadge').className = `connection-chip ${meta.tone}`;
-  $('topConnectionBadge').querySelector('span:last-child').textContent = meta.title;
   $('sidebarStatusDot').className = `status-dot ${meta.tone}`;
   $('sidebarStatusText').textContent = meta.title;
-  $('sidebarStatusDetail').textContent = connected && connection.domain ? connection.domain : 'MCP · localhost:47820';
-  $('navConnectionDot').className = `nav-dot ${connected ? 'success' : status === 'error' ? 'error' : ''}`;
-  $('connectionHeaderStatus').className = `header-status ${meta.tone}`;
-  $('connectionHeaderStatus').querySelector('span:last-child').textContent = meta.title;
+  $('sidebarStatusSub').textContent = connected && domain ? domain : 'MCP cục bộ · 47820';
+  $('navConnectionDot').className = `tiny-dot ${meta.tone}`;
 
-  $('dashboardStatusTitle').textContent = connected ? 'ChatGPT Connector đang trực tuyến' : meta.title;
-  $('dashboardStatusDetail').textContent = connection.error || (connected ? 'Bạn có thể đóng cửa sổ; ChatCode vẫn chạy nền trong System Tray.' : meta.detail);
-  $('heroPulse').className = `pulse ${connected ? 'success' : status === 'error' ? 'error' : ''}`;
-  $('metricConnection').textContent = connected ? 'Online' : meta.title;
-  $('metricDomain').textContent = connection.domain || (connection.mode === 'quick' ? 'Quick Tunnel' : 'Chưa cấu hình domain');
-  $('dashboardPrimaryAction').textContent = connected ? 'Xem kết nối' : 'Mở cấu hình kết nối';
+  $('topConnectionBadge').className = `connection-badge ${meta.tone}`;
+  $('topConnectionBadge').querySelector('.status-dot').className = `status-dot ${meta.tone}`;
+  $('topConnectionBadge').querySelector('span:last-child').textContent = meta.title;
+  $('quickCopyMcp').disabled = !connection.connectionUrl;
+
+  $('heroStatusDot').className = `status-dot ${meta.tone}`;
+  $('heroStatusTitle').textContent = meta.title;
+  $('heroDomain').textContent = domain || (connection.mode === 'quick' ? connection.publicBaseUrl || 'Quick Tunnel' : 'Domain chưa cấu hình');
+  $('heroUptime').textContent = `Uptime ${formatUptime(connection.uptimeSec || state.usage?.uptimeSec || 0)}`;
+  $('heroConnectionDetail').textContent = connection.error || (connected ? `MCP đang sẵn sàng qua ${domain || connection.publicBaseUrl || 'Cloudflare'}. Đóng cửa sổ vẫn tiếp tục chạy nền.` : meta.detail);
+
+  $('connectionBigIcon').querySelector('.status-dot').className = `status-dot ${meta.tone}`;
+  $('connectionSummaryTitle').textContent = meta.title;
+  $('connectionSummaryText').textContent = connection.error || (connected ? `Kết nối toàn cục đang hoạt động qua ${domain || connection.publicBaseUrl || 'Cloudflare'}.` : meta.detail);
 
   $('connectionUrl').value = connection.connectionUrl || '';
   $('copyConnection').disabled = !connection.connectionUrl;
+  $('urlStatusDot').className = `status-dot ${connected ? 'success' : meta.tone}`;
+  $('urlStatusText').textContent = connected ? 'Sẵn sàng cho ChatGPT' : meta.title;
+  $('detailDomain').textContent = domain || '—';
+  $('detailMode').textContent = connection.mode === 'quick' ? 'Quick Tunnel' : 'Domain riêng';
+  renderInlineMessage(connection.error || (connected ? 'Cloudflare và MCP đã được xác minh.' : meta.detail), connection.error ? 'error' : connected ? 'success' : 'info');
+}
 
-  const message = connection.error || (connected
-    ? `Đã xác minh ${connection.publicBaseUrl || connection.domain || 'Cloudflare Tunnel'}. Cấu hình này áp dụng cho mọi dự án.`
-    : meta.detail);
-  $('connectionMessage').className = `inline-message ${connection.error ? 'error' : connected ? 'success' : 'info'}`;
-  $('connectionMessage').textContent = message;
+function renderInlineMessage(message, tone = 'info') {
+  $('connectionMessage').className = `inline-message ${tone}`;
+  $('connectionMessage').textContent = message || '';
 }
 
 function setConnectionMode(mode) {
@@ -255,79 +310,76 @@ function renderConnectionConfig() {
   setConnectionMode(config.mode || 'custom');
   $('cloudDomain').value = config.domain || '';
   $('savedTokenHint').classList.toggle('hidden', !config.hasTunnelToken);
-  $('cloudToken').placeholder = config.hasTunnelToken ? 'Đã lưu · để trống nếu không đổi token' : 'Nhập token eyJ…';
+  $('cloudToken').placeholder = config.hasTunnelToken ? 'Đã lưu · nhập token mới để thay đổi' : 'eyJ...';
   $('clearCloudToken').classList.toggle('hidden', !config.hasTunnelToken);
 }
 
-async function saveAndConnect() {
-  const button = $('saveAndConnect');
-  setButtonBusy(button, true, 'Đang kết nối…');
-  try {
-    state.connectionConfig = await api.saveConnectionConfig({
-      mode: state.connectionMode,
-      domain: $('cloudDomain').value.trim(),
-      tunnelToken: $('cloudToken').value.trim()
-    });
-    $('cloudToken').value = '';
-    renderConnectionConfig();
-    const result = await api.startConnection();
-    renderConnection(result);
-    if (result.status === 'connected') toast('Kết nối ChatGPT đã sẵn sàng.');
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  } finally {
-    setButtonBusy(button, false, 'Lưu & Kết nối');
-  }
+function renderUsage() {
+  const usage = state.usage;
+  if (!usage) return;
+  const a = usage.aggregate || {};
+  const calls = Number(a.calls || 0);
+  $('kpiCalls').textContent = formatNumber(calls);
+  $('kpiCallsSub').textContent = `Trong ${usage.rangeDays || state.usageDays} ngày`;
+  $('kpiRead').textContent = formatNumber(a.read || 0);
+  $('kpiWrite').textContent = formatNumber((a.write || 0) + (a.manage || 0));
+  $('kpiAutomation').textContent = formatNumber((a.task || 0) + (a.git || 0));
+  $('kpiIn').textContent = formatBytes(a.bytesIn || 0);
+  $('kpiErrors').textContent = formatNumber(a.errors || 0);
+  $('kpiLatency').textContent = `Độ trễ TB ${calls ? formatDuration((a.durationMs || 0) / calls) : '0 ms'}`;
+  $('heroUptime').textContent = `Uptime ${formatUptime(state.connection?.uptimeSec || usage.uptimeSec || 0)}`;
+  renderUsageChart(usage.series || []);
+  $('dashboardActivity').innerHTML = renderActivityRows((usage.recent || []).slice(0,7));
 }
 
-function setButtonBusy(button, busy, label) {
-  button.disabled = busy;
-  button.classList.toggle('loading', busy);
-  const target = button.querySelector('.button-label');
-  if (target) target.textContent = label;
-  else if (label) button.textContent = label;
+function renderUsageChart(series) {
+  if (!series.length) {
+    $('usageChart').innerHTML = `<div class="empty-block">Chưa có dữ liệu MCP.</div>`;
+    return;
+  }
+  const totals = series.map(d => Number(d.calls || 0));
+  const max = Math.max(1, ...totals);
+  $('usageChart').innerHTML = series.map((d, index) => {
+    const total = Number(d.calls || 0);
+    const chartHeight = total ? Math.max(8, Math.round((total / max) * 180)) : 3;
+    const read = Number(d.read || 0);
+    const write = Number(d.write || 0) + Number(d.manage || 0);
+    const task = Number(d.task || 0) + Number(d.git || 0) + Number(d.other || 0);
+    const denominator = Math.max(1, read + write + task);
+    const readH = Math.round(chartHeight * read / denominator);
+    const writeH = Math.round(chartHeight * write / denominator);
+    const taskH = Math.max(0, chartHeight - readH - writeH);
+    const date = new Date(`${d.date}T12:00:00`);
+    const showLabel = series.length <= 14 || index % 3 === 0 || index === series.length - 1;
+    const label = showLabel ? date.toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit' }) : '';
+    return `<div class="chart-day" data-tip="${esc(`${d.date}: ${total} lượt`)}"><div class="chart-stack" style="height:${chartHeight}px"><div class="chart-segment read" style="height:${readH}px"></div><div class="chart-segment write" style="height:${writeH}px"></div><div class="chart-segment task" style="height:${taskH}px"></div></div><label>${label}</label></div>`;
+  }).join('');
 }
 
-async function runDiagnosis() {
-  const buttons = [$('diagnoseConnection'), $('dashboardDiagnose')];
-  buttons.forEach(b => { b.disabled = true; });
-  $('diagnosticResults').innerHTML = `<div class="diagnostic-empty">Đang kiểm tra kết nối…</div>`;
-  try {
-    const result = await api.diagnoseConnection();
-    $('diagnosticResults').innerHTML = result.checks.map(item => `
-      <div class="diagnostic-item ${item.ok ? 'ok' : 'fail'}">
-        <span class="diagnostic-icon">${item.ok ? '✓' : '!'}</span>
-        <div><strong>${esc(item.name)}</strong><small>${item.status ? `HTTP ${item.status} · ` : ''}${item.ms} ms</small></div>
-      </div>`).join('');
-    toast(result.ok ? 'MCP end-to-end hoạt động bình thường.' : 'Có bước kết nối chưa đạt.', result.ok ? 'success' : 'error');
-    if (state.screen === 'dashboard') showScreen('connection');
-  } catch (error) {
-    $('diagnosticResults').innerHTML = `<div class="diagnostic-empty error-text">${esc(error.message || String(error))}</div>`;
-    toast(error.message || String(error), 'error');
-  } finally {
-    buttons.forEach(b => { b.disabled = false; });
-  }
+function renderActivityRows(items) {
+  if (!items?.length) return `<div class="empty-block">Chưa có hoạt động ChatGPT nào được ghi nhận.</div>`;
+  return items.map(item => {
+    const cls = item.ok === false ? 'error' : item.category;
+    const title = `${activityLabel(item.category, item.tool)}${item.project ? ` · ${item.project}` : ''}`;
+    const detail = item.error || item.target || item.tool;
+    return `<div class="activity-row"><span class="activity-glyph ${esc(cls)}">${esc(activityGlyph(item.category, item.ok))}</span><div class="activity-copy"><strong>${esc(title)}</strong><span>${esc(detail)}</span></div><div class="activity-meta"><strong>${esc(formatTime(item.at))}</strong><span>${esc(formatDuration(item.durationMs))} · ${esc(formatBytes((item.bytesIn || 0) + (item.bytesOut || 0)))}</span></div></div>`;
+  }).join('');
+}
+
+function renderActivity() {
+  const filter = $('activityFilter')?.value || 'all';
+  let items = state.usage?.recent || [];
+  if (filter === 'error') items = items.filter(item => item.ok === false);
+  else if (filter !== 'all') items = items.filter(item => item.category === filter);
+  $('activityList').innerHTML = renderActivityRows(items);
 }
 
 function renderSettings() {
-  const settings = state.settings || { closeToTray: true, launchAtLogin: false };
-  $('settingCloseToTray').checked = !!settings.closeToTray;
+  const settings = state.settings || {};
+  $('settingCloseToTray').checked = settings.closeToTray !== false;
   $('settingLaunchAtLogin').checked = !!settings.launchAtLogin;
-  $('metricBackground').textContent = settings.closeToTray ? 'Bật' : 'Tắt';
-  $('appVersion').textContent = state.appInfo?.version ? `v${state.appInfo.version}` : '—';
-}
-
-async function saveSettings() {
-  try {
-    state.settings = await api.updateSettings({
-      closeToTray: $('settingCloseToTray').checked,
-      launchAtLogin: $('settingLaunchAtLogin').checked
-    });
-    renderSettings();
-    toast('Đã lưu cài đặt ứng dụng.');
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
+  $('settingActivityNotifications').checked = settings.activityNotifications !== false;
+  $('appVersion').textContent = `v${state.appInfo?.version || '0.5.0'}`;
 }
 
 async function addProject() {
@@ -335,214 +387,211 @@ async function addProject() {
     const project = await api.addProject();
     if (!project) return;
     state.projects = await api.listProjects();
-    state.current = state.projects.find(p => p.id === project.id) || project;
     renderProjects();
     renderDashboardProjects();
-    renderProject();
+    toast(`Đã thêm dự án “${project.name}”.`);
     selectProject(project.id);
-    toast(`Đã thêm “${project.name}”.`);
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
-}
-
-async function removeCurrentProject() {
-  if (!state.current) return;
-  const name = state.current.name;
-  if (!confirm(`Gỡ “${name}” khỏi ChatCode? File trên máy sẽ không bị xóa.`)) return;
-  try {
-    await api.removeProject(state.current.id);
-    state.projects = await api.listProjects();
-    state.current = null;
-    localStorage.removeItem('chatcode.projectId');
-    renderProjects();
-    renderDashboardProjects();
-    showScreen('dashboard');
-    toast(`Đã gỡ “${name}” khỏi ChatCode.`, 'info');
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
-}
-
-async function savePermissions() {
-  if (!state.current) return;
-  try {
-    const updated = await api.updateProject({
-      id: state.current.id,
-      permissions: {
-        write: $('permWrite').checked,
-        manageFiles: $('permManage').checked,
-        tasks: $('permTasks').checked,
-        gitWrite: $('permGit').checked
-      }
-    });
-    state.current = updated;
-    const index = state.projects.findIndex(p => p.id === updated.id);
-    if (index >= 0) state.projects[index] = updated;
-    renderPermissionPills();
-    renderOverviewPermissions();
-    renderDashboardProjects();
-    $('taskButton').disabled = !updated.permissions?.tasks;
-    $('permissionSaved').textContent = 'Đã lưu thay đổi.';
-    clearTimeout(savePermissions.timer);
-    savePermissions.timer = setTimeout(() => { $('permissionSaved').textContent = 'Thay đổi được lưu tự động.'; }, 1800);
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
+  } catch (error) { toast(error.message || String(error), 'error'); }
 }
 
 async function loadFiles() {
   if (!state.current) return;
-  $('fileList').innerHTML = `<div class="list-loading">Đang đọc danh sách tệp…</div>`;
+  $('fileList').innerHTML = `<div class="empty-block">Đang tải danh sách tệp…</div>`;
   try {
     const files = await api.listFiles(state.current.id);
-    $('fileCount').textContent = `${files.length.toLocaleString('vi-VN')} tệp`;
-    $('fileList').innerHTML = files.length
-      ? files.map(f => `<button class="file-item" data-path="${esc(f)}" type="button"><span class="file-glyph">${fileGlyph(f)}</span><span>${esc(f)}</span></button>`).join('')
-      : `<div class="list-empty">Không có file phù hợp.</div>`;
-    document.querySelectorAll('.file-item').forEach(el => el.onclick = () => openFile(el.dataset.path, el));
-  } catch (error) {
-    $('fileList').innerHTML = `<div class="list-empty error-text">${esc(error.message || String(error))}</div>`;
-  }
+    state.fileCountCache.set(state.current.id, files.length);
+    $('fileCount').textContent = `${formatNumber(files.length)} tệp`;
+    $('projectFileCount').textContent = formatNumber(files.length);
+    $('fileList').innerHTML = files.length ? files.map(f => `<button class="file-item" data-file-path="${esc(f)}"><span class="file-glyph">${esc(fileGlyph(f))}</span><span>${esc(f)}</span></button>`).join('') : `<div class="empty-block">Không tìm thấy file văn bản.</div>`;
+    document.querySelectorAll('[data-file-path]').forEach(el => el.onclick = () => openFile(el.dataset.filePath, el));
+  } catch (error) { $('fileList').innerHTML = `<div class="empty-block">${esc(error.message || String(error))}</div>`; }
 }
 
 function fileGlyph(file) {
   const ext = String(file).split('.').pop().toLowerCase();
   if (['js','jsx','ts','tsx','mjs','cjs'].includes(ext)) return 'JS';
   if (['json','yaml','yml','toml'].includes(ext)) return '{}';
-  if (['md','txt'].includes(ext)) return 'TX';
-  if (['css','scss','html','vue','svelte'].includes(ext)) return 'UI';
-  if (ext === 'py') return 'PY';
-  if (ext === 'php') return 'PH';
+  if (['md','txt'].includes(ext)) return '¶';
+  if (['css','scss','html','vue','svelte'].includes(ext)) return '◇';
+  if (ext === 'py') return 'Py';
+  if (ext === 'php') return 'PHP';
   return '·';
 }
 
 async function openFile(rel, element) {
   document.querySelectorAll('.file-item').forEach(el => el.classList.toggle('active', el === element));
   $('fileTitle').textContent = rel;
-  $('filePreview').textContent = 'Đang tải…';
-  try {
-    $('filePreview').textContent = await api.readFile(state.current.id, rel);
-  } catch (error) {
-    $('filePreview').textContent = error.message || String(error);
-  }
+  $('filePreview').textContent = 'Đang tải nội dung…';
+  try { $('filePreview').textContent = await api.readFile(state.current.id, rel); }
+  catch (error) { $('filePreview').textContent = error.message || String(error); }
 }
 
-async function runSearch() {
-  if (!state.current) return;
-  const query = $('searchInput').value.trim();
-  if (!query) return;
-  $('searchResults').innerHTML = `<div class="search-empty">Đang tìm…</div>`;
+async function saveAndConnect() {
+  const button = $('saveAndConnect');
+  button.disabled = true;
+  button.textContent = 'Đang kết nối…';
+  renderInlineMessage('Đang lưu cấu hình toàn cục và kiểm tra Cloudflare…', 'info');
   try {
-    const results = await api.search(state.current.id, query);
-    $('searchResults').innerHTML = results.length
-      ? results.map(r => `<article class="search-result"><strong>${esc(r.path)}</strong><pre>${esc(r.snippet)}</pre></article>`).join('')
-      : `<div class="search-empty">Không tìm thấy kết quả.</div>`;
+    state.connectionConfig = await api.saveConnectionConfig({ mode: state.connectionMode, domain: $('cloudDomain').value.trim(), tunnelToken: $('cloudToken').value.trim() });
+    $('cloudToken').value = '';
+    renderConnectionConfig();
+    const result = await api.startConnection();
+    state.connection = result;
+    renderConnection(result);
+    if (result.status === 'connected') toast('Kết nối Cloudflare thành công.');
   } catch (error) {
-    $('searchResults').innerHTML = `<div class="search-empty error-text">${esc(error.message || String(error))}</div>`;
-  }
-}
-
-async function runTask() {
-  if (!state.current) return;
-  if (!state.current.permissions?.tasks) return toast('Quyền Tác vụ đang tắt.', 'error');
-  const command = $('taskInput').value.trim();
-  if (!command) return;
-  $('taskButton').disabled = true;
-  $('taskOutput').textContent = `> ${command}\n\nĐang chạy…`;
-  try {
-    const result = await api.runTask(state.current.id, command);
-    $('taskOutput').textContent = [`> ${command}`, '', result.stdout || '', result.stderr || '', `Exit code: ${result.code}`].filter(Boolean).join('\n');
-  } catch (error) {
-    $('taskOutput').textContent = error.message || String(error);
+    renderInlineMessage(error.message || String(error), 'error');
+    toast(error.message || String(error), 'error');
   } finally {
-    $('taskButton').disabled = !state.current.permissions?.tasks;
+    button.disabled = false;
+    button.textContent = 'Lưu & kết nối';
   }
 }
 
-async function runGit(type) {
-  if (!state.current) return;
-  $('gitOutput').textContent = 'Đang chạy Git…';
+async function runDiagnostics() {
+  const buttons = [$('diagnoseConnection'), $('heroDiagnose')];
+  buttons.forEach(b => { if (b) b.disabled = true; });
+  $('diagnosticResults').innerHTML = `<div class="diagnostic-placeholder">Đang chạy kiểm tra end-to-end…</div>`;
   try {
-    const result = type === 'diff' ? await api.gitDiff(state.current.id) : await api.gitStatus(state.current.id);
-    $('gitOutput').textContent = [result.stdout || '', result.stderr || ''].filter(Boolean).join('\n') || '(không có output)';
+    const result = await api.diagnoseConnection();
+    $('diagnosticResults').innerHTML = result.checks.map(item => `<div class="diagnostic-item ${item.ok ? 'ok' : 'bad'}"><span class="diagnostic-mark">${item.ok ? '✓' : '!'}</span><div><strong>${esc(item.name)}</strong><span>${esc(item.detail || (item.ok ? 'OK' : 'Không phản hồi'))}</span></div><small>${item.status || '—'} · ${item.ms} ms</small></div>`).join('');
+    toast(result.ok ? 'Tất cả bước kết nối đều hoạt động.' : 'Có bước kiểm tra chưa đạt.', result.ok ? 'success' : 'error');
   } catch (error) {
-    $('gitOutput').textContent = error.message || String(error);
-  }
+    $('diagnosticResults').innerHTML = `<div class="diagnostic-placeholder">${esc(error.message || String(error))}</div>`;
+    toast(error.message || String(error), 'error');
+  } finally { buttons.forEach(b => { if (b) b.disabled = false; }); }
 }
 
-document.querySelectorAll('[data-screen]').forEach(el => el.onclick = () => showScreen(el.dataset.screen));
-document.querySelectorAll('[data-project-tab]').forEach(el => el.onclick = () => setProjectTab(el.dataset.projectTab));
-document.querySelectorAll('[data-open-tab]').forEach(el => el.onclick = () => setProjectTab(el.dataset.openTab));
+async function saveProjectPermissions() {
+  if (!state.current) return;
+  try {
+    const updated = await api.updateProject({ id: state.current.id, name: state.current.name, permissions: {
+      write: $('permWrite').checked,
+      manageFiles: $('permManage').checked,
+      tasks: $('permTasks').checked,
+      gitWrite: $('permGit').checked
+    }});
+    state.current = updated;
+    state.projects = state.projects.map(p => p.id === updated.id ? updated : p);
+    renderProjectHeader();
+    renderProjects();
+    renderDashboardProjects();
+    toast('Đã cập nhật quyền dự án.');
+  } catch (error) { toast(error.message || String(error), 'error'); }
+}
 
+async function saveSettings() {
+  try {
+    state.settings = await api.updateSettings({
+      closeToTray: $('settingCloseToTray').checked,
+      launchAtLogin: $('settingLaunchAtLogin').checked,
+      activityNotifications: $('settingActivityNotifications').checked
+    });
+    renderSettings();
+    toast('Đã lưu cài đặt.');
+  } catch (error) { toast(error.message || String(error), 'error'); }
+}
+
+document.querySelectorAll('[data-route]').forEach(el => el.addEventListener('click', () => routeTo(el.dataset.route)));
 $('addProject').onclick = addProject;
 $('dashboardAddProject').onclick = addProject;
-$('dashboardPrimaryAction').onclick = () => showScreen('connection');
-$('hideToTray').onclick = () => api.hideApp();
+$('quickCopyMcp').onclick = async () => { try { await api.copyConnection(); toast('Đã sao chép URL MCP.'); } catch (e) { toast(e.message || String(e), 'error'); } };
+
+$('usageRange').onchange = async () => {
+  state.usageDays = Number($('usageRange').value) || 14;
+  await refreshUsage();
+};
+$('heroDiagnose').onclick = async () => { routeTo('connection'); await runDiagnostics(); };
 
 $('modeCustom').onclick = () => setConnectionMode('custom');
 $('modeQuick').onclick = () => setConnectionMode('quick');
 $('toggleToken').onclick = () => {
   const input = $('cloudToken');
-  const visible = input.type === 'text';
-  input.type = visible ? 'password' : 'text';
-  $('toggleToken').textContent = visible ? 'Hiện' : 'Ẩn';
+  input.type = input.type === 'password' ? 'text' : 'password';
+  $('toggleToken').textContent = input.type === 'password' ? 'Hiện' : 'Ẩn';
 };
 $('saveAndConnect').onclick = saveAndConnect;
 $('restartConnection').onclick = async () => {
-  try {
-    renderConnection({ ...state.connection, status: 'starting', error: '' });
-    const result = await api.startConnection();
-    renderConnection(result);
-    if (result.status === 'connected') toast('Đã kết nối lại thành công.');
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
+  try { renderConnection({ ...state.connection, status:'starting', error:'' }); const result = await api.startConnection(); state.connection = result; renderConnection(result); toast('Đã kết nối lại.'); }
+  catch (e) { toast(e.message || String(e), 'error'); }
 };
 $('stopConnection').onclick = async () => {
-  try {
-    await api.stopConnection();
-    renderConnection(await api.connectionStatus());
-    toast('Đã ngắt kết nối công khai.', 'info');
-  } catch (error) {
-    toast(error.message || String(error), 'error');
-  }
+  try { await api.stopConnection(); state.connection = await api.connectionStatus(); renderConnection(state.connection); toast('Đã ngắt Cloudflare Tunnel.', 'info'); }
+  catch (e) { toast(e.message || String(e), 'error'); }
 };
-$('copyConnection').onclick = async () => {
-  try { await api.copyConnection(); toast('Đã sao chép URL MCP.'); }
-  catch (error) { toast(error.message || String(error), 'error'); }
-};
+$('copyConnection').onclick = async () => { try { await api.copyConnection(); toast('Đã sao chép URL MCP.'); } catch (e) { toast(e.message || String(e), 'error'); } };
+$('diagnoseConnection').onclick = runDiagnostics;
 $('rotateConnection').onclick = async () => {
-  if (!confirm('Đổi secret MCP? URL connector hiện tại trong ChatGPT sẽ ngừng hoạt động.')) return;
-  try {
-    const result = await api.rotateConnection();
-    renderConnection(result);
-    toast('Đã đổi secret MCP.');
-  } catch (error) { toast(error.message || String(error), 'error'); }
+  if (!confirm('Đổi secret MCP? URL connector hiện tại trong ChatGPT sẽ ngừng hoạt động và bạn phải cập nhật URL mới.')) return;
+  try { const result = await api.rotateConnection(); state.connection = result; renderConnection(result); toast('Đã đổi secret MCP.'); }
+  catch (e) { toast(e.message || String(e), 'error'); }
 };
 $('clearCloudToken').onclick = async () => {
-  if (!confirm('Xóa Tunnel Token đã lưu?')) return;
-  try {
-    state.connectionConfig = await api.clearTunnelToken();
-    renderConnectionConfig();
-    renderConnection(await api.connectionStatus());
-    toast('Đã xóa Tunnel Token.', 'info');
-  } catch (error) { toast(error.message || String(error), 'error'); }
+  if (!confirm('Xóa Tunnel Token đã lưu? Bạn sẽ cần nhập lại để kết nối domain riêng.')) return;
+  try { state.connectionConfig = await api.clearTunnelToken(); renderConnectionConfig(); state.connection = await api.connectionStatus(); renderConnection(state.connection); toast('Đã xóa Tunnel Token.', 'info'); }
+  catch (e) { toast(e.message || String(e), 'error'); }
 };
-$('diagnoseConnection').onclick = runDiagnosis;
-$('dashboardDiagnose').onclick = runDiagnosis;
 
-$('removeProject').onclick = removeCurrentProject;
-['permWrite','permManage','permTasks','permGit'].forEach(id => $(id).addEventListener('change', savePermissions));
+$('activityFilter').onchange = renderActivity;
+$('clearActivity').onclick = async () => {
+  if (!confirm('Xóa toàn bộ thống kê và audit log ChatGPT trên máy này?')) return;
+  try { state.usage = await api.clearUsage(); renderUsage(); renderActivity(); renderProjectOverviewActivity(); toast('Đã xóa lịch sử hoạt động.', 'info'); }
+  catch (e) { toast(e.message || String(e), 'error'); }
+};
+
+['settingCloseToTray','settingLaunchAtLogin','settingActivityNotifications'].forEach(id => $(id).onchange = saveSettings);
+$('hideToTray').onclick = async () => { await api.hideApp(); };
+
+document.querySelectorAll('[data-project-tab]').forEach(el => el.onclick = () => setProjectTab(el.dataset.projectTab));
+document.querySelectorAll('[data-project-tab-target]').forEach(el => el.onclick = () => setProjectTab(el.dataset.projectTabTarget));
 $('refreshFiles').onclick = loadFiles;
-$('searchButton').onclick = runSearch;
-$('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
-document.querySelectorAll('.quick-commands button').forEach(button => button.onclick = () => { $('taskInput').value = button.dataset.command; });
-$('taskButton').onclick = runTask;
-$('taskInput').addEventListener('keydown', e => { if (e.key === 'Enter') runTask(); });
-$('gitStatus').onclick = () => runGit('status');
-$('gitDiff').onclick = () => runGit('diff');
-$('settingCloseToTray').addEventListener('change', saveSettings);
-$('settingLaunchAtLogin').addEventListener('change', saveSettings);
+$('searchButton').onclick = async () => {
+  if (!state.current) return;
+  const query = $('searchInput').value.trim();
+  if (!query) return;
+  $('searchResults').innerHTML = `<div class="empty-block">Đang tìm trong dự án…</div>`;
+  try {
+    const results = await api.search(state.current.id, query);
+    $('searchResults').innerHTML = results.length ? results.map(r => `<article class="search-card"><strong>${esc(r.path)}</strong><pre>${esc(r.snippet)}</pre></article>`).join('') : `<div class="empty-block">Không tìm thấy kết quả phù hợp.</div>`;
+  } catch (e) { $('searchResults').innerHTML = `<div class="empty-block">${esc(e.message || String(e))}</div>`; }
+};
+$('searchInput').addEventListener('keydown', event => { if (event.key === 'Enter') $('searchButton').click(); });
+document.querySelectorAll('.quick-commands button').forEach(el => el.onclick = () => { $('taskInput').value = el.dataset.command; });
+$('taskButton').onclick = async () => {
+  if (!state.current) return;
+  if (!state.current.permissions?.tasks) return toast('Quyền Tác vụ đang tắt.', 'error');
+  const command = $('taskInput').value.trim();
+  if (!command) return;
+  $('taskOutput').textContent = 'Đang chạy…';
+  try {
+    const result = await api.runTask(state.current.id, command);
+    $('taskOutput').textContent = `${result.stdout || ''}${result.stderr ? `\n${result.stderr}` : ''}`.trim() || `Đã hoàn tất (code ${result.code}).`;
+  } catch (e) { $('taskOutput').textContent = e.message || String(e); }
+};
+$('gitStatus').onclick = async () => {
+  if (!state.current) return;
+  $('gitOutput').textContent = 'Đang tải Git status…';
+  try { const r = await api.gitStatus(state.current.id); $('gitOutput').textContent = `${r.stdout || ''}${r.stderr ? `\n${r.stderr}` : ''}`.trim() || 'Working tree sạch.'; }
+  catch (e) { $('gitOutput').textContent = e.message || String(e); }
+};
+$('gitDiff').onclick = async () => {
+  if (!state.current) return;
+  $('gitOutput').textContent = 'Đang tải Git diff…';
+  try { const r = await api.gitDiff(state.current.id); $('gitOutput').textContent = `${r.stdout || ''}${r.stderr ? `\n${r.stderr}` : ''}`.trim() || 'Không có thay đổi chưa stage.'; }
+  catch (e) { $('gitOutput').textContent = e.message || String(e); }
+};
+['permWrite','permManage','permTasks','permGit'].forEach(id => $(id).onchange = saveProjectPermissions);
+$('removeProject').onclick = async () => {
+  if (!state.current) return;
+  const name = state.current.name;
+  if (!confirm(`Gỡ “${name}” khỏi ChatCode? File thật trên máy sẽ không bị xóa.`)) return;
+  try {
+    await api.removeProject(state.current.id);
+    state.projects = await api.listProjects();
+    state.current = null;
+    renderProjects(); renderDashboardProjects(); routeTo('dashboard');
+    toast(`Đã gỡ “${name}” khỏi ChatCode.`, 'info');
+  } catch (e) { toast(e.message || String(e), 'error'); }
+};
 
 init();
