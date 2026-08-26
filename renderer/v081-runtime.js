@@ -3,7 +3,7 @@
   if (!api || window.__chatcodeV081Loaded) return;
   window.__chatcodeV081Loaded = true;
   const $ = id => document.getElementById(id);
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;' }[ch]));
+  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
   const logTime = value => {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? '--:--:--' : d.toLocaleTimeString('vi-VN', { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
