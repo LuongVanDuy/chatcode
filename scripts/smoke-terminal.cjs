@@ -47,7 +47,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   ];
   store.write(state);
 
-  const projects = createProjectService(store);
+  const recorded = [];
+  const projects = createProjectService(store, { recordActivity:async entry => recorded.push(entry) });
   const approvals = createApprovalService(store);
   const backups = { async snapshot() { return null; } };
   const api = createSafeToolApi(projects, store, approvals, backups, { notifyTaskCompleted:() => ({ emitted:false, count:0, reason:'test' }) });
@@ -57,10 +58,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(typeof api.jobStop, 'function');
   assert.equal(typeof api.listTerminalJobs, 'function');
 
-  await assert.rejects(
-    () => api.exec('safe', 'node --version'),
-    error => normalizeError(error).code === 'PERMISSION_DENIED'
-  );
+  await assert.rejects(() => api.exec('safe', 'node --version'), error => normalizeError(error).code === 'PERMISSION_DENIED');
 
   const chained = await api.exec('trusted', `node -e "process.stdout.write('CHAIN_A')" && node -e "process.stdout.write('CHAIN_B')"`);
   assert.equal(chained.status, 'completed', chained.stderr);
@@ -70,9 +68,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(chained.terminal.cwd_inside_project, true);
   assert.equal(chained.terminal.os_filesystem_sandbox, false);
 
-  const pipeCommand = process.platform === 'win32'
-    ? `node -e "console.log('PIPE_OK')" | findstr PIPE_OK`
-    : `node -e "console.log('PIPE_OK')" | grep PIPE_OK`;
+  const pipeCommand = process.platform === 'win32' ? `node -e "console.log('PIPE_OK')" | findstr PIPE_OK` : `node -e "console.log('PIPE_OK')" | grep PIPE_OK`;
   const piped = await api.exec('trusted', pipeCommand);
   assert.equal(piped.status, 'completed', piped.stderr);
   assert.match(piped.stdout, /PIPE_OK/);
@@ -80,20 +76,22 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const cwd = await api.exec('trusted', `node -e "console.log(require('path').basename(process.cwd()))"`, { cwd:'subdir' });
   assert.equal(cwd.status, 'completed', cwd.stderr);
   assert.match(cwd.stdout, /subdir/);
-  await assert.rejects(
-    () => api.exec('trusted', 'node --version', { cwd:'../' }),
-    error => normalizeError(error).code === 'PATH_OUTSIDE_PROJECT'
-  );
+  await assert.rejects(() => api.exec('trusted', 'node --version', { cwd:'../' }), error => normalizeError(error).code === 'PATH_OUTSIDE_PROJECT');
 
   for (const blocked of ['git push origin main', 'git -C . push origin main', 'git reset --hard HEAD']) {
     await assert.rejects(() => api.exec('trusted', blocked), error => normalizeError(error).code === 'TASK_NOT_ALLOWED');
   }
 
-  const bg = await api.exec(
-    'trusted',
-    `node -e "console.log('BG_START');setTimeout(()=>console.log('BG_LATE'),250);setInterval(()=>{},1000)"`,
-    { background:true }
-  );
+  const completedBg = await api.exec('trusted', `node -e "console.log('BG_DONE')"`, { background:true });
+  for (let i = 0; i < 30 && ['running','stopping'].includes(api.jobStatus(completedBg.job_id).status); i++) await sleep(100);
+  const completedStatus = api.jobStatus(completedBg.job_id);
+  assert.equal(completedStatus.status, 'completed', completedStatus.stderr);
+  assert.match(completedStatus.stdout, /BG_DONE/);
+  assert.equal(recorded.length, 1, 'A completed background command should record exactly one completion activity.');
+  assert.equal(recorded[0].category, 'task');
+  assert.equal(recorded[0].tool, 'exec');
+
+  const bg = await api.exec('trusted', `node -e "console.log('BG_START');setTimeout(()=>console.log('BG_LATE'),250);setInterval(()=>{},1000)"`, { background:true });
   assert.equal(bg.status, 'running');
   assert.equal(bg.background, true);
   assert.ok(bg.job_id);
@@ -120,6 +118,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const stopped = api.jobStatus(bg.job_id);
   assert.ok(['stopped','failed'].includes(stopped.status), `Unexpected stop status: ${stopped.status}`);
   assert.equal(stopped.stop_reason, 'user');
+  assert.equal(recorded.length, 1, 'User-stopped background jobs must not emit a completion notification activity.');
 
   const timed = await api.exec('trusted', `node -e "setTimeout(()=>{},5000)"`, { timeout_ms:1000 });
   assert.equal(timed.status, 'timeout');
