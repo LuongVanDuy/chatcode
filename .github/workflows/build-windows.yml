@@ -31,6 +31,8 @@ jobs:
         run: npm run test:safety
       - name: Smoke test Trusted Workspace
         run: npm run test:trusted
+      - name: Smoke test Trusted Terminal Runtime
+        run: npm run test:terminal
       - name: Smoke test Project Brain
         run: npm run test:brain
       - name: Smoke test WordPress Brain
