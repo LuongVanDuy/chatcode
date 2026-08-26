@@ -60,9 +60,12 @@ contextBridge.exposeInMainWorld('personalCode', {
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-  if (document.querySelector('script[data-v07-runtime]')) return;
-  const script = document.createElement('script');
-  script.src = 'v07-runtime.js';
-  script.dataset.v07Runtime = '1';
-  document.head.appendChild(script);
+  for (const [version, src] of [['v07','v07-runtime.js'], ['v08','v08-runtime.js']]) {
+    if (document.querySelector(`script[data-${version}-runtime]`)) continue;
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    script.dataset[`${version}Runtime`] = '1';
+    document.head.appendChild(script);
+  }
 });
