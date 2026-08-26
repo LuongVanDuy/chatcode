@@ -3,6 +3,8 @@ function installRuntimePatches() {
   installTrustedWorkspacePatches();
   const { installTerminalRuntimePatches } = require('./terminal-runtime');
   installTerminalRuntimePatches();
+  const { installWorkRuntimePatches } = require('./work-runtime');
+  installWorkRuntimePatches();
   return true;
 }
 

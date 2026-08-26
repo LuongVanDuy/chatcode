@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('personalCode', {
   terminalJobStatus: (jobId, options) => ipcRenderer.invoke('terminal:status', jobId, options || {}),
   terminalJobs: id => ipcRenderer.invoke('terminal:list', id || ''),
   stopTerminalJob: jobId => ipcRenderer.invoke('terminal:stop', jobId),
+  listWorkSessions: id => ipcRenderer.invoke('work:list', id || ''),
+  workSessionStatus: id => ipcRenderer.invoke('work:status', id),
+  rollbackWorkSession: id => ipcRenderer.invoke('work:rollback', id),
   gitStatus: id => ipcRenderer.invoke('git:status', id),
   gitDiff: id => ipcRenderer.invoke('git:diff', id),
 
@@ -92,4 +95,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('v09-runtime.js', 'v09-runtime');
   await load('v091-runtime.js', 'v091-runtime');
   await load('v10-runtime.js', 'v10-runtime');
+  await load('v10-stage3.js', 'v10-stage3');
 });
