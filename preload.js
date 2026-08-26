@@ -20,9 +20,13 @@ contextBridge.exposeInMainWorld('personalCode', {
   diagnoseConnection: () => ipcRenderer.invoke('connection:diagnose'),
   copyConnection: () => ipcRenderer.invoke('connection:copy'),
   rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
+  usageSnapshot: (days) => ipcRenderer.invoke('usage:snapshot', days),
+  clearUsage: () => ipcRenderer.invoke('usage:clear'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
   appInfo: () => ipcRenderer.invoke('app:info'),
   hideApp: () => ipcRenderer.invoke('app:hide'),
-  onConnectionChanged: (callback) => ipcRenderer.on('connection:changed', (_, value) => callback(value))
+  onConnectionChanged: (callback) => ipcRenderer.on('connection:changed', (_, value) => callback(value)),
+  onActivityChanged: (callback) => ipcRenderer.on('activity:changed', (_, value) => callback(value)),
+  onActivityReset: (callback) => ipcRenderer.on('activity:reset', () => callback())
 });
