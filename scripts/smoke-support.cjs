@@ -3,13 +3,20 @@ const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
-const { createSupportService, installChildProcessAudit } = require('../core/support');
+const { createSupportService, installChildProcessAudit, windowsCommandWrapper } = require('../core/support');
 
 (async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'chatcode-support-'));
   const app = { getPath: () => dir };
   const support = createSupportService(app);
   installChildProcessAudit(support);
+
+  if (process.platform === 'win32') {
+    const wrapped = windowsCommandWrapper('npm.cmd', ['--version']);
+    assert.ok(wrapped, 'npm.cmd should use the Windows wrapper');
+    assert.match(wrapped.args[3], /^npm\.cmd --version$/, 'batch command must not quote the executable token');
+    assert.equal(wrapped.file.toLowerCase().includes('cmd'), true, 'batch wrapper should use cmd.exe');
+  }
 
   await new Promise((resolve, reject) => {
     childProcess.execFile(process.execPath, ['-e', 'process.exit(0)'], { windowsHide:true }, error => error ? reject(error) : resolve());
@@ -31,5 +38,5 @@ const { createSupportService, installChildProcessAudit } = require('../core/supp
   assert.ok(Array.isArray(report.terminalEvents));
 
   await fs.rm(dir, { recursive:true, force:true });
-  console.log('Support smoke passed: process audit + token redaction + note + terminal marker OK');
+  console.log('Support smoke passed: process audit + batch wrapper + token redaction + note + terminal marker OK');
 })().catch(error => { console.error(error); process.exit(1); });
