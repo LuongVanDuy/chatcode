@@ -5,6 +5,8 @@ function installRuntimePatches() {
   installTerminalRuntimePatches();
   const { installWorkRuntimePatches } = require('./work-runtime');
   installWorkRuntimePatches();
+  const { installAgentRuntimePatches } = require('./agent-runtime');
+  installAgentRuntimePatches();
   return true;
 }
 
