@@ -218,8 +218,3 @@ function createStore(app, port) {
 }
 
 module.exports = { createStore };
-
-// Stage 1 bootstrap: patch the already-existing project/safety services without
-// changing their public API. Later v1.0 stages will fold these hooks into the
-// consolidated workspace runtime.
-require('./trusted-workspace').installTrustedWorkspacePatches();
