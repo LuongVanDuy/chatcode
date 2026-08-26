@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "main.js",
   "private": true,
@@ -10,7 +10,7 @@
     "start": "electron .",
     "predev": "npm run prepare:icons",
     "dev": "electron .",
-    "test:syntax": "node scripts/generate-icons.cjs && node --check main.js && node --check preload.js && node --check renderer/app.js && node --check mcp-server.mjs",
+    "test:syntax": "node scripts/generate-icons.cjs && node --check main.js && node --check preload.js && node --check core/store.js && node --check core/usage.js && node --check core/projects.js && node --check core/connection.js && node --check renderer/app.js && node --check mcp-server.mjs",
     "test:mcp": "node scripts/smoke-mcp.mjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
     "predist:win": "npm run prepare:icons",
@@ -33,7 +33,15 @@
     "appId": "com.personal.chatcode",
     "productName": "ChatCode Cá Nhân",
     "asar": true,
-    "files": ["main.js", "mcp-server.mjs", "preload.js", "renderer/**/*", "assets/icon.png", "package.json"],
+    "files": [
+      "main.js",
+      "mcp-server.mjs",
+      "preload.js",
+      "core/**/*",
+      "renderer/**/*",
+      "assets/icon.png",
+      "package.json"
+    ],
     "win": {
       "target": ["nsis"],
       "icon": "assets/icon.ico",

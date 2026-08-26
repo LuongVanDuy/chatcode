@@ -1,32 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
-
 contextBridge.exposeInMainWorld('personalCode', {
-  listProjects: () => ipcRenderer.invoke('projects:list'),
-  addProject: () => ipcRenderer.invoke('projects:add'),
-  updateProject: (project) => ipcRenderer.invoke('projects:update', project),
-  removeProject: (projectId) => ipcRenderer.invoke('projects:remove', projectId),
-  listFiles: (projectId) => ipcRenderer.invoke('files:list', projectId),
-  readFile: (projectId, relPath) => ipcRenderer.invoke('files:read', projectId, relPath),
-  search: (projectId, query) => ipcRenderer.invoke('files:search', projectId, query),
-  runTask: (projectId, command) => ipcRenderer.invoke('tasks:run', projectId, command),
-  gitStatus: (projectId) => ipcRenderer.invoke('git:status', projectId),
-  gitDiff: (projectId) => ipcRenderer.invoke('git:diff', projectId),
-  connectionStatus: () => ipcRenderer.invoke('connection:status'),
-  connectionConfig: () => ipcRenderer.invoke('connection:config'),
-  saveConnectionConfig: (config) => ipcRenderer.invoke('connection:save-config', config),
-  clearTunnelToken: () => ipcRenderer.invoke('connection:clear-token'),
-  startConnection: () => ipcRenderer.invoke('connection:start'),
-  stopConnection: () => ipcRenderer.invoke('connection:stop'),
-  diagnoseConnection: () => ipcRenderer.invoke('connection:diagnose'),
-  copyConnection: () => ipcRenderer.invoke('connection:copy'),
-  rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
-  usageSnapshot: (days) => ipcRenderer.invoke('usage:snapshot', days),
-  clearUsage: () => ipcRenderer.invoke('usage:clear'),
-  getSettings: () => ipcRenderer.invoke('settings:get'),
-  updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
-  appInfo: () => ipcRenderer.invoke('app:info'),
-  hideApp: () => ipcRenderer.invoke('app:hide'),
-  onConnectionChanged: (callback) => ipcRenderer.on('connection:changed', (_, value) => callback(value)),
-  onActivityChanged: (callback) => ipcRenderer.on('activity:changed', (_, value) => callback(value)),
-  onActivityReset: (callback) => ipcRenderer.on('activity:reset', () => callback())
+  listProjects:()=>ipcRenderer.invoke('projects:list'), addProject:()=>ipcRenderer.invoke('projects:add'), updateProject:p=>ipcRenderer.invoke('projects:update',p), applyPermissionPreset:(id,preset)=>ipcRenderer.invoke('projects:preset',id,preset), removeProject:id=>ipcRenderer.invoke('projects:remove',id),
+  projectIndexStatus:id=>ipcRenderer.invoke('projects:index-status',id), reindexProject:id=>ipcRenderer.invoke('projects:reindex',id),
+  listFiles:id=>ipcRenderer.invoke('files:list',id), readFile:(id,rel)=>ipcRenderer.invoke('files:read',id,rel), search:(id,q)=>ipcRenderer.invoke('files:search',id,q), runTask:(id,c)=>ipcRenderer.invoke('tasks:run',id,c), gitStatus:id=>ipcRenderer.invoke('git:status',id), gitDiff:id=>ipcRenderer.invoke('git:diff',id),
+  connectionStatus:()=>ipcRenderer.invoke('connection:status'), connectionConfig:()=>ipcRenderer.invoke('connection:config'), saveConnectionConfig:c=>ipcRenderer.invoke('connection:save-config',c), clearTunnelToken:()=>ipcRenderer.invoke('connection:clear-token'), startConnection:()=>ipcRenderer.invoke('connection:start'), stopConnection:()=>ipcRenderer.invoke('connection:stop'), diagnoseConnection:()=>ipcRenderer.invoke('connection:diagnose'), copyConnection:()=>ipcRenderer.invoke('connection:copy'), rotateConnection:()=>ipcRenderer.invoke('connection:rotate'), copyDiagnostic:()=>ipcRenderer.invoke('connection:copy-diagnostic'),
+  usageSnapshot:d=>ipcRenderer.invoke('usage:snapshot',d), clearUsage:()=>ipcRenderer.invoke('usage:clear'), getSettings:()=>ipcRenderer.invoke('settings:get'), updateSettings:s=>ipcRenderer.invoke('settings:update',s), appInfo:()=>ipcRenderer.invoke('app:info'), hideApp:()=>ipcRenderer.invoke('app:hide'),
+  onConnectionChanged:cb=>ipcRenderer.on('connection:changed',(_,v)=>cb(v)), onActivityChanged:cb=>ipcRenderer.on('activity:changed',(_,v)=>cb(v)), onActivityReset:cb=>ipcRenderer.on('activity:reset',()=>cb()), onIndexChanged:cb=>ipcRenderer.on('index:changed',(_,v)=>cb(v))
 });

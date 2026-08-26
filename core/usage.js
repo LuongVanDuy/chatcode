@@ -1,0 +1,13 @@
+const crypto = require('crypto');
+const DAILY_USAGE_LIMIT = 120;
+function localDayKey(date=new Date()){return`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
+function increment(counter,entry){counter.calls+=1;const cat=['read','write','task','git','manage'].includes(entry.category)?entry.category:'other';counter[cat]+=1;if(!entry.ok)counter.errors+=1;counter.bytesIn+=Math.max(0,Number(entry.bytesIn)||0);counter.bytesOut+=Math.max(0,Number(entry.bytesOut)||0);counter.durationMs+=Math.max(0,Number(entry.durationMs)||0)}
+function createUsageService(store,{onActivity,onReset}={}){let queue=Promise.resolve();
+  function record(incoming={}){queue=queue.then(async()=>{const state=store.read();let projectName=String(incoming.project||''),projectId=String(incoming.projectId||'');if(projectName||projectId){try{const p=store.getProject(projectId||projectName);projectName=p.name;projectId=p.id}catch{}}
+    const entry={id:crypto.randomUUID(),at:new Date().toISOString(),tool:String(incoming.tool||'unknown'),category:String(incoming.category||'other'),project:projectName,projectId,target:String(incoming.target||'').slice(0,220),ok:incoming.ok!==false,durationMs:Math.max(0,Number(incoming.durationMs)||0),bytesIn:Math.max(0,Number(incoming.bytesIn)||0),bytesOut:Math.max(0,Number(incoming.bytesOut)||0),error:String(incoming.error||'').slice(0,500)};
+    const usage=store.normalizeUsage(state.usage);increment(usage.total,entry);const day=localDayKey();usage.daily[day]=store.normalizeCounters(usage.daily[day]);increment(usage.daily[day],entry);for(const k of Object.keys(usage.daily).sort().slice(0,-DAILY_USAGE_LIMIT))delete usage.daily[k];usage.recent.unshift(entry);usage.recent=usage.recent.slice(0,400);state.usage=usage;store.write(state);onActivity?.(entry);return entry}).catch(()=>null);return queue}
+  function snapshot(days=14){const state=store.read(),usage=store.normalizeUsage(state.usage),range=Math.min(120,Math.max(1,Number(days)||14)),series=[],aggregate=store.emptyCounters();for(let i=range-1;i>=0;i--){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-i);const k=localDayKey(d),c=store.normalizeCounters(usage.daily[k]);for(const f of Object.keys(aggregate))aggregate[f]+=c[f];series.push({date:k,...c})}return{rangeDays:range,aggregate,total:usage.total,series,recent:usage.recent.slice(0,160),projectCount:state.projects.length,uptimeSec:Math.floor(process.uptime()),startedAt:new Date(Date.now()-process.uptime()*1000).toISOString()}}
+  function clear(){const s=store.read();s.usage={total:store.emptyCounters(),daily:{},recent:[]};store.write(s);onReset?.();return snapshot(14)}
+  return{record,snapshot,clear};
+}
+module.exports={createUsageService};
