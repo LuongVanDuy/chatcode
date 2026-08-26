@@ -5,7 +5,7 @@ const { execFile } = require('child_process');
 const { chatError, normalizeError } = require('./errors');
 
 const IGNORE_DIRS = new Set(['.git','node_modules','dist','build','out','target','.next','.cache','.idea','.vscode','vendor']);
-const SENSITIVE_NAMES = new Set(['.env','.env.local','.env.production','id_rsa','id_ed25519','credentials.json']);
+const SENSITIVE_NAMES = new Set(['.env','.env.local','.env.production','wp-config.php','id_rsa','id_ed25519','credentials.json']);
 const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.inc','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte','.csv']);
 const BINARY_EXTS = new Set(['.exe','.dll','.so','.dylib','.zip','.7z','.rar','.gz','.png','.jpg','.jpeg','.gif','.webp','.ico','.pdf','.woff','.woff2','.ttf','.otf','.mp3','.mp4','.mov','.avi','.bin','.class','.jar']);
 const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
