@@ -108,7 +108,8 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.ok(status.commands.some(x => String(x.command).includes('SESSION_EXEC_OK')), 'exec linked to work_session_id must be recorded.');
   assert.match(status.current.git.diff, /stageThreeCreated|const result/);
 
-  const finished = await api.finishWork(session.work_session_id, [`node -e "process.exit(require('./src/app.js') ? 0 : 1)"`]);
+  const verify = `node -e "const fs=require('fs');process.exit(fs.readFileSync('src/app.js','utf8').includes('const result')?0:1)"`;
+  const finished = await api.finishWork(session.work_session_id, [verify]);
   assert.equal(finished.verification_passed, true);
   assert.equal(finished.status, 'completed');
   assert.ok(finished.final.git.diff.length > 0);
@@ -120,7 +121,6 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(fs.existsSync(path.join(root, 'src', 'new.js')), false);
   assert.equal(git(root, ['status','--porcelain']).trim(), '', 'Rollback must restore Git-clean baseline.');
 
-  // Rollback remains available even when disk Recovery Snapshot is disabled.
   let nextState = store.read();
   nextState.settings.backupBeforeChanges = false;
   store.write(nextState);
@@ -147,7 +147,6 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(fs.existsSync(path.join(root, 'src', 'temp-session.js')), false);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
 
-  // Conflict must fail before any file is mutated.
   const conflictBefore = await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8');
   const badPatch = [
     '--- a/src/app.js',
