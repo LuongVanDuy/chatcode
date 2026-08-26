@@ -1,3 +1,5 @@
+const { createBrainService } = require('./brain');
+
 const SENSITIVE_NAMES = new Set(['.env', '.env.local', '.env.production', 'id_rsa', 'id_ed25519', 'credentials.json']);
 function normalizeRel(value) { return String(value || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, ''); }
 function isSensitive(relPath) {
@@ -9,6 +11,7 @@ function requirePermission(project, key, label) {
 
 function createSafeToolApi(projects, store, approvals, backups) {
   const base = projects.toolApi;
+  const brain = createBrainService(store, projects);
 
   async function maybeExisting(project, rel) {
     try { return await projects.secureResolve(project, rel, { mustExist: true }); }
@@ -26,6 +29,14 @@ function createSafeToolApi(projects, store, approvals, backups) {
     readFile: (...args) => base.readFile(...args),
     readFiles: (...args) => base.readFiles(...args),
 
+    projectBrain: (...args) => brain.projectBrain(...args),
+    findSymbols: (...args) => brain.findSymbols(...args),
+    findReferences: (...args) => brain.findReferences(...args),
+    relatedFiles: (...args) => brain.relatedFiles(...args),
+    projectContext: (...args) => brain.projectContext(...args),
+    brainStatus: (...args) => brain.status(...args),
+    rebuildBrain: (...args) => brain.rebuild(...args),
+
     async writeFile(ref, relPath, content) {
       const project = store.getProject(ref);
       requirePermission(project, 'write', 'ghi file');
@@ -36,6 +47,7 @@ function createSafeToolApi(projects, store, approvals, backups) {
       const existing = await maybeExisting(project, rel);
       const snapshot = existing ? await backups.snapshot(project, rel, existing, 'overwrite') : null;
       const result = await base.writeFile(project.id, rel, content);
+      brain.invalidate(project.id);
       return snapshot ? { ...result, recoveryId: snapshot.id } : result;
     },
 
@@ -48,6 +60,7 @@ function createSafeToolApi(projects, store, approvals, backups) {
       await approvals.request(project.id, 'delete', { target: rel, detail: `Xóa file ${rel}` });
       const snapshot = await backups.snapshot(project, rel, target, 'delete');
       const result = await base.deleteFile(project.id, rel);
+      brain.invalidate(project.id);
       return snapshot ? { ...result, recoveryId: snapshot.id } : result;
     },
 
@@ -61,6 +74,7 @@ function createSafeToolApi(projects, store, approvals, backups) {
       await approvals.request(project.id, 'rename', { target: `${fromRel} → ${toRel}`, detail: `Đổi tên/di chuyển file trong ${project.name}` });
       const snapshot = await backups.snapshot(project, fromRel, source, 'rename');
       const result = await base.renameFile(project.id, fromRel, toRel);
+      brain.invalidate(project.id);
       return snapshot ? { ...result, recoveryId: snapshot.id } : result;
     },
 
