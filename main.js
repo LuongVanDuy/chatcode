@@ -1,45 +1,83 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard } = require('electron');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
+const PORT = 47820;
 const IGNORE_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'target', '.next', '.cache', '.idea', '.vscode']);
 const SENSITIVE_NAMES = new Set(['.env', '.env.local', '.env.production', 'id_rsa', 'id_ed25519', 'credentials.json']);
-const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte']);
+const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte','.csv']);
 const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
 
 let mainWindow;
+let mcpRuntime = null;
+let tunnelProcess = null;
+let tunnel = { status: 'stopped', publicBaseUrl: '', error: '' };
 
 function dataFile() { return path.join(app.getPath('userData'), 'personal-chatcode.json'); }
-function defaultState() { return { projects: [], ai: { baseUrl: 'https://api.openai.com/v1', model: '', apiKeyEnc: '' } }; }
-function readState() {
-  try { return { ...defaultState(), ...JSON.parse(fs.readFileSync(dataFile(), 'utf8')) }; }
-  catch { return defaultState(); }
+function defaultState() { return { projects: [], connection: { token: '', port: PORT } }; }
+
+function normalizeState(raw) {
+  const base = defaultState();
+  const state = { ...base, ...(raw || {}) };
+  state.projects = Array.isArray(state.projects) ? state.projects.map(p => ({
+    ...p,
+    permissions: {
+      write: !!p.permissions?.write,
+      manageFiles: !!p.permissions?.manageFiles,
+      tasks: !!p.permissions?.tasks,
+      gitWrite: !!p.permissions?.gitWrite
+    }
+  })) : [];
+  state.connection = { ...base.connection, ...(state.connection || {}) };
+  if (!state.connection.token) state.connection.token = crypto.randomBytes(24).toString('hex');
+  state.connection.port = PORT;
+  return state;
 }
+
+function readState() {
+  try { return normalizeState(JSON.parse(fs.readFileSync(dataFile(), 'utf8'))); }
+  catch { return normalizeState(defaultState()); }
+}
+
 function writeState(state) {
   fs.mkdirSync(path.dirname(dataFile()), { recursive: true });
-  fs.writeFileSync(dataFile(), JSON.stringify(state, null, 2), 'utf8');
+  fs.writeFileSync(dataFile(), JSON.stringify(normalizeState(state), null, 2), 'utf8');
 }
-function publicState(state) {
-  return { ...state, ai: { baseUrl: state.ai?.baseUrl || '', model: state.ai?.model || '', hasApiKey: !!state.ai?.apiKeyEnc } };
+
+function ensureStatePersisted() {
+  const state = readState();
+  writeState(state);
+  return state;
 }
-function getProject(id) {
-  const project = readState().projects.find(p => p.id === id);
-  if (!project) throw new Error('Project not found');
+
+function getProject(ref) {
+  const projects = readState().projects;
+  const needle = String(ref || '').trim().toLowerCase();
+  const project = projects.find(p => p.id === ref) || projects.find(p => String(p.name || '').toLowerCase() === needle);
+  if (!project) throw new Error(`Project not found: ${ref}`);
   return project;
 }
+
 function assertInside(project, relPath) {
   const root = path.resolve(project.root);
   const target = path.resolve(root, relPath || '.');
   if (target !== root && !target.startsWith(root + path.sep)) throw new Error('Path escapes project boundary');
   return target;
 }
-function isSensitive(relPath) {
-  const parts = relPath.split(/[\\/]/).filter(Boolean);
-  return parts.some(part => SENSITIVE_NAMES.has(part) || part === '.ssh' || /private.*key/i.test(part));
+
+function normalizeRel(relPath) {
+  return String(relPath || '').replace(/\\/g, '/').replace(/^\.\/+/, '');
 }
+
+function isSensitive(relPath) {
+  const parts = normalizeRel(relPath).split('/').filter(Boolean);
+  return parts.some(part => SENSITIVE_NAMES.has(part.toLowerCase()) || part.toLowerCase() === '.ssh' || /private.*key/i.test(part));
+}
+
 async function walkProject(project, maxFiles = 2500) {
   const files = [];
   async function walk(abs, rel) {
@@ -59,104 +97,266 @@ async function walkProject(project, maxFiles = 2500) {
   await walk(project.root, '');
   return files;
 }
+
 async function readText(project, relPath, maxBytes = 220000) {
-  const target = assertInside(project, relPath);
-  if (isSensitive(relPath)) throw new Error('Sensitive file is blocked');
+  const rel = normalizeRel(relPath);
+  if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+  const target = assertInside(project, rel);
   const stat = await fsp.stat(target);
+  if (!stat.isFile()) throw new Error('Path is not a file');
   if (stat.size > maxBytes) throw new Error(`File too large (${stat.size} bytes)`);
   const ext = path.extname(target).toLowerCase();
   if (ext && !TEXT_EXTS.has(ext)) throw new Error('Binary/unsupported file type');
   return fsp.readFile(target, 'utf8');
 }
-function runExec(command, args, cwd, timeout = 120000) {
-  return new Promise(resolve => {
-    execFile(command, args, { cwd, timeout, windowsHide: true, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
-      resolve({ ok: !error, code: error?.code ?? 0, stdout: String(stdout || ''), stderr: String(stderr || error?.message || '') });
-    });
-  });
-}
-function resolveTaskExecutable(cmd) {
-  if (process.platform !== 'win32') return cmd;
-  const map = { npm:'npm.cmd', npx:'npx.cmd', pnpm:'pnpm.cmd', yarn:'yarn.cmd', gradle:'gradle.bat' };
-  return map[cmd.toLowerCase()] || cmd;
-}
-function parseCommandLine(input) {
-  const parts = input.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  return parts.map(s => s.replace(/^("|')|("|')$/g, ''));
-}
+
 async function searchFiles(project, query) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return [];
   const words = q.split(/\s+/).filter(w => w.length > 1).slice(0, 8);
-  const files = await walkProject(project, 1600);
+  const files = await walkProject(project, 1800);
   const results = [];
   for (const rel of files) {
-    if (results.length >= 80) break;
+    if (results.length >= 100) break;
     const ext = path.extname(rel).toLowerCase();
     if (ext && !TEXT_EXTS.has(ext)) continue;
     let text;
-    try { text = await readText(project, rel, 90000); } catch { continue; }
+    try { text = await readText(project, rel, 100000); } catch { continue; }
     const lower = text.toLowerCase();
-    let score = words.reduce((n, w) => n + (rel.toLowerCase().includes(w) ? 5 : 0) + (lower.includes(w) ? 2 : 0), 0);
-    if (!score && !rel.toLowerCase().includes(q)) continue;
-    const first = words.map(w => lower.indexOf(w)).filter(i => i >= 0).sort((a,b)=>a-b)[0] ?? 0;
-    const start = Math.max(0, first - 350);
-    results.push({ path: rel, score, snippet: text.slice(start, start + 1200) });
+    const relLower = rel.toLowerCase();
+    let score = words.reduce((n, w) => n + (relLower.includes(w) ? 5 : 0) + (lower.includes(w) ? 2 : 0), 0);
+    if (!score && !relLower.includes(q)) continue;
+    const positions = words.map(w => lower.indexOf(w)).filter(i => i >= 0).sort((a,b) => a-b);
+    const first = positions[0] ?? 0;
+    const start = Math.max(0, first - 300);
+    results.push({ path: rel, score, snippet: text.slice(start, start + 1400) });
   }
-  return results.sort((a,b) => b.score - a.score).slice(0, 24);
-}
-function decryptKey(enc) {
-  if (!enc) return '';
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure OS storage is unavailable');
-  return safeStorage.decryptString(Buffer.from(enc, 'base64'));
+  return results.sort((a,b) => b.score - a.score).slice(0, 30);
 }
 
-async function callAI(messages, tools) {
-  const state = readState();
-  const { baseUrl, model, apiKeyEnc } = state.ai || {};
-  if (!baseUrl || !model || !apiKeyEnc) throw new Error('Configure AI base URL, model, and API key in Settings first');
-  const apiKey = decryptKey(apiKeyEnc);
-  const endpoint = baseUrl.replace(/\/$/, '') + '/chat/completions';
-  const body = { model, messages, temperature: 0.2 };
-  if (tools) { body.tools = tools; body.tool_choice = 'auto'; }
-  const res = await fetch(endpoint, { method: 'POST', headers: { 'content-type':'application/json', 'authorization':`Bearer ${apiKey}` }, body: JSON.stringify(body) });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`AI HTTP ${res.status}: ${text.slice(0, 600)}`);
-  const json = JSON.parse(text);
-  const msg = json.choices?.[0]?.message;
-  if (!msg) throw new Error('AI response had no message');
-  return msg;
+function runExec(command, args, cwd, timeout = 120000) {
+  return new Promise(resolve => {
+    execFile(command, args, { cwd, timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({ ok: !error, code: error?.code ?? 0, stdout: String(stdout || ''), stderr: String(stderr || error?.message || '') });
+    });
+  });
 }
 
-const TOOLS = [
-  { type:'function', function:{ name:'search_files', description:'Search project text files for relevant code/context.', parameters:{ type:'object', properties:{ query:{type:'string'} }, required:['query'] } } },
-  { type:'function', function:{ name:'read_file', description:'Read a UTF-8 text file in the current project.', parameters:{ type:'object', properties:{ path:{type:'string'} }, required:['path'] } } },
-  { type:'function', function:{ name:'write_file', description:'Replace/create a text file. Requires project write permission.', parameters:{ type:'object', properties:{ path:{type:'string'}, content:{type:'string'} }, required:['path','content'] } } },
-  { type:'function', function:{ name:'run_task', description:'Run an allow-listed development command. Requires task permission.', parameters:{ type:'object', properties:{ command:{type:'string'} }, required:['command'] } } },
-  { type:'function', function:{ name:'git_status', description:'Read git status for current project.', parameters:{ type:'object', properties:{} } } },
-  { type:'function', function:{ name:'git_diff', description:'Read current git diff for current project.', parameters:{ type:'object', properties:{} } } }
-];
+function resolveTaskExecutable(cmd) {
+  if (process.platform !== 'win32') return cmd;
+  const map = { npm:'npm.cmd', npx:'npx.cmd', pnpm:'pnpm.cmd', yarn:'yarn.cmd', gradle:'gradle.bat' };
+  return map[String(cmd).toLowerCase()] || cmd;
+}
 
-async function executeTool(project, name, args) {
-  if (name === 'search_files') return searchFiles(project, args.query);
-  if (name === 'read_file') return { path: args.path, content: await readText(project, args.path) };
-  if (name === 'write_file') {
-    if (!project.permissions?.write) throw new Error('Write permission is disabled');
-    if (isSensitive(args.path)) throw new Error('Sensitive file is blocked');
-    const target = assertInside(project, args.path);
-    await fsp.mkdir(path.dirname(target), { recursive:true });
-    await fsp.writeFile(target, String(args.content), 'utf8');
-    return { ok:true, path:args.path };
-  }
-  if (name === 'run_task') {
-    if (!project.permissions?.tasks) throw new Error('Task permission is disabled');
-    const parts = parseCommandLine(args.command);
+function parseCommandLine(input) {
+  const parts = String(input || '').match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return parts.map(s => s.replace(/^("|')|("|')$/g, ''));
+}
+
+function requirePermission(project, key, label) {
+  if (!project.permissions?.[key]) throw new Error(`${label} permission is disabled for project "${project.name}"`);
+}
+
+const toolApi = {
+  listProjects() {
+    return readState().projects.map(p => ({ id: p.id, name: p.name, root: p.root, permissions: p.permissions }));
+  },
+  async listFiles(projectRef, limit = 2500) {
+    return walkProject(getProject(projectRef), Math.min(Math.max(Number(limit) || 2500, 1), 5000));
+  },
+  async search(projectRef, query) { return searchFiles(getProject(projectRef), query); },
+  async readFile(projectRef, relPath) {
+    const project = getProject(projectRef);
+    return { path: normalizeRel(relPath), content: await readText(project, relPath) };
+  },
+  async readFiles(projectRef, paths) {
+    const project = getProject(projectRef);
+    const out = [];
+    for (const rel of (Array.isArray(paths) ? paths : []).slice(0, 12)) {
+      try { out.push({ path: normalizeRel(rel), content: await readText(project, rel) }); }
+      catch (error) { out.push({ path: normalizeRel(rel), error: String(error.message || error) }); }
+    }
+    return out;
+  },
+  async writeFile(projectRef, relPath, content) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'write', 'Write');
+    const rel = normalizeRel(relPath);
+    if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+    const target = assertInside(project, rel);
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    await fsp.writeFile(target, String(content), 'utf8');
+    return { ok: true, path: rel };
+  },
+  async deleteFile(projectRef, relPath) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'manageFiles', 'Create/delete/rename');
+    const rel = normalizeRel(relPath);
+    if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+    const target = assertInside(project, rel);
+    const stat = await fsp.stat(target);
+    if (!stat.isFile()) throw new Error('Only files can be deleted');
+    await fsp.unlink(target);
+    return { ok: true, path: rel };
+  },
+  async renameFile(projectRef, fromPath, toPath) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'manageFiles', 'Create/delete/rename');
+    const fromRel = normalizeRel(fromPath);
+    const toRel = normalizeRel(toPath);
+    if (!fromRel || !toRel || isSensitive(fromRel) || isSensitive(toRel)) throw new Error('Sensitive or invalid file is blocked');
+    const from = assertInside(project, fromRel);
+    const to = assertInside(project, toRel);
+    await fsp.mkdir(path.dirname(to), { recursive: true });
+    await fsp.rename(from, to);
+    return { ok: true, from: fromRel, to: toRel };
+  },
+  async runTask(projectRef, commandLine) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'tasks', 'Task');
+    const parts = parseCommandLine(commandLine);
     if (!parts.length || !TASK_COMMANDS.has(parts[0].toLowerCase())) throw new Error('Command is not in the task allow-list');
     return runExec(resolveTaskExecutable(parts[0]), parts.slice(1), project.root);
+  },
+  async gitStatus(projectRef) {
+    const project = getProject(projectRef);
+    return runExec('git', ['status', '--short', '--branch'], project.root, 30000);
+  },
+  async gitDiff(projectRef, staged = false) {
+    const project = getProject(projectRef);
+    return runExec('git', staged ? ['diff', '--cached', '--', '.'] : ['diff', '--', '.'], project.root, 30000);
+  },
+  async gitStage(projectRef, paths) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'gitWrite', 'Git write');
+    const list = (Array.isArray(paths) ? paths : []).slice(0, 100).map(normalizeRel).filter(Boolean);
+    if (!list.length) throw new Error('Pass explicit file paths to stage');
+    for (const rel of list) {
+      if (isSensitive(rel)) throw new Error(`Sensitive path is blocked: ${rel}`);
+      assertInside(project, rel);
+    }
+    return runExec('git', ['add', '--', ...list], project.root, 30000);
+  },
+  async gitCommit(projectRef, message) {
+    const project = getProject(projectRef);
+    requirePermission(project, 'gitWrite', 'Git write');
+    const msg = String(message || '').trim();
+    if (!msg) throw new Error('Commit message is required');
+    return runExec('git', ['commit', '-m', msg], project.root, 60000);
   }
-  if (name === 'git_status') return runExec('git', ['status','--short','--branch'], project.root, 30000);
-  if (name === 'git_diff') return runExec('git', ['diff','--','.'], project.root, 30000);
-  throw new Error(`Unknown tool: ${name}`);
+};
+
+async function ensureMcpServer() {
+  if (mcpRuntime) return mcpRuntime;
+  const state = ensureStatePersisted();
+  const moduleUrl = pathToFileURL(path.join(__dirname, 'mcp-server.mjs')).href;
+  const { startMcpHttpServer } = await import(moduleUrl);
+  mcpRuntime = await startMcpHttpServer({ port: PORT, token: state.connection.token, api: toolApi });
+  return mcpRuntime;
+}
+
+function connectionSnapshot() {
+  return {
+    status: tunnel.status,
+    error: tunnel.error,
+    localUrl: mcpRuntime?.localUrl || '',
+    connectionUrl: tunnel.publicBaseUrl && mcpRuntime ? `${tunnel.publicBaseUrl}${mcpRuntime.route}` : ''
+  };
+}
+
+function notifyConnection() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('connection:changed', connectionSnapshot());
+}
+
+async function stopTunnel() {
+  if (tunnelProcess && !tunnelProcess.killed) {
+    try { tunnelProcess.kill(); } catch {}
+  }
+  tunnelProcess = null;
+  tunnel = { status: 'stopped', publicBaseUrl: '', error: '' };
+  notifyConnection();
+}
+
+async function startTunnel() {
+  await ensureMcpServer();
+  await stopTunnel();
+  tunnel = { status: 'starting', publicBaseUrl: '', error: '' };
+  notifyConnection();
+
+  const { install } = await import('cloudflared');
+  const binDir = path.join(app.getPath('userData'), 'bin');
+  await fsp.mkdir(binDir, { recursive: true });
+  const binPath = path.join(binDir, process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared');
+
+  if (!fs.existsSync(binPath)) {
+    tunnel.status = 'installing-tunnel';
+    notifyConnection();
+    await install(binPath);
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const proc = spawn(binPath, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${PORT}`], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    tunnelProcess = proc;
+
+    const onData = (chunk) => {
+      const match = String(chunk || '').match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+      if (match && !settled) {
+        settled = true;
+        tunnel = { status: 'connected', publicBaseUrl: match[0], error: '' };
+        notifyConnection();
+        resolve(connectionSnapshot());
+      }
+    };
+
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+    proc.on('error', err => {
+      tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
+      notifyConnection();
+      if (!settled) { settled = true; reject(err); }
+    });
+    proc.on('exit', code => {
+      if (tunnelProcess === proc) tunnelProcess = null;
+      if (tunnel.status === 'connected') {
+        tunnel = { status: 'stopped', publicBaseUrl: '', error: `Tunnel exited (${code ?? 'unknown'})` };
+        notifyConnection();
+      } else if (!settled) {
+        const err = new Error(`Tunnel exited before a public URL was created (${code ?? 'unknown'})`);
+        tunnel = { status: 'error', publicBaseUrl: '', error: err.message };
+        notifyConnection();
+        settled = true;
+        reject(err);
+      }
+    });
+
+    setTimeout(() => {
+      if (!settled) {
+        const err = new Error('Timed out while creating the ChatGPT tunnel');
+        tunnel = { status: 'error', publicBaseUrl: '', error: err.message };
+        notifyConnection();
+        try { proc.kill(); } catch {}
+        settled = true;
+        reject(err);
+      }
+    }, 45000);
+  });
+}
+
+async function rotateConnectionToken() {
+  await stopTunnel();
+  if (mcpRuntime) {
+    try { await mcpRuntime.close(); } catch {}
+    mcpRuntime = null;
+  }
+  const state = readState();
+  state.connection.token = crypto.randomBytes(24).toString('hex');
+  writeState(state);
+  await ensureMcpServer();
+  return startTunnel();
 }
 
 function createWindow() {
@@ -168,65 +368,62 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
+app.whenReady().then(async () => {
+  ensureStatePersisted();
+  createWindow();
+  try {
+    await ensureMcpServer();
+    startTunnel().catch(err => {
+      tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
+      notifyConnection();
+    });
+  } catch (err) {
+    tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
+    notifyConnection();
+  }
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+app.on('before-quit', () => {
+  if (tunnelProcess && !tunnelProcess.killed) {
+    try { tunnelProcess.kill(); } catch {}
+  }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-ipcMain.handle('projects:list', () => publicState(readState()).projects);
+ipcMain.handle('projects:list', () => readState().projects);
 ipcMain.handle('projects:add', async () => {
   const pick = await dialog.showOpenDialog(mainWindow, { properties:['openDirectory'] });
   if (pick.canceled || !pick.filePaths[0]) return null;
   const state = readState();
   const root = path.resolve(pick.filePaths[0]);
-  let existing = state.projects.find(p => path.resolve(p.root) === root);
+  const existing = state.projects.find(p => path.resolve(p.root) === root);
   if (existing) return existing;
-  const project = { id: crypto.randomUUID(), name: path.basename(root) || root, root, permissions:{ write:false, tasks:false, gitWrite:false } };
-  state.projects.push(project); writeState(state); return project;
+  const project = { id: crypto.randomUUID(), name: path.basename(root) || root, root, permissions:{ write:false, manageFiles:false, tasks:false, gitWrite:false } };
+  state.projects.push(project);
+  writeState(state);
+  return project;
 });
 ipcMain.handle('projects:update', (_, incoming) => {
   const state = readState();
   const i = state.projects.findIndex(p => p.id === incoming.id);
   if (i < 0) throw new Error('Project not found');
-  state.projects[i] = { ...state.projects[i], name: String(incoming.name || state.projects[i].name), permissions:{ ...state.projects[i].permissions, ...incoming.permissions } };
-  writeState(state); return state.projects[i];
+  state.projects[i] = { ...state.projects[i], name: String(incoming.name || state.projects[i].name), permissions:{ ...state.projects[i].permissions, ...(incoming.permissions || {}) } };
+  writeState(state);
+  return state.projects[i];
 });
-ipcMain.handle('files:list', async (_, id) => walkProject(getProject(id)));
-ipcMain.handle('files:read', async (_, id, rel) => readText(getProject(id), rel));
-ipcMain.handle('files:search', async (_, id, query) => searchFiles(getProject(id), query));
-ipcMain.handle('files:write', async (_, id, rel, content) => executeTool(getProject(id), 'write_file', { path:rel, content }));
-ipcMain.handle('tasks:run', async (_, id, command) => executeTool(getProject(id), 'run_task', { command }));
-ipcMain.handle('git:status', async (_, id) => executeTool(getProject(id), 'git_status', {}));
-ipcMain.handle('git:diff', async (_, id) => executeTool(getProject(id), 'git_diff', {}));
-ipcMain.handle('settings:get', () => publicState(readState()).ai);
-ipcMain.handle('settings:ai', (_, incoming) => {
-  const state = readState();
-  state.ai = { ...state.ai, baseUrl:String(incoming.baseUrl || '').trim(), model:String(incoming.model || '').trim() };
-  if (incoming.apiKey) {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure OS storage is unavailable');
-    state.ai.apiKeyEnc = safeStorage.encryptString(String(incoming.apiKey)).toString('base64');
-  }
-  writeState(state); return publicState(state).ai;
+ipcMain.handle('files:list', async (_, id) => toolApi.listFiles(id));
+ipcMain.handle('files:read', async (_, id, rel) => (await toolApi.readFile(id, rel)).content);
+ipcMain.handle('files:search', async (_, id, query) => toolApi.search(id, query));
+ipcMain.handle('tasks:run', async (_, id, command) => toolApi.runTask(id, command));
+ipcMain.handle('git:status', async (_, id) => toolApi.gitStatus(id));
+ipcMain.handle('git:diff', async (_, id) => toolApi.gitDiff(id, false));
+ipcMain.handle('connection:status', () => connectionSnapshot());
+ipcMain.handle('connection:start', () => startTunnel());
+ipcMain.handle('connection:copy', () => {
+  const url = connectionSnapshot().connectionUrl;
+  if (!url) throw new Error('ChatGPT connection link is not ready');
+  clipboard.writeText(url);
+  return true;
 });
-ipcMain.handle('agent:run', async (_, projectId, message, history = []) => {
-  const project = getProject(projectId);
-  const system = `You are a personal coding agent working only inside project "${project.name}" at the boundary granted by the app. Read/search before guessing. Never request or expose secrets. Write files only when the user asked for changes and write permission is enabled. Run tests only when useful and task permission is enabled. Keep final answers concise and report files changed and verification performed.`;
-  const messages = [{ role:'system', content:system }, ...history.slice(-12), { role:'user', content:String(message) }];
-  const events = [];
-  for (let round = 0; round < 8; round++) {
-    const reply = await callAI(messages, TOOLS);
-    messages.push(reply);
-    if (!reply.tool_calls?.length) return { content: reply.content || '', events };
-    for (const tc of reply.tool_calls) {
-      let args = {};
-      try { args = JSON.parse(tc.function.arguments || '{}'); } catch {}
-      try {
-        const result = await executeTool(project, tc.function.name, args);
-        events.push({ tool:tc.function.name, ok:true, summary: tc.function.name === 'write_file' ? `wrote ${args.path}` : tc.function.name });
-        messages.push({ role:'tool', tool_call_id:tc.id, content: JSON.stringify(result).slice(0, 30000) });
-      } catch (err) {
-        events.push({ tool:tc.function.name, ok:false, summary:String(err.message || err) });
-        messages.push({ role:'tool', tool_call_id:tc.id, content: JSON.stringify({ error:String(err.message || err) }) });
-      }
-    }
-  }
-  return { content:'Stopped after the tool-loop safety limit.', events };
-});
+ipcMain.handle('connection:rotate', () => rotateConnectionToken());
