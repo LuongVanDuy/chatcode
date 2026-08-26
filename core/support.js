@@ -6,18 +6,22 @@ const crypto = require('crypto');
 const MAX_NOTE_CHARS = 24000;
 const MAX_EVENTS = 1200;
 
+function classifyProcess(executable, args = []) {
+  const base = path.basename(String(executable || '')).toLowerCase();
+  if (base.includes('cloudflared')) return 'cloudflared';
+  if (base === 'git' || base === 'git.exe') return `git:${String(args[0] || 'command').slice(0, 40)}`;
+  if (['cmd.exe','cmd','powershell.exe','powershell','pwsh.exe','pwsh'].includes(base)) return 'shell';
+  if (['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','npx','npx.cmd','node','node.exe','python','python.exe','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat'].includes(base)) return 'task';
+  return 'process';
+}
+
 function createSupportService(app) {
   const root = () => path.join(app.getPath('userData'), 'support');
   const eventDir = () => path.join(root(), 'terminal-events');
   const noteFile = () => path.join(root(), 'notes.md');
 
-  async function ensure() {
-    await fsp.mkdir(eventDir(), { recursive: true });
-  }
-
-  function dayKey(date = new Date()) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  }
+  async function ensure() { await fsp.mkdir(eventDir(), { recursive: true }); }
+  function dayKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 
   function redactText(value) {
     return String(value ?? '')
@@ -30,11 +34,9 @@ function createSupportService(app) {
   }
 
   function sanitizeArgs(args = []) {
-    const list = Array.isArray(args) ? args : [];
-    const out = [];
+    const list = Array.isArray(args) ? args : [], out = [];
     for (let i = 0; i < Math.min(list.length, 40); i++) {
-      const raw = String(list[i] ?? '');
-      const previous = String(list[i - 1] ?? '').toLowerCase();
+      const raw = String(list[i] ?? ''), previous = String(list[i - 1] ?? '').toLowerCase();
       if (previous === '--token' || previous === '-token') out.push('<redacted>');
       else if (/^--?token=/i.test(raw)) out.push(raw.replace(/=.*/, '=<redacted>'));
       else out.push(redactText(raw));
@@ -45,74 +47,81 @@ function createSupportService(app) {
   async function appendEvent(incoming = {}) {
     await ensure();
     const at = incoming.at || new Date().toISOString();
+    const executable = path.basename(String(incoming.executable || '')).slice(0, 160);
     const event = {
-      id: incoming.id || crypto.randomUUID(),
-      at,
-      type: String(incoming.type || 'process'),
-      phase: String(incoming.phase || 'event'),
-      source: String(incoming.source || 'unknown').slice(0, 80),
-      project: String(incoming.project || '').slice(0, 120),
-      executable: path.basename(String(incoming.executable || '')).slice(0, 160),
-      args: sanitizeArgs(incoming.args),
-      pid: Number(incoming.pid) || null,
+      id: incoming.id || crypto.randomUUID(), at,
+      type: String(incoming.type || 'process'), phase: String(incoming.phase || 'event'),
+      source: String(incoming.source || classifyProcess(executable, incoming.args)).slice(0, 80),
+      project: String(incoming.project || '').slice(0, 120), executable,
+      args: sanitizeArgs(incoming.args), pid: Number(incoming.pid) || null,
       exitCode: Number.isFinite(Number(incoming.exitCode)) ? Number(incoming.exitCode) : null,
       durationMs: Math.max(0, Number(incoming.durationMs) || 0),
-      windowsHide: incoming.windowsHide !== false,
-      note: redactText(incoming.note || ''),
-      error: redactText(incoming.error || '')
+      windowsHide: incoming.windowsHide === true,
+      consoleRisk: process.platform === 'win32' && (!incoming.windowsHide || /\.(cmd|bat)$/i.test(executable) || /^(cmd|powershell|pwsh)(\.exe)?$/i.test(executable)),
+      note: redactText(incoming.note || ''), error: redactText(incoming.error || '')
     };
-    const file = path.join(eventDir(), `${dayKey(new Date(at))}.jsonl`);
-    await fsp.appendFile(file, `${JSON.stringify(event)}\n`, 'utf8');
+    await fsp.appendFile(path.join(eventDir(), `${dayKey(new Date(at))}.jsonl`), `${JSON.stringify(event)}\n`, 'utf8');
     return event;
   }
 
   async function markTerminalFlash(note = '') {
-    return appendEvent({ type: 'terminal-flash-marker', phase: 'observed', source: 'user', windowsHide: false, note: note || 'Người dùng vừa thấy cửa sổ terminal nháy.' });
+    return appendEvent({ type:'terminal-flash-marker', phase:'observed', source:'user', windowsHide:false, note:note || 'Người dùng vừa thấy cửa sổ terminal nháy.' });
   }
 
   async function listEvents(limit = 240) {
     await ensure();
-    const names = (await fsp.readdir(eventDir()).catch(() => [])).filter(name => name.endsWith('.jsonl')).sort().reverse();
-    const events = [];
+    const max = Math.min(MAX_EVENTS, Math.max(1, Number(limit) || 240));
+    const names = (await fsp.readdir(eventDir()).catch(() => [])).filter(name => name.endsWith('.jsonl')).sort().reverse(), events = [];
     for (const name of names) {
-      if (events.length >= Math.min(MAX_EVENTS, Math.max(1, Number(limit) || 240))) break;
+      if (events.length >= max) break;
       const text = await fsp.readFile(path.join(eventDir(), name), 'utf8').catch(() => '');
-      const lines = text.split(/\r?\n/).filter(Boolean).reverse();
-      for (const line of lines) {
+      for (const line of text.split(/\r?\n/).filter(Boolean).reverse()) {
         try { events.push(JSON.parse(line)); } catch {}
-        if (events.length >= Math.min(MAX_EVENTS, Math.max(1, Number(limit) || 240))) break;
+        if (events.length >= max) break;
       }
     }
     return events;
   }
 
-  async function getNote() {
-    await ensure();
-    return (await fsp.readFile(noteFile(), 'utf8').catch(() => '')).slice(0, MAX_NOTE_CHARS);
-  }
-
-  async function saveNote(text) {
-    await ensure();
-    const value = String(text || '').slice(0, MAX_NOTE_CHARS);
-    await fsp.writeFile(noteFile(), value, 'utf8');
-    return { ok: true, length: value.length, updatedAt: new Date().toISOString() };
-  }
+  async function getNote() { await ensure(); return (await fsp.readFile(noteFile(), 'utf8').catch(() => '')).slice(0, MAX_NOTE_CHARS); }
+  async function saveNote(text) { await ensure(); const value = String(text || '').slice(0, MAX_NOTE_CHARS); await fsp.writeFile(noteFile(), value, 'utf8'); return { ok:true, length:value.length, updatedAt:new Date().toISOString() }; }
 
   async function report({ version = '', platform = process.platform, limit = 120 } = {}) {
     const [note, events] = await Promise.all([getNote(), listEvents(limit)]);
-    return {
-      schema: 'chatcode-support-v1',
-      generatedAt: new Date().toISOString(),
-      app: 'ChatCode Cá Nhân',
-      version,
-      platform,
-      note,
-      terminalEvents: events,
-      privacy: 'Token, MCP secret và chuỗi giống credential được redacted. Không thu stdout/stderr hoặc nội dung file.'
-    };
+    return { schema:'chatcode-support-v1', generatedAt:new Date().toISOString(), app:'ChatCode Cá Nhân', version, platform, note, terminalEvents:events, privacy:'Token, MCP secret và chuỗi giống credential được redacted. Không thu stdout/stderr, cwd tuyệt đối hoặc nội dung file.' };
   }
 
   return { root, eventDir, appendEvent, markTerminalFlash, listEvents, getNote, saveNote, report };
 }
 
-module.exports = { createSupportService };
+function installChildProcessAudit(service) {
+  const childProcess = require('child_process');
+  if (childProcess.__chatcodeAuditInstalled) return;
+  childProcess.__chatcodeAuditInstalled = true;
+
+  const attach = (child, executable, args, options = {}) => {
+    const started = Date.now(), source = classifyProcess(executable, args);
+    service.appendEvent({ type:'process', phase:'spawn', source, executable, args, pid:child?.pid, windowsHide:options?.windowsHide === true }).catch(() => {});
+    child?.once?.('error', error => service.appendEvent({ type:'process', phase:'error', source, executable, args, pid:child?.pid, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true, error:String(error?.message || error) }).catch(() => {}));
+    child?.once?.('exit', code => service.appendEvent({ type:'process', phase:'exit', source, executable, args, pid:child?.pid, exitCode:code, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true }).catch(() => {}));
+    return child;
+  };
+
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = function patchedSpawn(command, args, options) {
+    const actualArgs = Array.isArray(args) ? args : [];
+    const actualOptions = (Array.isArray(args) ? options : args) || {};
+    const child = originalSpawn.apply(this, arguments);
+    return attach(child, command, actualArgs, actualOptions);
+  };
+
+  const originalExecFile = childProcess.execFile;
+  childProcess.execFile = function patchedExecFile(file, args, options) {
+    const actualArgs = Array.isArray(args) ? args : [];
+    const actualOptions = (Array.isArray(args) ? options : args) || {};
+    const child = originalExecFile.apply(this, arguments);
+    return attach(child, file, actualArgs, actualOptions && typeof actualOptions === 'object' ? actualOptions : {});
+  };
+}
+
+module.exports = { createSupportService, installChildProcessAudit, classifyProcess };
