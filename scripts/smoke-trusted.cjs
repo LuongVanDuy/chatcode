@@ -57,6 +57,11 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
   assert.deepEqual(project.permissions, { write:true, manageFiles:true, tasks:true, gitWrite:true });
   assert.deepEqual(project.safePermissions, savedPermissions, 'Safe permissions must survive Trusted mode.');
 
+  await api.projectBrain('trusted-test');
+  await api.writeFile('trusted-test', 'trusted-brain.js', 'export function trustedStageOneSymbol() { return 1; }\n');
+  const brainSymbols = await api.findSymbols('trusted-test', 'trustedStageOneSymbol');
+  assert(brainSymbols.some(item => item.name === 'trustedStageOneSymbol'), 'Trusted write must be visible to Project Brain immediately.');
+
   const write = await api.writeFile('trusted-test', 'trusted.txt', 'TRUSTED_OK');
   assert.equal(write.ok, true);
   assert.equal(write.approval?.status, 'not_required');
@@ -92,6 +97,7 @@ const SAFE_ACTIONS = ['write','rename','delete','task','gitStage','gitCommit'];
   await api.renameFile('trusted-test', 'trusted.txt', 'trusted-renamed.txt');
   assert.equal(fs.existsSync(path.join(root, 'trusted-renamed.txt')), true);
   await api.deleteFile('trusted-test', 'trusted-renamed.txt');
+  await api.deleteFile('trusted-test', 'trusted-brain.js');
   assert.equal(fs.existsSync(path.join(root, 'trusted-renamed.txt')), false);
   assert.equal(approvals.list().length, 0);
   assert.equal(typeof api.gitPush, 'undefined', 'Git push must remain unavailable in Trusted stage 1.');
