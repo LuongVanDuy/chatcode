@@ -11,6 +11,10 @@ Terminal audit records metadata only: timestamp, process type, executable basena
 
 The **Vừa thấy terminal nháy** button writes a manual timestamp marker so a later support report can correlate the visible flash with nearby process events.
 
+## Privacy boundary
+
+Support data stays local until the user explicitly chooses a share action. The app never embeds a repository write token and never silently commits runtime logs to this public repository.
+
 ## GitHub support
 
-The installed app does not embed a GitHub write token and does not silently upload local support data to this public repository. The **Gửi lên GitHub** action opens a pre-filled GitHub Issue containing the user's note and a limited set of recent sanitized process events. The user can review the payload before submitting it publicly.
+The **Gửi lên GitHub** action opens a pre-filled GitHub Issue containing the user's note and a limited set of recent sanitized process events. The user can review the payload before submitting it publicly.
