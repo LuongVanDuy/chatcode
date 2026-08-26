@@ -18,3 +18,7 @@ Support data stays local until the user explicitly chooses a share action. The a
 ## GitHub support
 
 The **Gửi lên GitHub** action opens a pre-filled GitHub Issue containing the user's note and a limited set of recent sanitized process events. The user can review the payload before submitting it publicly.
+
+## App updates
+
+Starting with v0.9.1, ChatCode uses GitHub Releases update metadata produced by the Windows CI build. The installed app can check, download, verify, silently install and relaunch an update from inside ChatCode; runtime support notes remain local and are never uploaded as part of the updater flow.
