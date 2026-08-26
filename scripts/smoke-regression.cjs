@@ -4,13 +4,19 @@ const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
 const { createStore } = require('../core/store');
-const { createProjectService, containsShellMeta } = require('../core/projects');
 const { normalizeError } = require('../core/errors');
+const { createSupportService, installChildProcessAudit } = require('../core/support');
 
 (async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'chatcode-regression-'));
   const projectRoot = path.join(dir, 'project'); await fsp.mkdir(projectRoot);
   const app = { getPath: () => dir };
+
+  // Production installs this hook before core/projects captures child_process.execFile.
+  // Do the same in regression so npm.cmd/.bat behavior matches the packaged app.
+  installChildProcessAudit(createSupportService(app));
+  const { createProjectService, containsShellMeta } = require('../core/projects');
+
   const store = createStore(app, 47820); const state = store.ensure();
   state.projects = [{ id:'p1', name:'demo', root:projectRoot, permissions:{ write:true, manageFiles:true, tasks:true, gitWrite:true }, safety:{ write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow' } }]; store.write(state);
 
