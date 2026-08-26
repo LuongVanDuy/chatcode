@@ -15,12 +15,15 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      - name: Kiểm tra cú pháp
+        run: npm run test:syntax
       - name: Smoke test MCP protocol
         run: npm run test:mcp
-      - run: npm run dist:win
+      - name: Build Windows installer
+        run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: personal-chatcode-windows
+          name: chatcode-ca-nhan-windows
           path: dist/*.exe
       - name: Smoke test remote MCP tunnel
         run: npm run test:tunnel
