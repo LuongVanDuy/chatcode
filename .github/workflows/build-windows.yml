@@ -22,3 +22,5 @@ jobs:
         with:
           name: personal-chatcode-windows
           path: dist/*.exe
+      - name: Smoke test remote MCP tunnel
+        run: npm run test:tunnel
