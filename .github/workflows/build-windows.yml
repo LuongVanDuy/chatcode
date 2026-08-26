@@ -29,6 +29,8 @@ jobs:
         run: npm run test:mcp
       - name: Smoke test Safety & Recovery
         run: npm run test:safety
+      - name: Smoke test Trusted Workspace
+        run: npm run test:trusted
       - name: Smoke test Project Brain
         run: npm run test:brain
       - name: Smoke test WordPress Brain
