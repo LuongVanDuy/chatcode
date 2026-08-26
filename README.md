@@ -1,76 +1,105 @@
-# Personal ChatCode
+# ChatCode Cá Nhân
 
-Personal ChatCode is a local project bridge for **ChatGPT**. It does not contain an AI chat client and it does not call the OpenAI API.
+Ứng dụng desktop làm cầu nối giữa **ChatGPT** và các dự án trên máy của bạn qua MCP. Ứng dụng không chứa AI chat riêng, không gọi OpenAI API và không cần OpenAI API key.
 
-The intended workflow is the same shape as ChatCode:
+**ChatGPT → HTTPS / Cloudflare Tunnel → MCP cục bộ → dự án trên máy**
 
-**ChatGPT → Remote MCP URL → local Personal ChatCode → projects on your computer**
+## v0.3
 
-## v0.2: ChatGPT-only architecture
+- Giao diện tiếng Việt, bố cục sáng và dễ đọc hơn.
+- Thêm thư mục local thành các dự án độc lập.
+- Đọc/tìm kiếm được bật mặc định.
+- Quyền riêng cho từng dự án: ghi file, xóa/đổi tên, chạy tác vụ, Git stage/commit.
+- Chặn `.env`, `.ssh`, private key và credentials.
+- MCP chỉ listen ở `127.0.0.1:47820`.
+- Hỗ trợ 2 kiểu Cloudflare:
+  - **Domain riêng**: nhập domain + Tunnel Token/Key.
+  - **Quick Tunnel**: không cần cấu hình, dùng URL `trycloudflare.com` tạm thời.
+- Tunnel Token được lưu bằng Electron `safeStorage` (Windows DPAPI khi khả dụng).
+- App chỉ báo **Đã kết nối** sau khi kiểm tra `https://<domain>/health` thực sự truy cập được MCP.
+- MCP URL có secret path riêng và có thể rotate.
+- Không telemetry, không license server.
 
-- Add local folders as independent projects.
-- Read/search is available by default.
-- Per-project switches for file writes, delete/rename, development tasks and local Git writes.
-- Common secrets such as `.env`, `.ssh`, private keys and credentials are blocked.
-- MCP tools exposed to ChatGPT:
-  - `list_projects`
-  - `list_files`
-  - `search_project`
-  - `read_file` / `read_files`
-  - `write_file`
-  - `delete_file` / `rename_file`
-  - `run_task`
-  - `git_status` / `git_diff`
-  - `git_stage` / `git_commit`
-- The MCP server only listens on `127.0.0.1`.
-- A Cloudflare Quick Tunnel is created for ChatGPT, and the MCP endpoint includes a long random secret in its path.
-- The secret can be rotated from the desktop app.
-- No OpenAI API key, model selector, embedded AI chat, license system or telemetry.
+## Cấu hình domain Cloudflare riêng
 
-## Use with ChatGPT
+Cách khuyến nghị là dùng một **remotely-managed Cloudflare Tunnel**.
 
-1. Start Personal ChatCode.
-2. Add the folder(s) ChatGPT may access.
-3. Open **Connect ChatGPT** in the app and copy the Remote MCP URL.
-4. In ChatGPT, add/create your custom MCP app/plugin and paste that URL.
-5. In a normal ChatGPT conversation, ask: `Use Personal ChatCode and list my projects.`
+1. Trong Cloudflare Dashboard, tạo/chọn một Tunnel.
+2. Thêm Published Application cho hostname, ví dụ `mcp.example.com`.
+3. Service URL đặt thành:
 
-Keep Personal ChatCode running while ChatGPT is using your computer. The Quick Tunnel URL can change when the app restarts, so you may need to update the URL in ChatGPT.
+```text
+http://localhost:47820
+```
 
-ChatGPT support for custom MCP apps and write actions depends on the ChatGPT plan/workspace and current OpenAI product availability. If your existing ChatCode connector works in your ChatGPT account, use the same connector/app area for this URL.
+4. Lấy Tunnel Token của tunnel (chuỗi thường bắt đầu bằng `eyJ...`).
+5. Trong ChatCode Cá Nhân → **Kết nối** → **Domain của tôi**:
+   - Domain: `mcp.example.com`
+   - Tunnel Token / Key: dán token hoặc cả lệnh có `--token`.
+6. Bấm **Lưu & Kết nối**.
 
-## Run from source
+Ứng dụng sẽ chạy:
 
-Install Node.js 24+, then:
+```text
+cloudflared tunnel run --token <TOKEN>
+```
+
+Sau đó tự kiểm tra domain qua HTTPS. Chỉ khi endpoint `/health` trả về đúng dịch vụ, trạng thái mới chuyển thành **Đã kết nối**.
+
+> Tunnel Token cho phép chạy tunnel của bạn. Không commit token vào Git và không gửi cho người khác. Ứng dụng chỉ lưu bản mã hóa trong dữ liệu người dùng của Windows.
+
+## Kết nối với ChatGPT
+
+1. Thêm ít nhất một dự án.
+2. Kết nối Cloudflare thành công.
+3. Sao chép **URL MCP** trong ứng dụng.
+4. Trong ChatGPT, tạo/thêm custom MCP app/connector và dán URL.
+5. Trong chat, yêu cầu ChatGPT dùng ChatCode Cá Nhân để liệt kê hoặc làm việc với dự án.
+
+Hãy giữ ứng dụng chạy khi ChatGPT đang truy cập máy.
+
+## MCP tools
+
+- `list_projects`
+- `list_files`
+- `search_project`
+- `read_file` / `read_files`
+- `write_file`
+- `delete_file` / `rename_file`
+- `run_task`
+- `git_status` / `git_diff`
+- `git_stage` / `git_commit`
+
+## Chạy từ source
+
+Cài Node.js 24+, sau đó:
 
 ```powershell
 npm install
 npm start
 ```
 
-On first connection, the app downloads the `cloudflared` tunnel helper into its user-data directory.
-
-## Build the Windows installer
+## Build installer Windows
 
 ```powershell
 npm install
+npm run test:syntax
+npm run test:mcp
 npm run dist:win
 ```
 
-The NSIS installer is created in `dist/`. GitHub Actions also builds the Windows installer on pushes to `main` and version tags.
+Installer NSIS nằm trong `dist/`. GitHub Actions cũng build và smoke-test MCP/Quick Tunnel trên Windows.
 
-## Permission model
+## Mô hình quyền
 
-Every project is a folder boundary. Tool paths are resolved against that boundary and rejected if they escape it.
+- **Đọc** — list/search/read và Git status/diff; luôn bật.
+- **Ghi file** — tạo hoặc thay nội dung file văn bản.
+- **Quản lý file** — xóa, đổi tên, di chuyển file.
+- **Tác vụ** — chạy allow-list các lệnh phát triển thông dụng.
+- **Ghi Git** — stage đường dẫn cụ thể và tạo commit local. Không có tool push.
 
-- **READ** — list/search/read text files; enabled by default.
-- **WRITE** — create or replace text files.
-- **MANAGE** — delete, rename or move files.
-- **TASKS** — run an allow-list of common developer commands without a shell.
-- **GIT WRITE** — stage explicit non-sensitive paths and create local commits. There is no Git push tool.
+Mọi đường dẫn đều bị giới hạn trong root của dự án đã chọn.
 
-## Current gap vs. ChatCode
+## Phần còn thiếu so với ChatCode đầy đủ
 
-This is not yet a feature-for-feature clone. The main missing piece is a real **Project Brain**: persistent symbol/import/reference indexing for large codebases. Current search is filename/text based. That is the next major milestone.
-
-Other later milestones: patch/diff approval UI, richer symbol search, stable tunnel option, SFTP/SSH bindings and signed auto-update.
+Hiện search vẫn dựa trên tên file/nội dung. Milestone lớn tiếp theo là **Project Brain** thực sự: index symbol/import/reference bền vững cho codebase lớn, sau đó là diff approval UI và auto-update có chữ ký.
