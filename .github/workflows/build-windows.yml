@@ -35,6 +35,8 @@ jobs:
         run: npm run test:fastpath
       - name: Regression test filesystem & Windows tasks
         run: npm run test:regression
+      - name: Smoke test Support Journal & terminal audit
+        run: npm run test:support
       - name: Build Windows installer
         run: npm run dist:win
       - uses: actions/upload-artifact@v4
