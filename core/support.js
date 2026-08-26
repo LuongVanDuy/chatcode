@@ -97,18 +97,12 @@ function createSupportService(app) {
 function quoteCmdArg(value) {
   const text = String(value ?? '');
   if (!text) return '""';
-  // Keep simple arguments unquoted. cmd.exe /s has special handling for a
-  // quoted first token, and quoting npm.cmd itself can turn the quotes into
-  // literal filename characters on hosted Windows runners.
   if (!/[\s"&|<>^()%!]/.test(text)) return text;
   return `"${text.replace(/"/g, '""')}"`;
 }
 
 function windowsCommandWrapper(file, args = []) {
   if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(String(file || ''))) return null;
-  // TASK_COMMANDS only permits command basenames such as npm.cmd/gradle.bat,
-  // so the executable itself never needs shell quoting here. Arguments are
-  // individually quoted only when necessary.
   const executable = String(file);
   const commandLine = [executable, ...args.map(quoteCmdArg)].join(' ');
   return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', commandLine] };
@@ -116,60 +110,66 @@ function windowsCommandWrapper(file, args = []) {
 
 function installChildProcessAudit(service) {
   const childProcess = require('child_process');
-  if (childProcess.__chatcodeAuditInstalled) return;
-  childProcess.__chatcodeAuditInstalled = true;
+  if (!childProcess.__chatcodeAuditInstalled) {
+    childProcess.__chatcodeAuditInstalled = true;
 
-  const hidden = options => process.platform === 'win32' ? { ...(options || {}), windowsHide:true } : { ...(options || {}) };
-  const attach = (child, executable, args, options = {}) => {
-    const started = Date.now(), source = classifyProcess(executable, args);
-    service.appendEvent({ type:'process', phase:'spawn', source, executable, args, pid:child?.pid, windowsHide:options?.windowsHide === true }).catch(() => {});
-    child?.once?.('error', error => service.appendEvent({ type:'process', phase:'error', source, executable, args, pid:child?.pid, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true, error:String(error?.message || error) }).catch(() => {}));
-    child?.once?.('exit', code => service.appendEvent({ type:'process', phase:'exit', source, executable, args, pid:child?.pid, exitCode:code, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true }).catch(() => {}));
-    return child;
-  };
+    const hidden = options => process.platform === 'win32' ? { ...(options || {}), windowsHide:true } : { ...(options || {}) };
+    const attach = (child, executable, args, options = {}) => {
+      const started = Date.now(), source = classifyProcess(executable, args);
+      service.appendEvent({ type:'process', phase:'spawn', source, executable, args, pid:child?.pid, windowsHide:options?.windowsHide === true }).catch(() => {});
+      child?.once?.('error', error => service.appendEvent({ type:'process', phase:'error', source, executable, args, pid:child?.pid, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true, error:String(error?.message || error) }).catch(() => {}));
+      child?.once?.('exit', code => service.appendEvent({ type:'process', phase:'exit', source, executable, args, pid:child?.pid, exitCode:code, durationMs:Date.now()-started, windowsHide:options?.windowsHide === true }).catch(() => {}));
+      return child;
+    };
 
-  const originalSpawn = childProcess.spawn;
-  childProcess.spawn = function patchedSpawn(command, args, options) {
-    const actualArgs = Array.isArray(args) ? args : [];
-    let actualOptions, child;
-    if (Array.isArray(args)) {
-      actualOptions = hidden(options && typeof options === 'object' ? options : {});
-      const wrapped = windowsCommandWrapper(command, actualArgs);
-      child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualArgs, actualOptions);
-    } else {
-      actualOptions = hidden(args && typeof args === 'object' ? args : {});
-      const wrapped = windowsCommandWrapper(command, []);
-      child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualOptions);
-    }
-    return attach(child, command, actualArgs, actualOptions);
-  };
+    const originalSpawn = childProcess.spawn;
+    childProcess.spawn = function patchedSpawn(command, args, options) {
+      const actualArgs = Array.isArray(args) ? args : [];
+      let actualOptions, child;
+      if (Array.isArray(args)) {
+        actualOptions = hidden(options && typeof options === 'object' ? options : {});
+        const wrapped = windowsCommandWrapper(command, actualArgs);
+        child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualArgs, actualOptions);
+      } else {
+        actualOptions = hidden(args && typeof args === 'object' ? args : {});
+        const wrapped = windowsCommandWrapper(command, []);
+        child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualOptions);
+      }
+      return attach(child, command, actualArgs, actualOptions);
+    };
 
-  const originalExecFile = childProcess.execFile;
-  childProcess.execFile = function patchedExecFile(file, ...rest) {
-    let actualArgs = [], actualOptions = {}, callback;
-    if (Array.isArray(rest[0])) {
-      actualArgs = rest[0];
-      if (rest[1] && typeof rest[1] === 'object' && typeof rest[1] !== 'function') {
-        actualOptions = hidden(rest[1]);
-        callback = rest[2];
+    const originalExecFile = childProcess.execFile;
+    childProcess.execFile = function patchedExecFile(file, ...rest) {
+      let actualArgs = [], actualOptions = {}, callback;
+      if (Array.isArray(rest[0])) {
+        actualArgs = rest[0];
+        if (rest[1] && typeof rest[1] === 'object' && typeof rest[1] !== 'function') {
+          actualOptions = hidden(rest[1]);
+          callback = rest[2];
+        } else {
+          actualOptions = hidden({});
+          callback = rest[1];
+        }
+      } else if (rest[0] && typeof rest[0] === 'object' && typeof rest[0] !== 'function') {
+        actualOptions = hidden(rest[0]);
+        callback = rest[1];
       } else {
         actualOptions = hidden({});
-        callback = rest[1];
+        callback = rest[0];
       }
-    } else if (rest[0] && typeof rest[0] === 'object' && typeof rest[0] !== 'function') {
-      actualOptions = hidden(rest[0]);
-      callback = rest[1];
-    } else {
-      actualOptions = hidden({});
-      callback = rest[0];
-    }
 
-    const wrapped = windowsCommandWrapper(file, actualArgs);
-    const child = wrapped
-      ? originalExecFile.call(this, wrapped.file, wrapped.args, actualOptions, callback)
-      : originalExecFile.call(this, file, actualArgs, actualOptions, callback);
-    return attach(child, file, actualArgs, actualOptions);
-  };
+      const wrapped = windowsCommandWrapper(file, actualArgs);
+      const child = wrapped
+        ? originalExecFile.call(this, wrapped.file, wrapped.args, actualOptions, callback)
+        : originalExecFile.call(this, file, actualArgs, actualOptions, callback);
+      return attach(child, file, actualArgs, actualOptions);
+    };
+  }
+
+  // Trusted Workspace patches depend on projects.js capturing the already
+  // wrapped execFile/spawn functions. Keep this bootstrap strictly after the
+  // Windows process audit hook to preserve hidden npm.cmd/.bat execution.
+  require('./trusted-workspace').installTrustedWorkspacePatches();
 }
 
 module.exports = { createSupportService, installChildProcessAudit, classifyProcess, windowsCommandWrapper };
