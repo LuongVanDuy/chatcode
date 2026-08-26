@@ -1,7 +1,7 @@
 {
   "name": "personal-chatcode",
-  "version": "0.1.0",
-  "description": "Local-first personal AI coding workspace",
+  "version": "0.2.0",
+  "description": "Local project bridge for ChatGPT over MCP",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -9,6 +9,12 @@
     "dev": "electron .",
     "dist:win": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "cloudflared": "0.7.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "electron": "44.0.0",
@@ -18,7 +24,7 @@
     "appId": "com.personal.chatcode",
     "productName": "Personal ChatCode",
     "asar": true,
-    "files": ["main.js", "preload.js", "renderer/**/*", "package.json"],
+    "files": ["main.js", "mcp-server.mjs", "preload.js", "renderer/**/*", "package.json"],
     "win": {"target": ["nsis"], "artifactName": "Personal-ChatCode-Setup-${version}.${ext}"},
     "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true}
   }
