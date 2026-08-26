@@ -1,12 +1,13 @@
 {
   "name": "personal-chatcode",
-  "version": "0.2.0",
-  "description": "Local project bridge for ChatGPT over MCP",
+  "version": "0.3.0",
+  "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "test:syntax": "node --check main.js && node --check preload.js && node --check renderer/app.js && node --check mcp-server.mjs",
     "test:mcp": "node scripts/smoke-mcp.mjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
     "dist:win": "electron-builder --win nsis --publish never",
@@ -25,10 +26,19 @@
   },
   "build": {
     "appId": "com.personal.chatcode",
-    "productName": "Personal ChatCode",
+    "productName": "ChatCode Cá Nhân",
     "asar": true,
     "files": ["main.js", "mcp-server.mjs", "preload.js", "renderer/**/*", "package.json"],
-    "win": {"target": ["nsis"], "artifactName": "Personal-ChatCode-Setup-${version}.${ext}"},
-    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true}
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "ChatCode-Ca-Nhan-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ChatCode Cá Nhân"
+    }
   }
 }
