@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "main.js",
   "private": true,
@@ -17,6 +17,7 @@
     "test:fastpath": "node scripts/smoke-fastpath.cjs",
     "test:regression": "node scripts/smoke-regression.cjs",
     "test:support": "node scripts/smoke-support.cjs",
+    "test:update": "node scripts/smoke-updater.cjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
     "test:safety": "node scripts/smoke-safety.cjs",
     "predist:win": "npm run prepare:icons",
@@ -28,6 +29,7 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "cloudflared": "0.7.3",
+    "electron-updater": "6.8.9",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -50,6 +52,14 @@
       "assets/icon.png",
       "assets/THIRD_PARTY_ICONS.txt",
       "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "LuongVanDuy",
+        "repo": "chatcode",
+        "releaseType": "release"
+      }
     ],
     "win": {
       "target": ["nsis"],
