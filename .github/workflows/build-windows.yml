@@ -27,6 +27,8 @@ jobs:
         run: npm run test:mcp
       - name: Smoke test Safety & Recovery
         run: npm run test:safety
+      - name: Smoke test Project Brain
+        run: npm run test:brain
       - name: Build Windows installer
         run: npm run dist:win
       - uses: actions/upload-artifact@v4
