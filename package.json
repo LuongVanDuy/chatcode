@@ -5,12 +5,17 @@
   "main": "main.js",
   "private": true,
   "scripts": {
+    "prepare:icons": "node scripts/generate-icons.cjs",
+    "prestart": "npm run prepare:icons",
     "start": "electron .",
+    "predev": "npm run prepare:icons",
     "dev": "electron .",
-    "test:syntax": "node --check main.js && node --check preload.js && node --check renderer/app.js && node --check mcp-server.mjs",
+    "test:syntax": "node scripts/generate-icons.cjs && node --check main.js && node --check preload.js && node --check renderer/app.js && node --check mcp-server.mjs",
     "test:mcp": "node scripts/smoke-mcp.mjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
+    "predist:win": "npm run prepare:icons",
     "dist:win": "electron-builder --win nsis --publish never",
+    "predist:portable": "npm run prepare:icons",
     "dist:portable": "electron-builder --win portable --publish never"
   },
   "dependencies": {
@@ -28,7 +33,7 @@
     "appId": "com.personal.chatcode",
     "productName": "ChatCode Cá Nhân",
     "asar": true,
-    "files": ["main.js", "mcp-server.mjs", "preload.js", "renderer/**/*", "assets/**/*", "package.json"],
+    "files": ["main.js", "mcp-server.mjs", "preload.js", "renderer/**/*", "assets/icon.png", "package.json"],
     "win": {
       "target": ["nsis"],
       "icon": "assets/icon.ico",
