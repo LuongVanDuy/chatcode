@@ -3,6 +3,8 @@ function installRuntimePatches() {
   installTrustedWorkspacePatches();
   const { installTerminalRuntimePatches } = require('./terminal-runtime');
   installTerminalRuntimePatches();
+  const { installCodexEditingPatches } = require('./codex-editing');
+  installCodexEditingPatches();
   return true;
 }
 
