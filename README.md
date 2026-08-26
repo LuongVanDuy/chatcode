@@ -1,21 +1,45 @@
 # Personal ChatCode
 
-A local-first personal AI coding workspace inspired by the workflow of ChatCode, built from scratch for private use.
+Personal ChatCode is a local project bridge for **ChatGPT**. It does not contain an AI chat client and it does not call the OpenAI API.
 
-## What works in v0.1
+The intended workflow is the same shape as ChatCode:
 
-- Add any local folder as a project.
-- Read-only by default.
-- Block common secret locations/files such as `.env`, `.ssh`, private keys and credentials files.
-- Browse and preview text files.
-- Search project filenames and text content.
-- Connect an OpenAI-compatible API endpoint with your own model/API key.
-- Agent tool loop: search files, read files, write files, run allow-listed dev tasks, inspect Git status/diff.
-- Per-project permission switches for file writes and task execution.
-- API key stored using Electron `safeStorage` (Windows DPAPI when available).
-- No telemetry.
+**ChatGPT → Remote MCP URL → local Personal ChatCode → projects on your computer**
 
-## Run on Windows
+## v0.2: ChatGPT-only architecture
+
+- Add local folders as independent projects.
+- Read/search is available by default.
+- Per-project switches for file writes, delete/rename, development tasks and local Git writes.
+- Common secrets such as `.env`, `.ssh`, private keys and credentials are blocked.
+- MCP tools exposed to ChatGPT:
+  - `list_projects`
+  - `list_files`
+  - `search_project`
+  - `read_file` / `read_files`
+  - `write_file`
+  - `delete_file` / `rename_file`
+  - `run_task`
+  - `git_status` / `git_diff`
+  - `git_stage` / `git_commit`
+- The MCP server only listens on `127.0.0.1`.
+- A Cloudflare Quick Tunnel is created for ChatGPT, and the MCP endpoint includes a long random secret in its path.
+- The secret can be rotated from the desktop app.
+- No OpenAI API key, model selector, embedded AI chat, license system or telemetry.
+
+## Use with ChatGPT
+
+1. Start Personal ChatCode.
+2. Add the folder(s) ChatGPT may access.
+3. Open **Connect ChatGPT** in the app and copy the Remote MCP URL.
+4. In ChatGPT, add/create your custom MCP app/plugin and paste that URL.
+5. In a normal ChatGPT conversation, ask: `Use Personal ChatCode and list my projects.`
+
+Keep Personal ChatCode running while ChatGPT is using your computer. The Quick Tunnel URL can change when the app restarts, so you may need to update the URL in ChatGPT.
+
+ChatGPT support for custom MCP apps and write actions depends on the ChatGPT plan/workspace and current OpenAI product availability. If your existing ChatCode connector works in your ChatGPT account, use the same connector/app area for this URL.
+
+## Run from source
 
 Install Node.js 24+, then:
 
@@ -24,35 +48,29 @@ npm install
 npm start
 ```
 
-Open **Settings**, configure your AI base URL, model name and API key, then add a project.
+On first connection, the app downloads the `cloudflared` tunnel helper into its user-data directory.
 
-## Build an installer
+## Build the Windows installer
 
 ```powershell
 npm install
 npm run dist:win
 ```
 
-The NSIS installer will be created under `dist/`.
+The NSIS installer is created in `dist/`. GitHub Actions also builds the Windows installer on pushes to `main` and version tags.
 
-A GitHub Actions workflow is also included so Windows can build the `.exe` automatically on pushes/tags.
+## Permission model
 
-## Safety model
+Every project is a folder boundary. Tool paths are resolved against that boundary and rejected if they escape it.
 
-Projects are isolated by their selected root folder. Relative paths are resolved and checked so tools cannot escape the project root. Sensitive names are blocked. File modification and task execution are opt-in per project.
+- **READ** — list/search/read text files; enabled by default.
+- **WRITE** — create or replace text files.
+- **MANAGE** — delete, rename or move files.
+- **TASKS** — run an allow-list of common developer commands without a shell.
+- **GIT WRITE** — stage explicit non-sensitive paths and create local commits. There is no Git push tool.
 
-Task execution uses an allow-list for common developer tools and does not execute through a shell.
+## Current gap vs. ChatCode
 
-## Next milestones
+This is not yet a feature-for-feature clone. The main missing piece is a real **Project Brain**: persistent symbol/import/reference indexing for large codebases. Current search is filename/text based. That is the next major milestone.
 
-1. Symbol/import graph (“Project Brain”) with Tree-sitter.
-2. Patch/diff review UI before writes.
-3. Local Git stage/commit with explicit confirmation.
-4. Multiple providers (OpenAI, Anthropic, Gemini and local Ollama).
-5. SSH/SFTP project bindings.
-6. Remote relay/mobile control.
-7. Signed auto-update and a small bootstrap installer.
-
-## Branding
-
-This repo intentionally uses **Personal ChatCode** as a placeholder. For a personal build, change `productName`, `appId`, title, icons and installer metadata to your own branding.
+Other later milestones: patch/diff approval UI, richer symbol search, stable tunnel option, SFTP/SSH bindings and signed auto-update.
