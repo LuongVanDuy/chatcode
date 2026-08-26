@@ -122,6 +122,21 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
     };
   }
 
+  async function recordBackgroundCompletion(job) {
+    if (!job.background || job.completionRecorded || ['user','app_shutdown'].includes(job.stopReason)) return;
+    job.completionRecorded = true;
+    if (typeof projects.toolApi?.recordActivity !== 'function') return;
+    try {
+      await projects.toolApi.recordActivity({
+        tool:'exec', category:'task', project:job.project, projectId:job.projectId,
+        target:job.command.slice(0, 220), ok:job.status === 'completed',
+        durationMs:Math.max(0, Date.parse(job.completedAt || new Date().toISOString()) - Date.parse(job.startedAt)),
+        bytesOut:job.stdoutTotal + job.stderrTotal,
+        error:job.status === 'completed' ? '' : `${job.status}: ${job.stderr.slice(-300)}`
+      });
+    } catch {}
+  }
+
   async function resolveCwd(project, requested) {
     const rel = String(requested || '').trim().replace(/\\/g, '/') || '.';
     const target = await projects.secureResolve(project, rel, { mustExist:true });
@@ -183,7 +198,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
       id, project:project.name, projectId:project.id, command, cwdRel:cwd.rel,
       status:'running', pid:null, exitCode:null, signal:'', stdout:'', stderr:'',
       stdoutTotal:0, stderrTotal:0, stdoutBase:0, stderrBase:0, stdoutTruncated:false, stderrTruncated:false,
-      background, timeoutMs, createdAt:now, startedAt:now, completedAt:'', stopReason:'', child:null, timeout:null, done:null
+      background, timeoutMs, createdAt:now, startedAt:now, completedAt:'', stopReason:'', completionRecorded:false, child:null, timeout:null, done:null
     };
     jobs.set(id, job);
 
@@ -211,12 +226,14 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
         if (job.status === 'running') job.status = 'failed';
         emit(job);
       });
-      child.once('close', (code, signal) => {
+      child.once('close', async (code, signal) => {
         if (job.timeout) clearTimeout(job.timeout);
         job.exitCode = Number.isInteger(code) ? code : null; job.signal = signal || '';
         if (job.status === 'running') job.status = code === 0 ? 'completed' : 'failed';
         else if (job.status === 'stopping') job.status = 'stopped';
-        job.completedAt = new Date().toISOString(); job.child = null; emit(job); prune(); resolve(publicJob(job));
+        job.completedAt = new Date().toISOString(); job.child = null;
+        await recordBackgroundCompletion(job);
+        emit(job); prune(); resolve(publicJob(job));
       });
     });
 
