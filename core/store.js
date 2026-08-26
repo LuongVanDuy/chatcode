@@ -13,6 +13,7 @@ const DEFAULT_SAFETY = Object.freeze({
   gitStage: 'allow',
   gitCommit: 'ask'
 });
+const FULL_PERMISSIONS = Object.freeze({ write:true, manageFiles:true, tasks:true, gitWrite:true });
 
 function emptyCounters() {
   return { calls: 0, read: 0, write: 0, task: 0, git: 0, manage: 0, other: 0, errors: 0, bytesIn: 0, bytesOut: 0, durationMs: 0 };
@@ -72,11 +73,38 @@ function normalizeUsage(raw = {}) {
   return { total: normalizeCounters(raw.total), daily, recent };
 }
 
-function normalizeSafety(raw = {}) {
+function normalizePermissions(raw = {}) {
+  return {
+    write: !!raw?.write,
+    manageFiles: !!raw?.manageFiles,
+    tasks: !!raw?.tasks,
+    gitWrite: !!raw?.gitWrite
+  };
+}
+
+function normalizeSafetyRules(raw = {}) {
   const out = {};
   for (const action of SAFETY_ACTIONS) {
     const value = String(raw?.[action] || DEFAULT_SAFETY[action]);
     out[action] = ['allow', 'ask', 'deny'].includes(value) ? value : DEFAULT_SAFETY[action];
+  }
+  return out;
+}
+
+function normalizeSafety(raw = {}) {
+  const rules = normalizeSafetyRules(raw);
+  const workspaceMode = raw?._workspaceMode === 'trusted' ? 'trusted' : 'safe';
+  const safePermissions = normalizePermissions(raw?._safePermissions || {});
+  const safeSafety = normalizeSafetyRules(raw?._safeSafety || rules);
+  const out = {
+    ...rules,
+    _workspaceMode: workspaceMode,
+    _allowSecrets: workspaceMode === 'trusted' && !!raw?._allowSecrets,
+    _safePermissions: safePermissions,
+    _safeSafety: safeSafety
+  };
+  if (workspaceMode === 'trusted') {
+    for (const action of SAFETY_ACTIONS) out[action] = 'allow';
   }
   return out;
 }
@@ -87,16 +115,27 @@ function createStore(app, port) {
   function normalize(raw) {
     const base = defaultState(port);
     const state = { ...base, ...(raw || {}) };
-    state.projects = Array.isArray(state.projects) ? state.projects.map(project => ({
-      ...project,
-      permissions: {
-        write: !!project.permissions?.write,
-        manageFiles: !!project.permissions?.manageFiles,
-        tasks: !!project.permissions?.tasks,
-        gitWrite: !!project.permissions?.gitWrite
-      },
-      safety: normalizeSafety(project.safety)
-    })) : [];
+    state.projects = Array.isArray(state.projects) ? state.projects.map(project => {
+      const rawPermissions = normalizePermissions(project.permissions);
+      const safety = normalizeSafety(project.safety);
+      const workspaceMode = safety._workspaceMode;
+      const hasSavedPermissions = project.safety?._safePermissions && typeof project.safety._safePermissions === 'object';
+      const safePermissions = hasSavedPermissions ? normalizePermissions(safety._safePermissions) : rawPermissions;
+      const hasSavedSafety = project.safety?._safeSafety && typeof project.safety._safeSafety === 'object';
+      const safeSafety = hasSavedSafety ? normalizeSafetyRules(safety._safeSafety) : normalizeSafetyRules(project.safety);
+      safety._safePermissions = safePermissions;
+      safety._safeSafety = safeSafety;
+      const permissions = workspaceMode === 'trusted' ? { ...FULL_PERMISSIONS } : rawPermissions;
+      return {
+        ...project,
+        workspaceMode,
+        trusted: { allowSecrets:workspaceMode === 'trusted' && !!safety._allowSecrets, allowGitPush:false },
+        safePermissions,
+        safeSafety,
+        permissions,
+        safety
+      };
+    }) : [];
 
     state.connection = { ...base.connection, ...(state.connection || {}) };
     if (!state.connection.token) {
@@ -173,9 +212,14 @@ function createStore(app, port) {
 
   return {
     read, write, ensure, normalizeDomain, connectionConfig, settings, getProject,
-    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety,
-    safetyActions: SAFETY_ACTIONS, defaultSafety: DEFAULT_SAFETY
+    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions,
+    safetyActions: SAFETY_ACTIONS, defaultSafety: DEFAULT_SAFETY, fullPermissions:FULL_PERMISSIONS
   };
 }
 
 module.exports = { createStore };
+
+// Stage 1 bootstrap: patch the already-existing project/safety services without
+// changing their public API. Later v1.0 stages will fold these hooks into the
+// consolidated workspace runtime.
+require('./trusted-workspace').installTrustedWorkspacePatches();
