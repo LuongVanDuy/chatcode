@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage } = require('electron');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -15,10 +15,50 @@ const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cm
 let mainWindow;
 let mcpRuntime = null;
 let tunnelProcess = null;
-let tunnel = { status: 'stopped', publicBaseUrl: '', error: '' };
+let tunnel = { status: 'stopped', publicBaseUrl: '', error: '', mode: 'custom' };
 
 function dataFile() { return path.join(app.getPath('userData'), 'personal-chatcode.json'); }
-function defaultState() { return { projects: [], connection: { token: '', port: PORT } }; }
+function defaultState() {
+  return {
+    projects: [],
+    connection: {
+      token: '',
+      port: PORT,
+      mode: 'custom',
+      domain: '',
+      tunnelTokenEnc: ''
+    }
+  };
+}
+
+function normalizeDomain(value) {
+  let text = String(value || '').trim().toLowerCase();
+  text = text.replace(/^https?:\/\//, '').split('/')[0].replace(/\.$/, '');
+  if (!text) return '';
+  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(text)) {
+    throw new Error('Domain không hợp lệ. Ví dụ: mcp.example.com');
+  }
+  return text;
+}
+
+function extractTunnelToken(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const fromFlag = text.match(/--token\s+([A-Za-z0-9._=\-]+)/i)?.[1];
+  const fromInstall = text.match(/service\s+install\s+([A-Za-z0-9._=\-]+)/i)?.[1];
+  return (fromFlag || fromInstall || text).trim();
+}
+
+function encryptSecret(value) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows Secure Storage chưa sẵn sàng để lưu Tunnel Token.');
+  return safeStorage.encryptString(String(value)).toString('base64');
+}
+
+function decryptSecret(value) {
+  if (!value) return '';
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows Secure Storage chưa sẵn sàng để đọc Tunnel Token.');
+  return safeStorage.decryptString(Buffer.from(value, 'base64'));
+}
 
 function normalizeState(raw) {
   const base = defaultState();
@@ -35,6 +75,9 @@ function normalizeState(raw) {
   state.connection = { ...base.connection, ...(state.connection || {}) };
   if (!state.connection.token) state.connection.token = crypto.randomBytes(24).toString('hex');
   state.connection.port = PORT;
+  state.connection.mode = state.connection.mode === 'quick' ? 'quick' : 'custom';
+  try { state.connection.domain = normalizeDomain(state.connection.domain); } catch { state.connection.domain = ''; }
+  state.connection.tunnelTokenEnc = String(state.connection.tunnelTokenEnc || '');
   return state;
 }
 
@@ -54,18 +97,27 @@ function ensureStatePersisted() {
   return state;
 }
 
+function publicConnectionConfig(state = readState()) {
+  return {
+    mode: state.connection.mode,
+    domain: state.connection.domain,
+    hasTunnelToken: !!state.connection.tunnelTokenEnc,
+    localPort: PORT
+  };
+}
+
 function getProject(ref) {
   const projects = readState().projects;
   const needle = String(ref || '').trim().toLowerCase();
   const project = projects.find(p => p.id === ref) || projects.find(p => String(p.name || '').toLowerCase() === needle);
-  if (!project) throw new Error(`Project not found: ${ref}`);
+  if (!project) throw new Error(`Không tìm thấy dự án: ${ref}`);
   return project;
 }
 
 function assertInside(project, relPath) {
   const root = path.resolve(project.root);
   const target = path.resolve(root, relPath || '.');
-  if (target !== root && !target.startsWith(root + path.sep)) throw new Error('Path escapes project boundary');
+  if (target !== root && !target.startsWith(root + path.sep)) throw new Error('Đường dẫn nằm ngoài phạm vi dự án.');
   return target;
 }
 
@@ -100,13 +152,13 @@ async function walkProject(project, maxFiles = 2500) {
 
 async function readText(project, relPath, maxBytes = 220000) {
   const rel = normalizeRel(relPath);
-  if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+  if (!rel || isSensitive(rel)) throw new Error('File nhạy cảm hoặc đường dẫn không hợp lệ đã bị chặn.');
   const target = assertInside(project, rel);
   const stat = await fsp.stat(target);
-  if (!stat.isFile()) throw new Error('Path is not a file');
-  if (stat.size > maxBytes) throw new Error(`File too large (${stat.size} bytes)`);
+  if (!stat.isFile()) throw new Error('Đường dẫn không phải file.');
+  if (stat.size > maxBytes) throw new Error(`File quá lớn (${stat.size} bytes).`);
   const ext = path.extname(target).toLowerCase();
-  if (ext && !TEXT_EXTS.has(ext)) throw new Error('Binary/unsupported file type');
+  if (ext && !TEXT_EXTS.has(ext)) throw new Error('Định dạng binary/không hỗ trợ.');
   return fsp.readFile(target, 'utf8');
 }
 
@@ -124,7 +176,7 @@ async function searchFiles(project, query) {
     try { text = await readText(project, rel, 100000); } catch { continue; }
     const lower = text.toLowerCase();
     const relLower = rel.toLowerCase();
-    let score = words.reduce((n, w) => n + (relLower.includes(w) ? 5 : 0) + (lower.includes(w) ? 2 : 0), 0);
+    const score = words.reduce((n, w) => n + (relLower.includes(w) ? 5 : 0) + (lower.includes(w) ? 2 : 0), 0);
     if (!score && !relLower.includes(q)) continue;
     const positions = words.map(w => lower.indexOf(w)).filter(i => i >= 0).sort((a,b) => a-b);
     const first = positions[0] ?? 0;
@@ -154,7 +206,7 @@ function parseCommandLine(input) {
 }
 
 function requirePermission(project, key, label) {
-  if (!project.permissions?.[key]) throw new Error(`${label} permission is disabled for project "${project.name}"`);
+  if (!project.permissions?.[key]) throw new Error(`Quyền ${label} đang tắt cho dự án "${project.name}".`);
 }
 
 const toolApi = {
@@ -180,9 +232,9 @@ const toolApi = {
   },
   async writeFile(projectRef, relPath, content) {
     const project = getProject(projectRef);
-    requirePermission(project, 'write', 'Write');
+    requirePermission(project, 'write', 'ghi file');
     const rel = normalizeRel(relPath);
-    if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+    if (!rel || isSensitive(rel)) throw new Error('File nhạy cảm hoặc đường dẫn không hợp lệ đã bị chặn.');
     const target = assertInside(project, rel);
     await fsp.mkdir(path.dirname(target), { recursive: true });
     await fsp.writeFile(target, String(content), 'utf8');
@@ -190,21 +242,21 @@ const toolApi = {
   },
   async deleteFile(projectRef, relPath) {
     const project = getProject(projectRef);
-    requirePermission(project, 'manageFiles', 'Create/delete/rename');
+    requirePermission(project, 'manageFiles', 'xóa/đổi tên file');
     const rel = normalizeRel(relPath);
-    if (!rel || isSensitive(rel)) throw new Error('Sensitive or invalid file is blocked');
+    if (!rel || isSensitive(rel)) throw new Error('File nhạy cảm hoặc đường dẫn không hợp lệ đã bị chặn.');
     const target = assertInside(project, rel);
     const stat = await fsp.stat(target);
-    if (!stat.isFile()) throw new Error('Only files can be deleted');
+    if (!stat.isFile()) throw new Error('Chỉ cho phép xóa file.');
     await fsp.unlink(target);
     return { ok: true, path: rel };
   },
   async renameFile(projectRef, fromPath, toPath) {
     const project = getProject(projectRef);
-    requirePermission(project, 'manageFiles', 'Create/delete/rename');
+    requirePermission(project, 'manageFiles', 'xóa/đổi tên file');
     const fromRel = normalizeRel(fromPath);
     const toRel = normalizeRel(toPath);
-    if (!fromRel || !toRel || isSensitive(fromRel) || isSensitive(toRel)) throw new Error('Sensitive or invalid file is blocked');
+    if (!fromRel || !toRel || isSensitive(fromRel) || isSensitive(toRel)) throw new Error('File nhạy cảm hoặc đường dẫn không hợp lệ đã bị chặn.');
     const from = assertInside(project, fromRel);
     const to = assertInside(project, toRel);
     await fsp.mkdir(path.dirname(to), { recursive: true });
@@ -213,9 +265,9 @@ const toolApi = {
   },
   async runTask(projectRef, commandLine) {
     const project = getProject(projectRef);
-    requirePermission(project, 'tasks', 'Task');
+    requirePermission(project, 'tasks', 'chạy tác vụ');
     const parts = parseCommandLine(commandLine);
-    if (!parts.length || !TASK_COMMANDS.has(parts[0].toLowerCase())) throw new Error('Command is not in the task allow-list');
+    if (!parts.length || !TASK_COMMANDS.has(parts[0].toLowerCase())) throw new Error('Lệnh này không nằm trong danh sách tác vụ an toàn.');
     return runExec(resolveTaskExecutable(parts[0]), parts.slice(1), project.root);
   },
   async gitStatus(projectRef) {
@@ -228,20 +280,20 @@ const toolApi = {
   },
   async gitStage(projectRef, paths) {
     const project = getProject(projectRef);
-    requirePermission(project, 'gitWrite', 'Git write');
+    requirePermission(project, 'gitWrite', 'ghi Git');
     const list = (Array.isArray(paths) ? paths : []).slice(0, 100).map(normalizeRel).filter(Boolean);
-    if (!list.length) throw new Error('Pass explicit file paths to stage');
+    if (!list.length) throw new Error('Hãy chỉ định file cần stage.');
     for (const rel of list) {
-      if (isSensitive(rel)) throw new Error(`Sensitive path is blocked: ${rel}`);
+      if (isSensitive(rel)) throw new Error(`Đường dẫn nhạy cảm đã bị chặn: ${rel}`);
       assertInside(project, rel);
     }
     return runExec('git', ['add', '--', ...list], project.root, 30000);
   },
   async gitCommit(projectRef, message) {
     const project = getProject(projectRef);
-    requirePermission(project, 'gitWrite', 'Git write');
+    requirePermission(project, 'gitWrite', 'ghi Git');
     const msg = String(message || '').trim();
-    if (!msg) throw new Error('Commit message is required');
+    if (!msg) throw new Error('Cần có nội dung commit.');
     return runExec('git', ['commit', '-m', msg], project.root, 60000);
   }
 };
@@ -256,10 +308,13 @@ async function ensureMcpServer() {
 }
 
 function connectionSnapshot() {
+  const config = publicConnectionConfig();
   return {
+    ...config,
     status: tunnel.status,
     error: tunnel.error,
     localUrl: mcpRuntime?.localUrl || '',
+    publicBaseUrl: tunnel.publicBaseUrl || '',
     connectionUrl: tunnel.publicBaseUrl && mcpRuntime ? `${tunnel.publicBaseUrl}${mcpRuntime.route}` : ''
   };
 }
@@ -273,77 +328,192 @@ async function stopTunnel() {
     try { tunnelProcess.kill(); } catch {}
   }
   tunnelProcess = null;
-  tunnel = { status: 'stopped', publicBaseUrl: '', error: '' };
+  tunnel = { status: 'stopped', publicBaseUrl: '', error: '', mode: readState().connection.mode };
   notifyConnection();
 }
 
-async function startTunnel() {
-  await ensureMcpServer();
-  await stopTunnel();
-  tunnel = { status: 'starting', publicBaseUrl: '', error: '' };
-  notifyConnection();
-
+async function ensureCloudflared() {
   const { install } = await import('cloudflared');
   const binDir = path.join(app.getPath('userData'), 'bin');
   await fsp.mkdir(binDir, { recursive: true });
   const binPath = path.join(binDir, process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared');
-
   if (!fs.existsSync(binPath)) {
     tunnel.status = 'installing-tunnel';
     notifyConnection();
     await install(binPath);
   }
+  return binPath;
+}
 
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function waitForPublicHealth(baseUrl, proc, timeoutMs = 30000) {
+  const started = Date.now();
+  let lastError = '';
+  while (Date.now() - started < timeoutMs) {
+    if (proc.exitCode !== null) throw new Error(`Cloudflare Tunnel đã dừng (mã ${proc.exitCode}).`);
+    try {
+      const response = await fetch(`${baseUrl}/health?t=${Date.now()}`, {
+        headers: { 'cache-control': 'no-cache' },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (response.ok) {
+        const body = await response.json().catch(() => null);
+        if (body?.ok && body?.service === 'personal-chatcode') return true;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = String(error?.message || error);
+    }
+    await sleep(1000);
+  }
+  throw new Error(`Không thể truy cập ${baseUrl}/health. Kiểm tra domain đã trỏ đúng Published Application tới http://localhost:${PORT}. ${lastError ? `Chi tiết: ${lastError}` : ''}`);
+}
+
+function bindTunnelLifecycle(proc, mode) {
+  tunnelProcess = proc;
+  proc.on('error', err => {
+    tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode };
+    notifyConnection();
+  });
+  proc.on('exit', code => {
+    if (tunnelProcess === proc) tunnelProcess = null;
+    if (tunnel.status === 'connected') {
+      tunnel = { status: 'stopped', publicBaseUrl: '', error: `Cloudflare Tunnel đã dừng (${code ?? 'không rõ mã'}).`, mode };
+      notifyConnection();
+    }
+  });
+}
+
+async function startQuickTunnel(binPath) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const proc = spawn(binPath, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${PORT}`], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
-    tunnelProcess = proc;
+    bindTunnelLifecycle(proc, 'quick');
 
-    const onData = (chunk) => {
+    const onData = async (chunk) => {
       const match = String(chunk || '').match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-      if (match && !settled) {
-        settled = true;
-        tunnel = { status: 'connected', publicBaseUrl: match[0], error: '' };
+      if (!match || settled) return;
+      settled = true;
+      try {
+        tunnel = { status: 'verifying', publicBaseUrl: match[0], error: '', mode: 'quick' };
+        notifyConnection();
+        await waitForPublicHealth(match[0], proc, 25000);
+        tunnel = { status: 'connected', publicBaseUrl: match[0], error: '', mode: 'quick' };
         notifyConnection();
         resolve(connectionSnapshot());
+      } catch (error) {
+        try { proc.kill(); } catch {}
+        tunnel = { status: 'error', publicBaseUrl: '', error: String(error.message || error), mode: 'quick' };
+        notifyConnection();
+        reject(error);
       }
     };
 
     proc.stdout.on('data', onData);
     proc.stderr.on('data', onData);
-    proc.on('error', err => {
-      tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
-      notifyConnection();
-      if (!settled) { settled = true; reject(err); }
-    });
     proc.on('exit', code => {
-      if (tunnelProcess === proc) tunnelProcess = null;
-      if (tunnel.status === 'connected') {
-        tunnel = { status: 'stopped', publicBaseUrl: '', error: `Tunnel exited (${code ?? 'unknown'})` };
-        notifyConnection();
-      } else if (!settled) {
-        const err = new Error(`Tunnel exited before a public URL was created (${code ?? 'unknown'})`);
-        tunnel = { status: 'error', publicBaseUrl: '', error: err.message };
-        notifyConnection();
+      if (!settled) {
         settled = true;
-        reject(err);
+        const error = new Error(`Quick Tunnel dừng trước khi tạo URL (${code ?? 'không rõ mã'}).`);
+        tunnel = { status: 'error', publicBaseUrl: '', error: error.message, mode: 'quick' };
+        notifyConnection();
+        reject(error);
       }
     });
 
     setTimeout(() => {
       if (!settled) {
-        const err = new Error('Timed out while creating the ChatGPT tunnel');
-        tunnel = { status: 'error', publicBaseUrl: '', error: err.message };
-        notifyConnection();
-        try { proc.kill(); } catch {}
         settled = true;
-        reject(err);
+        try { proc.kill(); } catch {}
+        const error = new Error('Hết thời gian chờ Cloudflare tạo Quick Tunnel.');
+        tunnel = { status: 'error', publicBaseUrl: '', error: error.message, mode: 'quick' };
+        notifyConnection();
+        reject(error);
       }
     }, 45000);
   });
+}
+
+async function startCustomTunnel(binPath, state) {
+  const domain = normalizeDomain(state.connection.domain);
+  const token = decryptSecret(state.connection.tunnelTokenEnc);
+  if (!domain || !token) throw new Error('Hãy nhập Domain và Tunnel Token trước khi kết nối.');
+
+  const baseUrl = `https://${domain}`;
+  const proc = spawn(binPath, ['tunnel', 'run', '--token', token], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  bindTunnelLifecycle(proc, 'custom');
+  tunnel = { status: 'verifying', publicBaseUrl: baseUrl, error: '', mode: 'custom' };
+  notifyConnection();
+
+  let stderr = '';
+  proc.stderr.on('data', chunk => { stderr = (stderr + String(chunk || '')).slice(-5000); });
+
+  try {
+    await waitForPublicHealth(baseUrl, proc, 35000);
+    tunnel = { status: 'connected', publicBaseUrl: baseUrl, error: '', mode: 'custom' };
+    notifyConnection();
+    return connectionSnapshot();
+  } catch (error) {
+    try { proc.kill(); } catch {}
+    const detail = stderr.match(/ERR[^\n]*/i)?.[0] || '';
+    const finalError = new Error(`${error.message}${detail ? ` Cloudflared: ${detail}` : ''}`);
+    tunnel = { status: 'error', publicBaseUrl: '', error: finalError.message, mode: 'custom' };
+    notifyConnection();
+    throw finalError;
+  }
+}
+
+async function startTunnel() {
+  await ensureMcpServer();
+  await stopTunnel();
+  const state = ensureStatePersisted();
+  const mode = state.connection.mode;
+
+  if (mode === 'custom' && (!state.connection.domain || !state.connection.tunnelTokenEnc)) {
+    tunnel = { status: 'config-required', publicBaseUrl: '', error: '', mode };
+    notifyConnection();
+    return connectionSnapshot();
+  }
+
+  tunnel = { status: 'starting', publicBaseUrl: '', error: '', mode };
+  notifyConnection();
+  const binPath = await ensureCloudflared();
+  return mode === 'quick' ? startQuickTunnel(binPath) : startCustomTunnel(binPath, state);
+}
+
+async function saveConnectionConfig(incoming = {}) {
+  await stopTunnel();
+  const state = readState();
+  const mode = incoming.mode === 'quick' ? 'quick' : 'custom';
+  state.connection.mode = mode;
+
+  if (mode === 'custom') {
+    state.connection.domain = normalizeDomain(incoming.domain);
+    const token = extractTunnelToken(incoming.tunnelToken);
+    if (token) state.connection.tunnelTokenEnc = encryptSecret(token);
+    if (!state.connection.domain) throw new Error('Vui lòng nhập domain Cloudflare.');
+    if (!state.connection.tunnelTokenEnc) throw new Error('Vui lòng nhập Tunnel Token/Key của Cloudflare.');
+  }
+
+  writeState(state);
+  return publicConnectionConfig(state);
+}
+
+async function clearTunnelToken() {
+  await stopTunnel();
+  const state = readState();
+  state.connection.tunnelTokenEnc = '';
+  writeState(state);
+  tunnel = { status: 'config-required', publicBaseUrl: '', error: '', mode: state.connection.mode };
+  notifyConnection();
+  return publicConnectionConfig(state);
 }
 
 async function rotateConnectionToken() {
@@ -361,8 +531,12 @@ async function rotateConnectionToken() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1420, height: 900, minWidth: 1000, minHeight: 650,
-    backgroundColor: '#0b0d10',
+    width: 1460,
+    height: 920,
+    minWidth: 1080,
+    minHeight: 700,
+    backgroundColor: '#f5f7fb',
+    title: 'ChatCode Cá Nhân',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -374,11 +548,11 @@ app.whenReady().then(async () => {
   try {
     await ensureMcpServer();
     startTunnel().catch(err => {
-      tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
+      tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode: readState().connection.mode };
       notifyConnection();
     });
   } catch (err) {
-    tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err) };
+    tunnel = { status: 'error', publicBaseUrl: '', error: String(err.message || err), mode: readState().connection.mode };
     notifyConnection();
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
@@ -393,7 +567,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 
 ipcMain.handle('projects:list', () => readState().projects);
 ipcMain.handle('projects:add', async () => {
-  const pick = await dialog.showOpenDialog(mainWindow, { properties:['openDirectory'] });
+  const pick = await dialog.showOpenDialog(mainWindow, { title: 'Chọn thư mục dự án', properties:['openDirectory'] });
   if (pick.canceled || !pick.filePaths[0]) return null;
   const state = readState();
   const root = path.resolve(pick.filePaths[0]);
@@ -407,7 +581,7 @@ ipcMain.handle('projects:add', async () => {
 ipcMain.handle('projects:update', (_, incoming) => {
   const state = readState();
   const i = state.projects.findIndex(p => p.id === incoming.id);
-  if (i < 0) throw new Error('Project not found');
+  if (i < 0) throw new Error('Không tìm thấy dự án.');
   state.projects[i] = { ...state.projects[i], name: String(incoming.name || state.projects[i].name), permissions:{ ...state.projects[i].permissions, ...(incoming.permissions || {}) } };
   writeState(state);
   return state.projects[i];
@@ -419,10 +593,14 @@ ipcMain.handle('tasks:run', async (_, id, command) => toolApi.runTask(id, comman
 ipcMain.handle('git:status', async (_, id) => toolApi.gitStatus(id));
 ipcMain.handle('git:diff', async (_, id) => toolApi.gitDiff(id, false));
 ipcMain.handle('connection:status', () => connectionSnapshot());
+ipcMain.handle('connection:config', () => publicConnectionConfig());
+ipcMain.handle('connection:save-config', (_, config) => saveConnectionConfig(config));
+ipcMain.handle('connection:clear-token', () => clearTunnelToken());
 ipcMain.handle('connection:start', () => startTunnel());
+ipcMain.handle('connection:stop', () => stopTunnel());
 ipcMain.handle('connection:copy', () => {
   const url = connectionSnapshot().connectionUrl;
-  if (!url) throw new Error('ChatGPT connection link is not ready');
+  if (!url) throw new Error('URL MCP chưa sẵn sàng. Hãy kết nối Cloudflare trước.');
   clipboard.writeText(url);
   return true;
 });
