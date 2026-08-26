@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage, Tray, Menu, nativeImage, Notification } = require('electron');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -11,19 +11,25 @@ const IGNORE_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'ta
 const SENSITIVE_NAMES = new Set(['.env', '.env.local', '.env.production', 'id_rsa', 'id_ed25519', 'credentials.json']);
 const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte','.csv']);
 const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
-const TRAY_ICON_DATA = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAArklEQVR4nO2WuQ2AMAxFDaKHDmaA/UdhB0o2gAoJIccXQT8ScR3bT99H3PTjfBDQWmTyClAEQGd9uG+rO/gwLeqbRpuCSGIPiFiCHMm1OEkFnk4WOSMxTE0YSW71YwHu5NHknD9XCvgYVgA4gHkTEvn2grV54QrAAVwleLsTOIMrUAHKBNA+EI9pH5tJgSiExU88yXJdRETpERYVyDX3Uhz1KL0MdhV/bWWO4a8ATnVYNW4vbwHSAAAAAElFTkSuQmCC';
+const RECENT_ACTIVITY_LIMIT = 300;
+const DAILY_USAGE_LIMIT = 120;
 
 let mainWindow;
 let tray;
 let isQuitting = false;
 let mcpRuntime = null;
 let tunnelProcess = null;
+let activityWriteQueue = Promise.resolve();
 let tunnel = { status: 'stopped', publicBaseUrl: '', error: '', mode: 'custom' };
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) app.quit();
 
 function dataFile() { return path.join(app.getPath('userData'), 'personal-chatcode.json'); }
+function assetPath(name) { return path.join(__dirname, 'assets', name); }
+function emptyCounters() {
+  return { calls: 0, read: 0, write: 0, task: 0, git: 0, manage: 0, other: 0, errors: 0, bytesIn: 0, bytesOut: 0, durationMs: 0 };
+}
 
 function defaultState() {
   return {
@@ -37,7 +43,13 @@ function defaultState() {
     },
     settings: {
       closeToTray: true,
-      launchAtLogin: false
+      launchAtLogin: false,
+      activityNotifications: true
+    },
+    usage: {
+      total: emptyCounters(),
+      daily: {},
+      recent: []
     }
   };
 }
@@ -71,6 +83,33 @@ function decryptSecret(value) {
   return safeStorage.decryptString(Buffer.from(value, 'base64'));
 }
 
+function normalizeCounters(raw = {}) {
+  const out = emptyCounters();
+  for (const key of Object.keys(out)) out[key] = Math.max(0, Number(raw?.[key]) || 0);
+  return out;
+}
+
+function normalizeUsage(raw = {}) {
+  const daily = {};
+  const keys = Object.keys(raw.daily || {}).sort().slice(-DAILY_USAGE_LIMIT);
+  for (const key of keys) daily[key] = normalizeCounters(raw.daily[key]);
+  const recent = Array.isArray(raw.recent) ? raw.recent.slice(0, RECENT_ACTIVITY_LIMIT).map(item => ({
+    id: String(item.id || crypto.randomUUID()),
+    at: String(item.at || new Date().toISOString()),
+    tool: String(item.tool || 'unknown'),
+    category: String(item.category || 'other'),
+    project: String(item.project || ''),
+    projectId: String(item.projectId || ''),
+    target: String(item.target || '').slice(0, 220),
+    ok: item.ok !== false,
+    durationMs: Math.max(0, Number(item.durationMs) || 0),
+    bytesIn: Math.max(0, Number(item.bytesIn) || 0),
+    bytesOut: Math.max(0, Number(item.bytesOut) || 0),
+    error: String(item.error || '').slice(0, 500)
+  })) : [];
+  return { total: normalizeCounters(raw.total), daily, recent };
+}
+
 function normalizeState(raw) {
   const base = defaultState();
   const state = { ...base, ...(raw || {}) };
@@ -91,8 +130,10 @@ function normalizeState(raw) {
   state.connection.tunnelTokenEnc = String(state.connection.tunnelTokenEnc || '');
   state.settings = {
     closeToTray: state.settings?.closeToTray !== false,
-    launchAtLogin: !!state.settings?.launchAtLogin
+    launchAtLogin: !!state.settings?.launchAtLogin,
+    activityNotifications: state.settings?.activityNotifications !== false
   };
+  state.usage = normalizeUsage(state.usage);
   return state;
 }
 
@@ -124,7 +165,8 @@ function publicConnectionConfig(state = readState()) {
 function publicAppSettings(state = readState()) {
   return {
     closeToTray: !!state.settings.closeToTray,
-    launchAtLogin: !!state.settings.launchAtLogin
+    launchAtLogin: !!state.settings.launchAtLogin,
+    activityNotifications: !!state.settings.activityNotifications
   };
 }
 
@@ -140,6 +182,7 @@ function saveAppSettings(incoming = {}) {
   const state = readState();
   if (typeof incoming.closeToTray === 'boolean') state.settings.closeToTray = incoming.closeToTray;
   if (typeof incoming.launchAtLogin === 'boolean') state.settings.launchAtLogin = incoming.launchAtLogin;
+  if (typeof incoming.activityNotifications === 'boolean') state.settings.activityNotifications = incoming.activityNotifications;
   writeState(state);
   applyLoginSettings(state.settings.launchAtLogin);
   updateTrayMenu();
@@ -249,6 +292,119 @@ function requirePermission(project, key, label) {
   if (!project.permissions?.[key]) throw new Error(`Quyền ${label} đang tắt cho dự án "${project.name}".`);
 }
 
+function localDayKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function incrementCounters(counter, entry) {
+  counter.calls += 1;
+  const category = ['read','write','task','git','manage'].includes(entry.category) ? entry.category : 'other';
+  counter[category] += 1;
+  if (!entry.ok) counter.errors += 1;
+  counter.bytesIn += Math.max(0, Number(entry.bytesIn) || 0);
+  counter.bytesOut += Math.max(0, Number(entry.bytesOut) || 0);
+  counter.durationMs += Math.max(0, Number(entry.durationMs) || 0);
+}
+
+function maybeNotifyActivity(entry) {
+  const state = readState();
+  if (!state.settings.activityNotifications || !entry.ok || !['write','manage','task','git'].includes(entry.category)) return;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) return;
+  try {
+    if (!Notification.isSupported()) return;
+    const action = entry.category === 'write' ? 'đã ghi file' : entry.category === 'manage' ? 'đã quản lý file' : entry.category === 'task' ? 'đã chạy tác vụ' : 'đã thao tác Git';
+    new Notification({
+      title: `ChatGPT ${action}`,
+      body: `${entry.project || 'Dự án'}${entry.target ? ` · ${entry.target}` : ''}`,
+      icon: fs.existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined
+    }).show();
+  } catch {}
+}
+
+function recordActivity(incoming = {}) {
+  activityWriteQueue = activityWriteQueue.then(async () => {
+    const state = readState();
+    let projectName = String(incoming.project || '');
+    let projectId = String(incoming.projectId || '');
+    if (projectName || projectId) {
+      try {
+        const project = getProject(projectId || projectName);
+        projectName = project.name;
+        projectId = project.id;
+      } catch {}
+    }
+    const entry = {
+      id: crypto.randomUUID(),
+      at: new Date().toISOString(),
+      tool: String(incoming.tool || 'unknown'),
+      category: String(incoming.category || 'other'),
+      project: projectName,
+      projectId,
+      target: String(incoming.target || '').slice(0, 220),
+      ok: incoming.ok !== false,
+      durationMs: Math.max(0, Number(incoming.durationMs) || 0),
+      bytesIn: Math.max(0, Number(incoming.bytesIn) || 0),
+      bytesOut: Math.max(0, Number(incoming.bytesOut) || 0),
+      error: String(incoming.error || '').slice(0, 500)
+    };
+
+    const usage = normalizeUsage(state.usage);
+    incrementCounters(usage.total, entry);
+    const day = localDayKey();
+    usage.daily[day] = normalizeCounters(usage.daily[day]);
+    incrementCounters(usage.daily[day], entry);
+    const dayKeys = Object.keys(usage.daily).sort();
+    while (dayKeys.length > DAILY_USAGE_LIMIT) delete usage.daily[dayKeys.shift()];
+    usage.recent.unshift(entry);
+    usage.recent = usage.recent.slice(0, RECENT_ACTIVITY_LIMIT);
+    state.usage = usage;
+    writeState(state);
+
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('activity:changed', entry);
+    maybeNotifyActivity(entry);
+    return entry;
+  }).catch(() => null);
+  return activityWriteQueue;
+}
+
+function usageSnapshot(days = 14) {
+  const state = readState();
+  const usage = normalizeUsage(state.usage);
+  const range = Math.min(Math.max(Number(days) || 14, 1), 120);
+  const series = [];
+  const aggregate = emptyCounters();
+  for (let i = range - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - i);
+    const key = localDayKey(date);
+    const counter = normalizeCounters(usage.daily[key]);
+    for (const field of Object.keys(aggregate)) aggregate[field] += counter[field];
+    series.push({ date: key, ...counter });
+  }
+  return {
+    rangeDays: range,
+    aggregate,
+    total: usage.total,
+    series,
+    recent: usage.recent.slice(0, 120),
+    projectCount: state.projects.length,
+    uptimeSec: Math.floor(process.uptime()),
+    startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString()
+  };
+}
+
+function clearUsage() {
+  const state = readState();
+  state.usage = defaultState().usage;
+  writeState(state);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('activity:reset');
+  return usageSnapshot(14);
+}
+
 const toolApi = {
   listProjects() {
     return readState().projects.map(p => ({ id: p.id, name: p.name, root: p.root, permissions: p.permissions }));
@@ -335,7 +491,8 @@ const toolApi = {
     const msg = String(message || '').trim();
     if (!msg) throw new Error('Cần có nội dung commit.');
     return runExec('git', ['commit', '-m', msg], project.root, 60000);
-  }
+  },
+  recordActivity
 };
 
 async function ensureMcpServer() {
@@ -355,7 +512,8 @@ function connectionSnapshot() {
     error: tunnel.error,
     localUrl: mcpRuntime?.localUrl || '',
     publicBaseUrl: tunnel.publicBaseUrl || '',
-    connectionUrl: tunnel.publicBaseUrl && mcpRuntime ? `${tunnel.publicBaseUrl}${mcpRuntime.route}` : ''
+    connectionUrl: tunnel.publicBaseUrl && mcpRuntime ? `${tunnel.publicBaseUrl}${mcpRuntime.route}` : '',
+    uptimeSec: Math.floor(process.uptime())
   };
 }
 
@@ -372,10 +530,7 @@ function updateTrayMenu() {
       enabled: !!snap.connectionUrl,
       click: () => { if (snap.connectionUrl) clipboard.writeText(snap.connectionUrl); }
     },
-    {
-      label: 'Kết nối lại',
-      click: () => startTunnel().catch(() => {})
-    },
+    { label: 'Kết nối lại', click: () => startTunnel().catch(() => {}) },
     { type: 'separator' },
     {
       label: 'Thoát hoàn toàn',
@@ -534,7 +689,7 @@ async function startCustomTunnel(binPath, state) {
     return connectionSnapshot();
   } catch (error) {
     try { proc.kill(); } catch {}
-    const detail = stderr.match(/ERR[^\n]*/i)?.[0] || '';
+    const detail = stderr.match(/ERR[^\n]*/i)?.[0] || stderr.split(/\r?\n/).filter(Boolean).slice(-1)[0] || '';
     const finalError = new Error(`${error.message}${detail ? ` Cloudflared: ${detail}` : ''}`);
     tunnel = { status: 'error', publicBaseUrl: '', error: finalError.message, mode: 'custom' };
     notifyConnection();
@@ -624,26 +779,16 @@ async function diagnoseConnection() {
 
   if (snap.connectionUrl) {
     const initializeBody = {
-      jsonrpc: '2.0',
-      id: 901,
-      method: 'initialize',
-      params: {
-        protocolVersion: '2025-06-18',
-        capabilities: {},
-        clientInfo: { name: 'chatcode-self-test', version: app.getVersion() }
-      }
+      jsonrpc: '2.0', id: 901, method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'chatcode-self-test', version: app.getVersion() } }
     };
     await check('MCP initialize', snap.connectionUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify(initializeBody)
+      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify(initializeBody)
     });
 
     const toolsBody = { jsonrpc: '2.0', id: 902, method: 'tools/list', params: {} };
     await check('MCP tools/list', snap.connectionUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify(toolsBody)
+      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify(toolsBody)
     });
   }
 
@@ -659,7 +804,7 @@ function showMainWindow() {
 
 function createTray() {
   if (tray) return tray;
-  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_DATA}`);
+  const icon = fs.existsSync(assetPath('icon.png')) ? nativeImage.createFromPath(assetPath('icon.png')).resize({ width: 24, height: 24 }) : nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.on('double-click', showMainWindow);
   tray.on('click', () => {
@@ -671,15 +816,18 @@ function createTray() {
 
 function createWindow(showInitially = true) {
   mainWindow = new BrowserWindow({
-    width: 1420,
-    height: 900,
-    minWidth: 1060,
-    minHeight: 680,
+    width: 1460,
+    height: 920,
+    minWidth: 1080,
+    minHeight: 700,
     show: false,
-    backgroundColor: '#f7f8fb',
+    backgroundColor: '#f6f7f9',
     title: 'ChatCode Cá Nhân',
+    icon: fs.existsSync(assetPath('icon.png')) ? assetPath('icon.png') : undefined,
+    autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
+  mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.on('close', event => {
     if (isQuitting) return;
@@ -697,6 +845,8 @@ if (gotSingleInstanceLock) {
   app.on('second-instance', showMainWindow);
 
   app.whenReady().then(async () => {
+    if (process.platform === 'win32') app.setAppUserModelId('com.personal.chatcode');
+    Menu.setApplicationMenu(null);
     const state = ensureStatePersisted();
     applyLoginSettings(state.settings.launchAtLogin);
     createTray();
@@ -777,7 +927,9 @@ ipcMain.handle('connection:copy', () => {
   return true;
 });
 ipcMain.handle('connection:rotate', () => rotateConnectionToken());
+ipcMain.handle('usage:snapshot', (_, days) => usageSnapshot(days));
+ipcMain.handle('usage:clear', () => clearUsage());
 ipcMain.handle('settings:get', () => publicAppSettings());
 ipcMain.handle('settings:update', (_, settings) => saveAppSettings(settings));
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, port: PORT }));
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, port: PORT, packaged: app.isPackaged }));
 ipcMain.handle('app:hide', () => { mainWindow?.hide(); return true; });
