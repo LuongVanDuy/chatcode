@@ -15,12 +15,14 @@ const api = {
   findReferences: async (_project, symbol) => ({ symbol, definitions:[{ name:symbol, path:'src/index.js', line:1 }], references:[] }),
   relatedFiles: async () => [{ path:'src/helper.js', score:9, reasons:['import file này'] }],
   projectContext: async (_project, query) => ({ project:'demo', query, files:[{ path:'src/index.js', symbols:[], imports:[] }], relations:[] }),
+  prepareTask: async (_project, request) => ({ ok:true, status:'ready', task_id:'agent-1', work_session_id:'agent-1', request, context:{ primary_language:'JavaScript', relevant_files:[{ path:'src/index.js', content:'console.log("demo")' }], git:{ is_repository:true, status:'## main' } }, verification_hints:[{ command:'npm run test' }], agent_contract:{ preferred_calls:2, next_tool:'complete_task' }, telemetry:{ total_ms:2, inspect_ms:1 } }),
+  completeTask: async (taskId, patch, commands) => ({ ok:true, status:'completed', task_id:taskId, work_session_id:taskId, verification:commands.map(command => ({ command, ok:true })), verification_passed:true, changed_files:['src/index.js'], git:{ diff:patch.includes('demo2') ? 'diff' : '' }, agent_contract:{ preferred_calls:2, completed_in_call:2 }, telemetry:{ total_ms:3, patch_ms:1, verify_ms:1, finalize_ms:1 } }),
   inspectProject: async (_project, query) => ({ ok:true, query, framework_names:['Node.js'], primary_language:'JavaScript', relevant_files:[{ path:'src/index.js', content:'console.log("demo")' }], git:{ is_repository:true, status:'## main' }, telemetry:{ total_ms:2, filesystem_ms:1, brain_refresh_ms:1, git_ms:0 } }),
   applyAndVerify: async () => ({ ok:true, status:'completed', job_id:'job-1', changes:[], tasks:[], git_diff:'', telemetry:{ total_ms:1, filesystem_ms:0, brain_refresh_ms:0, git_ms:0 } }),
   operationStatus: async jobId => ({ ok:true, status:'completed', job_id:jobId }),
-  startWork: async (_project, goal) => ({ work_session_id:'work-1', goal, status:'active', changed_files:[], baseline:{ git:{ is_repository:true, status:'## main', diff:'' } } }),
+  startWork: async (_project, goal) => ({ work_session_id:'work-1', project_id:'demo', workspace_mode:'trusted', goal, status:'active', changed_files:[], baseline:{ git:{ is_repository:true, status:'## main', diff:'' } } }),
   applyPatch: async (_project, patch, id) => ({ ok:true, work_session_id:id, files:[{ path:'src/index.js', operation:'modify', hunks:1 }], changed_files:['src/index.js'], git:{ is_repository:true, diff:patch.includes('demo') ? 'diff' : '' } }),
-  workStatus: async id => ({ work_session_id:id, status:'active', changed_files:['src/index.js'], commands:[], current:{ git:{ status:' M src/index.js', diff:'diff' } } }),
+  workStatus: async id => ({ work_session_id:id, project_id:'demo', workspace_mode:'trusted', status:'active', changed_files:['src/index.js'], commands:[], current:{ git:{ status:' M src/index.js', diff:'diff' } } }),
   finishWork: async (id, commands) => ({ work_session_id:id, status:'completed', verification:commands.map(command => ({ command, ok:true })), verification_passed:true, final:{ git:{ diff:'diff' } } }),
   rollbackWork: async id => ({ work_session_id:id, status:'rolled_back', ok:true, restored:[{ path:'src/index.js' }], final:{ git:{ diff:'' } } }),
   writeFile: async () => { throw new Error('Write permission is disabled for project "demo"'); },
@@ -44,24 +46,30 @@ const transport = new StreamableHTTPClientTransport(new URL(server.localUrl));
 try {
   const health = await fetch(`http://127.0.0.1:${port}/health`); assert.equal(health.status, 200); assert.deepEqual(await health.json(), { ok:true, service:'personal-chatcode' });
   const blocked = await fetch(`http://127.0.0.1:${port}/wrong-token/mcp`, { method:'POST', headers:{ 'content-type':'application/json' }, body:'{}' }); assert.equal(blocked.status, 404);
-  await client.connect(transport); assert.equal(client.getServerVersion()?.name, 'personal-chatcode'); assert.equal(client.getServerVersion()?.version, '0.9.0');
+  await client.connect(transport); assert.equal(client.getServerVersion()?.name, 'personal-chatcode'); assert.equal(client.getServerVersion()?.version, '1.0.0');
 
   const tools = await client.listTools(); const names = tools.tools.map(tool => tool.name);
   const legacy = ['list_projects','list_files','search_project','read_file','read_files','write_file','delete_file','rename_file','run_task','git_status','git_diff','git_stage','git_commit'];
   const brain = ['project_brain','find_symbols','find_references','related_files','project_context'];
+  const agent = ['prepare_task','complete_task'];
   const fast = ['inspect_project','apply_and_verify','operation_status'];
   const terminal = ['exec','job_status','job_stop'];
   const editing = ['start_work','apply_patch','work_status','finish_work','rollback_work'];
-  for (const expected of [...legacy,...brain,...fast,...terminal,...editing]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
-  assert.equal(names.length, 29, `expected 29 MCP tools, got ${names.length}`);
+  for (const expected of [...legacy,...brain,...agent,...fast,...terminal,...editing]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
+  assert.equal(names.length, 31, `expected 31 MCP tools, got ${names.length}`);
 
   const projects = await client.callTool({ name:'list_projects', arguments:{} }); assert.equal(JSON.parse(projects.content[0].text)[0].name, 'demo');
   const read = await client.callTool({ name:'read_file', arguments:{ project:'demo', path:'README.md' } }); assert.equal(JSON.parse(read.content[0].text).content, '# Demo');
   const inspect = await client.callTool({ name:'inspect_project', arguments:{ project:'demo', query:'checkout address' } }); assert.equal(JSON.parse(inspect.content[0].text).primary_language, 'JavaScript');
 
+  const prepared = await client.callTool({ name:'prepare_task', arguments:{ project:'demo', request:'fix demo output' } });
+  const preparedValue = JSON.parse(prepared.content[0].text); assert.equal(preparedValue.status, 'ready'); assert.equal(preparedValue.task_id, 'agent-1'); assert.equal(preparedValue.agent_contract.preferred_calls, 2);
+  const unified = '--- a/src/index.js\n+++ b/src/index.js\n@@ -1,1 +1,1 @@\n-console.log("demo")\n+console.log("demo2")\n';
+  const completed = await client.callTool({ name:'complete_task', arguments:{ task_id:'agent-1', patch:unified, verify_commands:['node --version'] } });
+  const completedValue = JSON.parse(completed.content[0].text); assert.equal(completedValue.status, 'completed'); assert.equal(completedValue.verification_passed, true); assert.equal(completedValue.agent_contract.completed_in_call, 2);
+
   const started = await client.callTool({ name:'start_work', arguments:{ project:'demo', goal:'edit demo' } });
   assert.equal(JSON.parse(started.content[0].text).work_session_id, 'work-1');
-  const unified = '--- a/src/index.js\n+++ b/src/index.js\n@@ -1,1 +1,1 @@\n-console.log("demo")\n+console.log("demo2")\n';
   const patched = await client.callTool({ name:'apply_patch', arguments:{ project:'demo', work_session_id:'work-1', patch:unified } });
   assert.equal(JSON.parse(patched.content[0].text).files[0].operation, 'modify');
   const work = await client.callTool({ name:'work_status', arguments:{ work_session_id:'work-1' } }); assert.equal(JSON.parse(work.content[0].text).status, 'active');
@@ -77,7 +85,7 @@ try {
   const deniedWrite = await client.callTool({ name:'write_file', arguments:{ project:'demo', path:'x.txt', content:'x' } });
   assert.equal(deniedWrite.isError, true); const denied = JSON.parse(deniedWrite.content[0].text); assert.equal(denied.ok, false); assert.equal(denied.error.code, 'PERMISSION_DENIED');
 
-  console.log(`MCP smoke test passed: ${names.length} tools, including Trusted terminal + Codex editing sessions`);
+  console.log(`MCP smoke test passed: ${names.length} tools, including v1.0 Fast Agent Path + Trusted terminal + Codex editing sessions`);
 } finally {
   try { await client.close(); } catch {}
   try { await server.close(); } catch {}

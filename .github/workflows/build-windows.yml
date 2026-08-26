@@ -35,6 +35,8 @@ jobs:
         run: npm run test:terminal
       - name: Smoke test Codex-style editing
         run: npm run test:editing
+      - name: Smoke test Fast Agent Path
+        run: npm run test:agent
       - name: Smoke test Project Brain
         run: npm run test:brain
       - name: Smoke test WordPress Brain

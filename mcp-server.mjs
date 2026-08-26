@@ -8,7 +8,21 @@ const require = createRequire(import.meta.url);
 const { normalizeError } = require('./core/errors');
 
 function byteSize(value) { try { return Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value ?? null), 'utf8'); } catch { return 0; } }
-function telemetryShape(value = {}, totalMs = 0) { return { total_ms:Math.max(0, Number(value.total_ms) || totalMs || 0), filesystem_ms:Math.max(0, Number(value.filesystem_ms) || 0), brain_refresh_ms:Math.max(0, Number(value.brain_refresh_ms) || 0), git_ms:Math.max(0, Number(value.git_ms) || 0), ...(value.write_to_searchable_ms != null ? { write_to_searchable_ms:Number(value.write_to_searchable_ms) || 0 } : {}), ...(value.rename_to_brain_ms != null ? { rename_to_brain_ms:Number(value.rename_to_brain_ms) || 0 } : {}), ...(value.delete_stale_cleanup_ms != null ? { delete_stale_cleanup_ms:Number(value.delete_stale_cleanup_ms) || 0 } : {}) }; }
+function telemetryShape(value = {}, totalMs = 0) {
+  return {
+    total_ms:Math.max(0, Number(value.total_ms) || totalMs || 0),
+    filesystem_ms:Math.max(0, Number(value.filesystem_ms) || 0),
+    brain_refresh_ms:Math.max(0, Number(value.brain_refresh_ms) || 0),
+    git_ms:Math.max(0, Number(value.git_ms) || 0),
+    ...(value.inspect_ms != null ? { inspect_ms:Number(value.inspect_ms) || 0 } : {}),
+    ...(value.patch_ms != null ? { patch_ms:Number(value.patch_ms) || 0 } : {}),
+    ...(value.verify_ms != null ? { verify_ms:Number(value.verify_ms) || 0 } : {}),
+    ...(value.finalize_ms != null ? { finalize_ms:Number(value.finalize_ms) || 0 } : {}),
+    ...(value.write_to_searchable_ms != null ? { write_to_searchable_ms:Number(value.write_to_searchable_ms) || 0 } : {}),
+    ...(value.rename_to_brain_ms != null ? { rename_to_brain_ms:Number(value.rename_to_brain_ms) || 0 } : {}),
+    ...(value.delete_stale_cleanup_ms != null ? { delete_stale_cleanup_ms:Number(value.delete_stale_cleanup_ms) || 0 } : {})
+  };
+}
 function result(value, telemetry = {}) { const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); return { content:[{ type:'text', text }], _meta:{ telemetry } }; }
 function errorResult(error, telemetry = {}) { const normalized = normalizeError(error); return { content:[{ type:'text', text:JSON.stringify({ ok:false, error:normalized }, null, 2) }], isError:true, _meta:{ telemetry } }; }
 
@@ -25,6 +39,8 @@ function activityMeta(tool, args = {}) {
     case 'find_references': return { category:'read', project, target:`References: ${String(args.symbol || '').slice(0,120)}` };
     case 'related_files': return { category:'read', project, target:`Related: ${String(args.path || '').slice(0,160)}` };
     case 'project_context': return { category:'read', project, target:`Context: ${String(args.query || '').slice(0,160)}` };
+    case 'prepare_task': return { category:'read', project, target:`Agent prepare: ${String(args.request || '').slice(0,160)}` };
+    case 'complete_task': return { category:'write', project:'', target:`Agent complete ${String(args.task_id || '').slice(0,36)}` };
     case 'inspect_project': return { category:'read', project, target:`Inspect: ${String(args.query || '').slice(0,160)}` };
     case 'apply_and_verify': return { category:'write', project, target:`Fast-path ${Array.isArray(args.changes) ? args.changes.length : 0} changes / ${Array.isArray(args.tasks) ? args.tasks.length : 0} tasks` };
     case 'operation_status': return { category:'read', project:'', target:`Fast-path job ${String(args.job_id || '').slice(0,80)}` };
@@ -69,7 +85,7 @@ const changeSchema = z.object({
 });
 
 function buildMcpServer(api) {
-  const server = new McpServer({ name:'personal-chatcode', version:'0.9.0' }, { instructions:'ChatCode gives controlled access to local projects. For Codex-style editing, prefer start_work(project,goal), apply_patch(project,patch,work_session_id), exec(...,work_session_id) when Trusted, then finish_work(work_session_id,verify_commands). work_status shows live Git/session state and rollback_work restores the session changes. apply_patch accepts standard unified diff, preflights all hunks, creates normal recovery snapshots and auto-rolls back already-applied files if a later mutation fails. For discovery, inspect_project remains the preferred first coding-context call. Safe Workspace keeps approval and run_task allow-list behavior. Trusted Workspace can use real shell exec with chaining/pipes/background jobs; exec is not an OS filesystem sandbox. Git push/reset --hard remain blocked. Never push Git.' });
+  const server = new McpServer({ name:'personal-chatcode', version:'1.0.0' }, { instructions:'ChatCode v1.0 gives controlled access to local projects. For normal coding tasks, use the Fast Agent Path: call prepare_task(project,request) first. It opens a work session and returns ranked context, relevant file contents, Brain/framework data, Git baseline and verification hints. Then create a standard unified diff and call complete_task(task_id,patch,verify_commands). A normal task should finish in 2 MCP calls. If complete_task returns needs_fix, keep the same task_id, create a corrective diff against the current files and call complete_task again; do not restart inspection. Use rollback_work(task_id) only when abandoning the task. Lower-level start_work/apply_patch/work_status/finish_work and inspect_project/apply_and_verify remain available for compatibility or unusual workflows. Safe Workspace keeps approvals and run_task allow-list behavior. Trusted Workspace can use real shell exec with chaining/pipes/background jobs; exec is not an OS filesystem sandbox. Git push/reset --hard remain blocked. Never push Git.' });
 
   server.registerTool('list_projects',{ title:'List projects', description:'List folders explicitly shared with ChatCode, including permissions and workspace mode.', inputSchema:z.object({}), annotations:{ readOnlyHint:true } },wrap(api,'list_projects',async()=>api.listProjects()));
   server.registerTool('list_files',{ title:'List project files', description:'List indexed non-sensitive files inside a project.', inputSchema:z.object({ project:z.string(), limit:z.number().int().min(1).max(5000).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'list_files',({project,limit})=>api.listFiles(project,limit)));
@@ -83,7 +99,10 @@ function buildMcpServer(api) {
   server.registerTool('related_files',{ title:'Find related files', description:'Rank related files using imports, WordPress relations, selectors and reverse dependencies.', inputSchema:z.object({ project:z.string(), path:z.string().min(1), limit:z.number().int().min(1).max(50).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'related_files',({project,path,limit})=>api.relatedFiles(project,path,limit)));
   server.registerTool('project_context',{ title:'Get task-focused project context', description:'Return WordPress-aware ranked files/symbols/relations for a task.', inputSchema:z.object({ project:z.string(), query:z.string().min(1), limit:z.number().int().min(3).max(24).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'project_context',({project,query,limit})=>api.projectContext(project,query,limit)));
 
-  server.registerTool('inspect_project',{ title:'Inspect project for a coding task', description:'Fast context call: framework/WordPress summary, relevant file contents, symbols, relations and Git state.', inputSchema:z.object({ project:z.string(), query:z.string().min(1), limit:z.number().int().min(4).max(16).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'inspect_project',({project,query,limit})=>api.inspectProject(project,query,limit)));
+  server.registerTool('prepare_task',{ title:'Prepare coding task', description:'Fast Agent Path call 1/2. Opens a Work Session and returns the task_id plus ranked source contents, Brain/framework context, Git baseline and verification hints. Prefer this over separate inspect_project + start_work calls.', inputSchema:z.object({ project:z.string(), request:z.string().min(1).max(2000), limit:z.number().int().min(4).max(12).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'prepare_task',({project,request,limit})=>api.prepareTask(project,request,limit)));
+  server.registerTool('complete_task',{ title:'Complete coding task', description:'Fast Agent Path call 2/2. Apply a transactional unified diff, run up to six verification commands, refresh Brain/Git and finalize the task. Verification failure returns needs_fix while keeping the same task active for a corrective complete_task call.', inputSchema:z.object({ task_id:z.string().min(1), patch:z.string().min(1).max(2097152), verify_commands:z.array(z.string().min(1).max(16000)).max(6).default([]), finalize:z.boolean().default(true), rollback_on_failure:z.boolean().default(false) }), annotations:{ readOnlyHint:false, destructiveHint:true } },wrap(api,'complete_task',({task_id,patch,verify_commands,finalize,rollback_on_failure})=>api.completeTask(task_id,patch,verify_commands,{ finalize, rollbackOnFailure:rollback_on_failure })));
+
+  server.registerTool('inspect_project',{ title:'Inspect project for a coding task', description:'Legacy fast context call: framework/WordPress summary, relevant file contents, symbols, relations and Git state.', inputSchema:z.object({ project:z.string(), query:z.string().min(1), limit:z.number().int().min(4).max(16).optional() }), annotations:{ readOnlyHint:true } },wrap(api,'inspect_project',({project,query,limit})=>api.inspectProject(project,query,limit)));
   server.registerTool('apply_and_verify',{ title:'Apply changes and verify', description:'Legacy fast mutation path with recovery, Brain refresh, verification and Git diff.', inputSchema:z.object({ project:z.string(), changes:z.array(changeSchema).max(24).default([]), tasks:z.array(z.string()).max(6).default([]) }), annotations:{ readOnlyHint:false, destructiveHint:true } },wrap(api,'apply_and_verify',({project,changes,tasks})=>api.applyAndVerify(project,changes,tasks)));
   server.registerTool('operation_status',{ title:'Fast-path operation status', description:'Read a pending apply_and_verify job after approval.', inputSchema:z.object({ job_id:z.string().min(1) }), annotations:{ readOnlyHint:true } },wrap(api,'operation_status',({job_id})=>api.operationStatus(job_id)));
 
