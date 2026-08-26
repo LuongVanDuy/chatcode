@@ -94,6 +94,18 @@ function createSupportService(app) {
   return { root, eventDir, appendEvent, markTerminalFlash, listEvents, getNote, saveNote, report };
 }
 
+function quoteCmdArg(value) {
+  const text = String(value ?? '');
+  if (!text) return '""';
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function windowsCommandWrapper(file, args = []) {
+  if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(String(file || ''))) return null;
+  const commandLine = [quoteCmdArg(file), ...args.map(quoteCmdArg)].join(' ');
+  return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', commandLine] };
+}
+
 function installChildProcessAudit(service) {
   const childProcess = require('child_process');
   if (childProcess.__chatcodeAuditInstalled) return;
@@ -114,36 +126,42 @@ function installChildProcessAudit(service) {
     let actualOptions, child;
     if (Array.isArray(args)) {
       actualOptions = hidden(options && typeof options === 'object' ? options : {});
-      child = originalSpawn.call(this, command, args, actualOptions);
+      const wrapped = windowsCommandWrapper(command, actualArgs);
+      child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualArgs, actualOptions);
     } else {
       actualOptions = hidden(args && typeof args === 'object' ? args : {});
-      child = originalSpawn.call(this, command, actualOptions);
+      const wrapped = windowsCommandWrapper(command, []);
+      child = wrapped ? originalSpawn.call(this, wrapped.file, wrapped.args, actualOptions) : originalSpawn.call(this, command, actualOptions);
     }
     return attach(child, command, actualArgs, actualOptions);
   };
 
   const originalExecFile = childProcess.execFile;
   childProcess.execFile = function patchedExecFile(file, ...rest) {
-    let actualArgs = [], actualOptions = {}, callArgs;
+    let actualArgs = [], actualOptions = {}, callback;
     if (Array.isArray(rest[0])) {
       actualArgs = rest[0];
       if (rest[1] && typeof rest[1] === 'object' && typeof rest[1] !== 'function') {
         actualOptions = hidden(rest[1]);
-        callArgs = [file, actualArgs, actualOptions, ...rest.slice(2)];
+        callback = rest[2];
       } else {
         actualOptions = hidden({});
-        callArgs = [file, actualArgs, actualOptions, ...rest.slice(1)];
+        callback = rest[1];
       }
     } else if (rest[0] && typeof rest[0] === 'object' && typeof rest[0] !== 'function') {
       actualOptions = hidden(rest[0]);
-      callArgs = [file, actualOptions, ...rest.slice(1)];
+      callback = rest[1];
     } else {
       actualOptions = hidden({});
-      callArgs = [file, actualOptions, ...rest];
+      callback = rest[0];
     }
-    const child = originalExecFile.apply(this, callArgs);
+
+    const wrapped = windowsCommandWrapper(file, actualArgs);
+    const child = wrapped
+      ? originalExecFile.call(this, wrapped.file, wrapped.args, actualOptions, callback)
+      : originalExecFile.call(this, file, actualArgs, actualOptions, callback);
     return attach(child, file, actualArgs, actualOptions);
   };
 }
 
-module.exports = { createSupportService, installChildProcessAudit, classifyProcess };
+module.exports = { createSupportService, installChildProcessAudit, classifyProcess, windowsCommandWrapper };
