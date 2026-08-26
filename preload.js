@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('personalCode', {
   rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
   copyDiagnostic: () => ipcRenderer.invoke('connection:copy-diagnostic'),
 
+  supportNote: () => ipcRenderer.invoke('support:note-get'),
+  saveSupportNote: text => ipcRenderer.invoke('support:note-save', text),
+  supportEvents: limit => ipcRenderer.invoke('support:events', limit),
+  markTerminalFlash: note => ipcRenderer.invoke('support:mark-terminal', note),
+  openSupportFolder: () => ipcRenderer.invoke('support:open-folder'),
+  copySupportReport: () => ipcRenderer.invoke('support:copy-report'),
+  openSupportGitHubIssue: () => ipcRenderer.invoke('support:github-issue'),
+
   usageSnapshot: days => ipcRenderer.invoke('usage:snapshot', days),
   clearUsage: () => ipcRenderer.invoke('usage:clear'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -76,4 +84,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('v07-runtime.js', 'v07-runtime');
   await load('v08-runtime.js', 'v08-runtime');
   await load('v081-runtime.js', 'v081-runtime');
+  await load('v09-runtime.js', 'v09-runtime');
 });
