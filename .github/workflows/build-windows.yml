@@ -29,6 +29,12 @@ jobs:
         run: npm run test:safety
       - name: Smoke test Project Brain
         run: npm run test:brain
+      - name: Smoke test WordPress Brain
+        run: npm run test:wordpress
+      - name: Smoke test fast coding path
+        run: npm run test:fastpath
+      - name: Regression test filesystem & Windows tasks
+        run: npm run test:regression
       - name: Build Windows installer
         run: npm run dist:win
       - uses: actions/upload-artifact@v4
