@@ -4,6 +4,12 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
+const { createSupportService, installChildProcessAudit } = require('./core/support');
+
+// Install process auditing before loading modules that destructure child_process.
+const support = createSupportService(app);
+installChildProcessAudit(support);
+
 const { createStore } = require('./core/store');
 const { createUsageService } = require('./core/usage');
 const { createProjectService } = require('./core/projects');
@@ -53,8 +59,6 @@ const usage = createUsageService(store, { onActivity: notifyActivity, onReset: (
 const backups = createBackupService(app, store, { onChanged: () => send('backups:changed') });
 const approvals = createApprovalService(store, {
   onChanged: list => { send('approval:changed', list); updateTrayMenu(); },
-  // Keep approval attention inside ChatCode/tray; do not create a second Windows
-  // notification for every approval request.
   onAttention: item => send('approval:attention', item)
 });
 const projects = createProjectService(store, { onIndexChanged: value => send('index:changed', value), recordActivity: usage.record });
@@ -245,6 +249,18 @@ async function importConfig() {
   return { path:pick.filePaths[0], projectCount:importedProjects.length };
 }
 
+async function supportIssue() {
+  const report = await support.report({ version:app.getVersion(), limit:16 });
+  const note = String(report.note || '').slice(0, 3500) || '(Chưa có ghi chú)';
+  const events = JSON.stringify(report.terminalEvents, null, 2).slice(0, 6500);
+  const body = `## Ghi chú từ ChatCode\n\n${note}\n\n## Terminal / process events gần nhất (đã sanitize)\n\n\`\`\`json\n${events}\n\`\`\`\n\n> ChatCode không đính kèm stdout/stderr, nội dung file, MCP secret hay Tunnel Token.`;
+  const url = new URL('https://github.com/LuongVanDuy/chatcode/issues/new');
+  url.searchParams.set('title', `[Support v${app.getVersion()}] Ghi chú từ ChatCode`);
+  url.searchParams.set('body', body);
+  await shell.openExternal(url.toString());
+  return true;
+}
+
 ipcMain.handle('projects:list', () => store.read().projects);
 ipcMain.handle('projects:add', async () => {
   const pick = await dialog.showOpenDialog(mainWindow, { title:'Chọn thư mục dự án', properties:['openDirectory'] });
@@ -290,6 +306,14 @@ ipcMain.handle('connection:diagnose', () => connection.diagnose());
 ipcMain.handle('connection:copy', () => { const url=connection.snapshot().connectionUrl; if(!url)throw new Error('URL MCP chưa sẵn sàng.'); clipboard.writeText(url); return true; });
 ipcMain.handle('connection:rotate', async () => { await connection.rotate(); const state=store.read(); state.connection.tokenRotatedAt=new Date().toISOString(); store.write(state); return connection.snapshot(); });
 ipcMain.handle('connection:copy-diagnostic', async () => { const diagnostic=await connection.diagnose(); clipboard.writeText(connection.report(diagnostic)); return true; });
+
+ipcMain.handle('support:note-get', () => support.getNote());
+ipcMain.handle('support:note-save', (_, text) => support.saveNote(text));
+ipcMain.handle('support:events', (_, limit) => support.listEvents(limit));
+ipcMain.handle('support:mark-terminal', (_, note) => support.markTerminalFlash(note));
+ipcMain.handle('support:open-folder', async () => { await support.listEvents(1); const error=await shell.openPath(support.root()); if(error)throw new Error(error); return true; });
+ipcMain.handle('support:copy-report', async () => { const report=await support.report({ version:app.getVersion(), limit:120 }); clipboard.writeText(JSON.stringify(report, null, 2)); return true; });
+ipcMain.handle('support:github-issue', () => supportIssue());
 
 ipcMain.handle('usage:snapshot', (_, days) => usage.snapshot(days));
 ipcMain.handle('usage:clear', () => usage.clear());
