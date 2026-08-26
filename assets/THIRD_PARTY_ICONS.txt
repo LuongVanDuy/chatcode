@@ -1,0 +1,6 @@
+Lucide Icons
+https://lucide.dev/
+Copyright (c) Lucide Contributors
+Licensed under the ISC License.
+
+ChatCode Cá Nhân uses Lucide SVG icons for its desktop interface. The icon library is copied locally at build time; the application does not depend on a CDN at runtime.
