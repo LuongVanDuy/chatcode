@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "main.js",
   "private": true,
@@ -10,7 +10,7 @@
     "start": "electron .",
     "predev": "npm run prepare:icons",
     "dev": "electron .",
-    "test:syntax": "node scripts/generate-icons.cjs && node --check main.js && node --check preload.js && node --check core/store.js && node --check core/usage.js && node --check core/projects.js && node --check core/connection.js && node --check core/approvals.js && node --check core/backups.js && node --check core/safety-tools.js && node --check core/updater.js && node --check core/brain.js && node --check renderer/app.js && node --check renderer/v07-runtime.js && node --check renderer/v08-runtime.js && node --check mcp-server.mjs",
+    "test:syntax": "node scripts/generate-icons.cjs && node --check main.js && node --check preload.js && node --check core/store.js && node --check core/usage.js && node --check core/projects.js && node --check core/connection.js && node --check core/approvals.js && node --check core/backups.js && node --check core/safety-tools.js && node --check core/updater.js && node --check core/brain.js && node --check renderer/app.js && node --check renderer/v07-runtime.js && node --check renderer/v08-runtime.js && node --check renderer/v081-runtime.js && node --check mcp-server.mjs",
     "test:mcp": "node scripts/smoke-mcp.mjs",
     "test:brain": "node scripts/smoke-brain.cjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
@@ -29,7 +29,9 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "electron": "44.0.0",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "lucide": "1.34.0",
+    "sharp": "0.34.3"
   },
   "build": {
     "appId": "com.personal.chatcode",
@@ -42,12 +44,11 @@
       "core/**/*",
       "renderer/**/*",
       "assets/icon.png",
+      "assets/THIRD_PARTY_ICONS.txt",
       "package.json"
     ],
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "assets/icon.ico",
       "artifactName": "ChatCode-Ca-Nhan-Setup-${version}.${ext}"
     },
