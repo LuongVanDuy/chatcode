@@ -97,12 +97,20 @@ function createSupportService(app) {
 function quoteCmdArg(value) {
   const text = String(value ?? '');
   if (!text) return '""';
+  // Keep simple arguments unquoted. cmd.exe /s has special handling for a
+  // quoted first token, and quoting npm.cmd itself can turn the quotes into
+  // literal filename characters on hosted Windows runners.
+  if (!/[\s"&|<>^()%!]/.test(text)) return text;
   return `"${text.replace(/"/g, '""')}"`;
 }
 
 function windowsCommandWrapper(file, args = []) {
   if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(String(file || ''))) return null;
-  const commandLine = [quoteCmdArg(file), ...args.map(quoteCmdArg)].join(' ');
+  // TASK_COMMANDS only permits command basenames such as npm.cmd/gradle.bat,
+  // so the executable itself never needs shell quoting here. Arguments are
+  // individually quoted only when necessary.
+  const executable = String(file);
+  const commandLine = [executable, ...args.map(quoteCmdArg)].join(' ');
   return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', commandLine] };
 }
 
