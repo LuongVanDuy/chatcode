@@ -1,31 +1,68 @@
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
 
 const root = path.resolve(__dirname, '..');
 const assets = path.join(root, 'assets');
+const vendor = path.join(root, 'renderer', 'vendor');
 fs.mkdirSync(assets, { recursive: true });
+fs.mkdirSync(vendor, { recursive: true });
 
-// Reproducible 256x256 PNG source. Keep this embedded so CI does not depend on
-// image conversion software being installed on the Windows runner.
-const PNG_BASE64 = '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';
+// Vector master based on Lucide's CodeXml geometry. Rendering from SVG removes
+// the blurry/broken raster artifact that older ChatCode builds used.
+const brandSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="28" y1="18" x2="222" y2="238" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0F172A" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect x="18" y="18" width="220" height="220" rx="54" fill="url(#bg)" filter="url(#shadow)"/>
+  <path d="M86 88 48 128l38 40" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m170 88 38 40-38 40" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m145 62-34 132" fill="none" stroke="#DBEAFE" stroke-width="15" stroke-linecap="round"/>
+</svg>`;
 
-const png = Buffer.from(PNG_BASE64, 'base64');
-fs.writeFileSync(path.join(assets, 'icon.png'), png);
+function makeIco(png) {
+  const header = Buffer.alloc(22);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
+  header.writeUInt8(0, 6); // 256px
+  header.writeUInt8(0, 7); // 256px
+  header.writeUInt8(0, 8);
+  header.writeUInt8(0, 9);
+  header.writeUInt16LE(1, 10);
+  header.writeUInt16LE(32, 12);
+  header.writeUInt32LE(png.length, 14);
+  header.writeUInt32LE(22, 18);
+  return Buffer.concat([header, png]);
+}
 
-// ICO supports a PNG-compressed 256x256 image. Build the directory entry from
-// the actual payload length instead of relying on a hand-authored binary header.
-const header = Buffer.alloc(22);
-header.writeUInt16LE(0, 0);   // reserved
-header.writeUInt16LE(1, 2);   // icon
-header.writeUInt16LE(1, 4);   // one image
-header.writeUInt8(0, 6);      // 256px width
-header.writeUInt8(0, 7);      // 256px height
-header.writeUInt8(0, 8);      // palette
-header.writeUInt8(0, 9);      // reserved
-header.writeUInt16LE(1, 10);  // color planes
-header.writeUInt16LE(32, 12); // bits per pixel
-header.writeUInt32LE(png.length, 14);
-header.writeUInt32LE(22, 18);
-fs.writeFileSync(path.join(assets, 'icon.ico'), Buffer.concat([header, png]));
+function copyLucideRuntime() {
+  const entry = require.resolve('lucide');
+  const dist = path.resolve(path.dirname(entry), '..');
+  const candidates = [path.join(dist, 'umd', 'lucide.js'), path.join(dist, 'umd', 'lucide.min.js')];
+  const source = candidates.find(file => fs.existsSync(file));
+  if (!source) throw new Error(`Không tìm thấy Lucide UMD runtime từ ${entry}`);
+  fs.copyFileSync(source, path.join(vendor, 'lucide.js'));
+}
 
-console.log('Generated native ChatCode icons.');
+async function main() {
+  const pngPath = path.join(assets, 'icon.png');
+  await sharp(Buffer.from(brandSvg)).resize(256, 256).png({ compressionLevel: 9 }).toFile(pngPath);
+  const png = fs.readFileSync(pngPath);
+  fs.writeFileSync(path.join(assets, 'icon.ico'), makeIco(png));
+  fs.writeFileSync(path.join(assets, 'brand.svg'), brandSvg.trim() + '\n', 'utf8');
+  copyLucideRuntime();
+  console.log('Generated crisp app icon + local Lucide SVG runtime.');
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
