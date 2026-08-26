@@ -24,7 +24,7 @@ function normalizeError(error) {
   const message = String(error?.message || error || 'Unknown error');
   const lower = message.toLowerCase();
 
-  if (rawCode === 'ENOENT' || /enoent|không tồn tại|not found/.test(lower)) return { code: 'FILE_NOT_FOUND', message };
+  if (rawCode === 'ENOENT' || /enoent|không tồn tại|không tìm thấy|not found/.test(lower)) return { code: 'FILE_NOT_FOUND', message };
   if (/ngoài phạm vi|outside.*project|path.*outside/.test(lower)) return { code: 'PATH_OUTSIDE_PROJECT', message };
   if (/symlink|junction/.test(lower) && /chặn|blocked|outside|ngoài/.test(lower)) return { code: 'PATH_OUTSIDE_PROJECT', message };
   if (/nhạy cảm|sensitive/.test(lower)) return { code: 'SENSITIVE_PATH_BLOCKED', message };
