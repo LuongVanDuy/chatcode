@@ -18,3 +18,5 @@ Support data stays local until the user explicitly chooses a share action. The a
 ## GitHub support
 
 The **Gửi lên GitHub** action opens a pre-filled GitHub Issue containing the user's note and a limited set of recent sanitized process events. The user can review the payload before submitting it publicly.
+
+The Windows CI regression suite also validates hidden `.cmd/.bat` execution so `npm`, `npm.cmd`, `npx`, `pnpm`, `yarn` and `gradle.bat` do not regress into visible console launches.
