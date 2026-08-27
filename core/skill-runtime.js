@@ -50,8 +50,9 @@ function chooseResources(manifest, request) {
   const available = new Set((manifest?.resources || []).map(String));
   const chosen = new Set(['resources/patterns.md', 'resources/validation.md']);
   const text = String(request || '').toLowerCase();
+  const elementDelete = /\b(?:delete|remove)\b[^\n]{0,80}\belement\b|\belement\b[^\n]{0,80}\b(?:delete|remove)\b/.test(text);
 
-  if (/seed|reseed|migration|migrate|element\s+id|delete\s+element|remove\s+element|builder\s+data|database|db\b|css\s+file|regenerate|cache|block\s*(?:cart|checkout)|classic\s+shortcode/.test(text)) {
+  if (elementDelete || /seed|reseed|migration|migrate|element\s+id|builder\s+data|database|\bdb\b|css\s+file|regenerate|cache|block\s*(?:cart|checkout)|classic\s+shortcode/.test(text)) {
     chosen.add('resources/migrations.md');
   }
 
@@ -64,7 +65,7 @@ function chooseResources(manifest, request) {
     chosen.add('resources/templates.md');
   }
 
-  if (/custom\s+element|ajax|query|menu|nav|header|footer|product|cart|checkout|thank|responsive|css|javascript|\bjs\b|enqueue|filemtime|element\s+id|delete\s+element/.test(text)) {
+  if (elementDelete || /custom\s+element|ajax|query|menu|nav|header|footer|product|cart|checkout|thank|responsive|css|javascript|\bjs\b|enqueue|filemtime|element\s+id/.test(text)) {
     chosen.add('resources/snippets.md');
   }
 
