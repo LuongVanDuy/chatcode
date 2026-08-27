@@ -1,153 +1,256 @@
 # Targeted Bricks migration strategy
 
-Use this for any post-seed change to Bricks page/template data.
+Use this resource for every post-seed change to Bricks page/template/menu data. Builder-owned current data is the source of truth.
 
 ## Migration state
 
-Each project chooses its own prefix. Keep separate markers for seed and later schema migrations, for example:
+Choose/reuse a project-specific prefix and keep seed/schema markers separate, for example:
 
 ```text
 <prefix>_bricks_seed_version
 <prefix>_bricks_schema_version
+<prefix>_bricks_migration_<name>
 ```
 
-Do not copy option names from another site. Prefer an existing project prefix when one already exists.
+Never copy marker names or prefixes from another project.
 
-## Required migration properties
+## Required properties
 
-A migration must be:
+Every migration must be:
 
-- targeted: touches only intended element/settings/relations;
-- preconditioned: verifies the expected old managed state;
-- idempotent: second run performs no additional mutation;
+- targeted: only the intended node/setting/condition/content changes;
+- preconditioned: expected old state is verified before mutation;
+- idempotent: rerun causes no further change;
 - Builder-preserving: unrelated user edits survive;
-- atomic enough that reciprocal element relations never remain half-updated;
-- versioned: marker is written only after successful mutation and required CSS/cache work;
-- observable: result records changed/skipped/conflicted targets.
+- relation-safe: parent/children remain reciprocal;
+- backed up when the DB/content change is material or destructive;
+- versioned/marked only after the entire save + CSS/cache operation succeeds;
+- observable: changed/no-op/skipped/conflict is explicit;
+- reversible when migrating Woo page block content or another destructive source value.
 
-## Locate the target safely
+## Target discovery order
 
-Use strongest evidence first:
+Use the strongest current-project evidence:
 
-1. known current post/template ID from project state;
+1. current known post/template ID resolved from WordPress/Bricks/Woo state;
 2. project-owned seed metadata/semantic key;
-3. current Bricks template type + conditions;
-4. unique element ID confirmed to belong to the target tree;
-5. element `name` + stable surrounding structure/settings as a guarded fallback.
+3. exact current Bricks template type + conditions;
+4. stable element ID known to belong to that tree;
+5. project-scoped class plus expected element `name` and surrounding structure;
+6. guarded `name`/settings match only if unique and proven.
 
-Never mutate the first element whose label or CSS class merely looks similar.
+Do not modify the first visually similar element.
 
-## Compare-and-set update
+## Compare-and-set setting migration
+
+Example intent:
+
+```text
+imageSize: medium_large -> large
+```
+
+Allowed outcomes:
+
+- current `medium_large` -> change to `large`;
+- current `large` -> already applied, no-op;
+- any other value -> preserve Builder edit and return skipped/conflict.
 
 Pseudocode:
 
 ```php
-$current = read_current_bricks_tree( $post_id );
-$element = find_exact_target( $current, $target );
+$current = read_current_bricks_tree($post_id);
+$target  = find_exact_target($current, $target_spec);
 
-if ( ! $element ) {
+if (!$target) {
     return conflict('target_missing');
 }
 
-if ( current_value($element, $key) === $new_value ) {
-    mark_migration_complete_if_safe();
-    return no_op('already_migrated');
+$value = current_setting($target, 'imageSize');
+
+if ($value === 'large') {
+    return no_op('already_applied');
 }
 
-if ( current_value($element, $key) !== $managed_old_value ) {
+if ($value !== 'medium_large') {
     return conflict('builder_value_changed');
 }
 
-$next = patch_one_setting( $current, $element['id'], $key, $new_value );
-validate_tree( $next );
-write_bricks_tree( $post_id, $next );
-refresh_bricks_css_and_cache( $post_id );
+$next = patch_one_setting($current, $target['id'], 'imageSize', 'large');
+validate_tree($next);
+backup_if_material($post_id, $current);
+write_bricks_tree($post_id, $next);
+refresh_bricks_css_and_cache($post_id, $context);
 mark_migration_complete();
 ```
 
-The actual read/write/CSS functions must be verified against the installed Bricks version/project helper before use.
+Do not advance the marker on conflict or partial CSS/cache failure.
 
-## ID migration
+## Six-character ID generation
 
-Changing an element ID is higher risk than changing a setting. Build an explicit reference plan first.
+When creating a new Bricks element, generate a six-character alphanumeric ID matching native Bricks shape unless the installed version proves otherwise.
 
-For old ID `A` -> new ID `B`, inspect and update only proven references such as:
+Algorithm contract:
 
-- target element `id`;
-- its parent's ordered `children` entry;
-- direct child `parent` values;
-- settings that explicitly store this element ID;
-- project-owned maps/selectors known to reference this ID.
+```text
+build set of every current element id
+-> generate six-character alphanumeric candidate
+-> reject if already present
+-> repeat until unique
+-> insert tree node
+-> update reciprocal parent/children
+-> validate whole tree
+```
+
+Never change an existing stable ID merely for aesthetics.
+
+## ID remap
+
+Changing element ID `A` -> `B` is high-risk and must be atomic.
+
+Before mutation:
+
+- prove `A` is the intended target;
+- prove `B` does not exist;
+- inventory direct structural references and any explicit settings/selectors that truly store the element ID.
+
+Update only proven references:
+
+- target `id`;
+- parent's ordered `children` entry `A` -> `B`;
+- direct children's `parent` value `A` -> `B`;
+- settings/relations explicitly storing `A` as an element relation.
 
 Then validate:
 
-- no duplicate IDs;
-- every non-root parent exists;
-- every listed child exists;
-- reciprocal parent/child relationships agree;
-- sibling order is preserved;
-- unrelated IDs/settings are byte/logically unchanged where possible.
+- all IDs unique;
+- each non-root parent exists;
+- each listed child exists;
+- child.parent matches parent.children;
+- sibling order preserved;
+- unrelated elements/settings unchanged.
 
-Do not global string-replace `A` with `B` through the serialized document or database.
+Never do global serialized string replacement.
+
+## Delete element migration
+
+Do not reseed the template to delete one node.
+
+Deletion contract:
+
+```text
+load current tree
+-> locate exact element
+-> collect removed id(s)
+-> decide subtree behavior explicitly
+-> backup current tree if material
+-> remove only target/subtree
+-> remove removed id(s) from parent.children
+-> reparent children only when explicitly intended
+-> validate no dangling parent/children refs
+-> save
+-> clean post cache
+-> regenerate CSS/cache as required
+-> mark migration
+```
+
+Do not modify unrelated sibling settings/order.
+
+If deleting a parent with children and the task does not state whether descendants should be deleted/reparented, inspect existing structure and choose the least-destructive behavior only when clearly inferable; otherwise return conflict rather than corrupt the tree.
+
+## Insert element migration
+
+For targeted insertion:
+
+1. locate exact parent;
+2. generate unique six-character ID;
+3. create element with `parent=<parent-id>`;
+4. insert new ID into parent's `children` at the intended position;
+5. do not reorder existing siblings unless required;
+6. validate tree;
+7. persist and regenerate CSS/cache.
 
 ## Template condition migration
 
 For Header/Footer/Archive/Single/Woo templates:
 
-1. inspect current template type and all conditions;
-2. prove which condition is wrong/missing;
-3. patch only that condition set;
-4. detect overlapping templates before saving;
-5. preserve unrelated conditions/user priority choices;
-6. validate the intended frontend context and a context where it must not render.
+```text
+read current template type/settings/conditions
+-> identify exact incorrect/missing condition
+-> inspect overlapping templates
+-> patch only intended condition data
+-> preserve unrelated conditions and Builder settings
+-> validate positive and negative render contexts
+-> persist + cache/CSS refresh if relevant
+-> mark migration
+```
 
-Do not create a replacement template to avoid understanding the current conditions.
+Do not create a duplicate template to avoid fixing conditions.
 
 ## Seed evolution
 
-When code defaults evolve after a page/template was originally seeded, do not update the seed tree and rerun it.
+A changed default in source code does not authorize a reseed.
 
-Instead add a migration step:
+Use sequential targeted schema migrations instead:
 
 ```text
-schema v1: initial seed
-schema v2: update managed primary-nav setting when still at v1 value
-schema v3: repair one managed element relation when old relation still exists
+v1: initial seed
+v2: change one managed setting if still at v1 value
+v3: remove one obsolete managed element if still present in expected form
+v4: repair one relation/condition if still at old managed state
 ```
 
-The migration registry can be sequential, but each step independently verifies current state.
+Each migration verifies current Builder state independently.
 
-## Conflicts
+## Bricks CSS/cache transaction
 
-A conflict is safer than overwriting Builder edits.
+For a Bricks DB mutation:
 
-Return a structured result such as:
+1. write validated current tree/template settings;
+2. call `clean_post_cache($post_id)`;
+3. refresh affected Bricks template/cache if required;
+4. if `\Bricks\Database::get_setting('cssLoading') === 'file'`, call `\Bricks\Assets_Files::generate_post_css_file(...)` using the correct `content`, `header`, or `footer` context and installed-version signature;
+5. clear only relevant page/object/plugin cache when needed;
+6. verify frontend generated output is current;
+7. only then write/advance migration marker.
+
+If CSS generation fails, migration status is partial/failed; do not report complete.
+
+## Woo Blocks -> classic content migration
+
+Only run if the verified project/Bricks version requires classic shortcode content for the Bricks Cart/Checkout template path.
+
+```text
+resolve assigned Woo page with wc_get_page_id()
+-> inspect current post_content
+-> prove relevant Woo block exists
+-> detect unrelated custom content
+-> backup exact original content
+-> if safe block-only conversion, replace with required classic shortcode
+-> save + clean cache
+-> store reversible backup + migration marker
+```
+
+If unrelated custom content cannot be safely retained, do not overwrite it.
+
+Second run must be a no-op. Rollback restores the exact backed-up original content.
+
+## Conflict result
+
+Prefer a structured conflict over overwriting Builder edits:
 
 ```text
 status: conflicted
-migration: schema_v3
-post_id: ...
-element: primary_nav
-reason: builder_value_changed
+migration: <project-specific-key>
+post_id: <resolved id>
+element: <semantic target>
+reason: builder_value_changed | target_missing | unsafe_mixed_content | duplicate_id | relation_invalid
 expected_old: ...
 current: ...
 proposed_new: ...
 ```
 
-Do not silently coerce the current value. Ask for a decision only when the task truly requires overriding the Builder edit.
-
-## CSS/cache transaction boundary
-
-For migrations that affect rendered classes/styles/settings, the marker must not be considered complete until:
-
-1. Bricks data write succeeds;
-2. affected post cache is cleaned;
-3. generated Bricks CSS is refreshed when required by current CSS mode;
-4. relevant cache is cleared;
-5. frontend verification confirms no stale generated output.
-
-If CSS regeneration fails, return a partial/failure state and do not pretend the migration is complete.
-
 ## Rollback
 
-Before a non-trivial Bricks-data migration, retain the current target post/template data using the project's existing recovery/work-session mechanism. Rollback restores the exact pre-migration data, then repeats post-cache/CSS regeneration so frontend state matches the restored Builder data.
+Before material/destructive Bricks DB changes, use the project's work-session/recovery mechanism or an exact project-specific backup record.
+
+Rollback must restore the exact pre-migration tree/content and then repeat `clean_post_cache()` plus Bricks CSS/cache regeneration so frontend state matches restored Builder data.
