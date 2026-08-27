@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   workSessionStatus: id => ipcRenderer.invoke('work:status', id),
   rollbackWorkSession: id => ipcRenderer.invoke('work:rollback', id),
   gitStatus: id => ipcRenderer.invoke('git:status', id),
-  gitDiff: id => ipcRenderer.invoke('git:diff', id),
+  gitDiff: id => ipcRenderer.invoke('git:diff', id, false),
 
   listApprovals: () => ipcRenderer.invoke('approval:list'),
   respondApproval: (id, decision) => ipcRenderer.invoke('approval:respond', id, decision),
@@ -97,4 +97,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('v10-runtime.js', 'v10-runtime');
   await load('v10-stage3.js', 'v10-stage3');
   await load('v10-stage4.js', 'v10-stage4');
+  await load('v102-runtime.js', 'v102-runtime');
 });
