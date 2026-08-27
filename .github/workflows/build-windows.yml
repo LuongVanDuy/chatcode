@@ -49,6 +49,8 @@ jobs:
         run: npm run test:support
       - name: Smoke test updater
         run: npm run test:update
+      - name: Smoke test task-level notifications
+        run: npm run test:notifications
       - name: Build Windows installer
         run: npm run dist:win
       - name: Verify updater metadata
