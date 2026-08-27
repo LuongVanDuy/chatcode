@@ -69,16 +69,18 @@ jobs:
       - name: Smoke test remote MCP tunnel
         run: npm run test:tunnel
       - name: Publish updater GitHub Release
-        if: ${{ success() && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ success() && github.event_name != 'pull_request' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
-          if ($env:GITHUB_REF_NAME -ne $tag) {
+          $isTagPush = $env:GITHUB_REF -eq "refs/tags/$tag"
+          if ($env:GITHUB_REF.StartsWith('refs/tags/') -and -not $isTagPush) {
             throw "Tag $env:GITHUB_REF_NAME không khớp package version $tag."
           }
+
           $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
           $latest = Get-Item "dist\latest.yml"
           $assets = @($installer.FullName, $latest.FullName)
@@ -86,7 +88,14 @@ jobs:
           foreach ($item in $blockmaps) { $assets += $item.FullName }
 
           gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists -and -not $isTagPush) {
+            Write-Host "Release $tag đã tồn tại; giữ nguyên asset hiện tại."
+            exit 0
+          }
+
+          if ($releaseExists) {
             gh release upload $tag @assets --clobber
             if ($LASTEXITCODE -ne 0) { throw "Không thể cập nhật asset cho Release $tag." }
             gh release edit $tag --latest
