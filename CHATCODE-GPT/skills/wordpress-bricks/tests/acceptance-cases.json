@@ -1,0 +1,52 @@
+[
+  {
+    "name": "real-header-template",
+    "request": "Create a real Bricks global Header template with one WordPress nav menu and responsive mobile presentation",
+    "resources": ["resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "archive-main-query",
+    "request": "Fix the Bricks category archive so Posts uses the archive main query and dynamic archive title",
+    "resources": ["resources/templates.md", "resources/validation.md"]
+  },
+  {
+    "name": "targeted-id-migration",
+    "request": "Migrate one Bricks element ID without reseeding and regenerate CSS file cache",
+    "resources": ["resources/migrations.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "delete-element",
+    "request": "Delete one obsolete Bricks element from an existing Builder template without changing siblings",
+    "resources": ["resources/migrations.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "woo-checkout",
+    "request": "Build Bricks WooCommerce Checkout using native customer details and order review elements",
+    "resources": ["resources/woocommerce.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "woo-block-migration",
+    "request": "Migrate Woo Cart and Checkout Blocks to classic shortcode only if the assigned Woo pages require Bricks wc_cart and wc_form_checkout",
+    "resources": ["resources/woocommerce.md", "resources/templates.md", "resources/migrations.md", "resources/validation.md"]
+  },
+  {
+    "name": "single-post-native",
+    "request": "Create a Bricks Single Post template using post-title post-content post-navigation and related-posts",
+    "resources": ["resources/templates.md", "resources/validation.md"]
+  },
+  {
+    "name": "custom-element",
+    "request": "Create a reusable custom Bricks Element with Builder controls and scoped AJAX behavior",
+    "resources": ["resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "product-archive",
+    "request": "Create wc_archive with public product taxonomy conditions and native Woo product archive description",
+    "resources": ["resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
+  },
+  {
+    "name": "responsive-assets",
+    "request": "Fix Bricks responsive product cards and conditionally enqueue scoped CSS with filemtime",
+    "resources": ["resources/snippets.md", "resources/validation.md"]
+  }
+]
