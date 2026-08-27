@@ -1,10 +1,25 @@
 # Reusable WordPress + Bricks patterns
 
-These patterns are project-independent. Adapt names, selectors, IDs and module paths to the current project after inspection.
+These patterns are project-independent. Discover IDs, prefixes, taxonomies, pages and data sources from the current project before adapting them.
 
-## 1. Thin bootstrap, feature modules
+## Thin bootstrap, feature modules
 
-`functions.php` should normally only load modules. A healthy pattern is:
+Keep `functions.php` small. Prefer existing equivalent modules; otherwise a healthy structure is:
+
+```text
+inc/setup/
+inc/header/
+inc/home/
+inc/blog/
+inc/shop/
+inc/product/
+inc/pages/
+elements/
+assets/css/
+assets/js/
+```
+
+Typical bootstrap:
 
 ```php
 require_once __DIR__ . '/inc/setup/bootstrap.php';
@@ -13,187 +28,220 @@ require_once __DIR__ . '/inc/home/bootstrap.php';
 require_once __DIR__ . '/inc/blog/bootstrap.php';
 require_once __DIR__ . '/inc/shop/bootstrap.php';
 require_once __DIR__ . '/inc/product/bootstrap.php';
+require_once __DIR__ . '/inc/pages/bootstrap.php';
 ```
 
-Do not force these exact files when an equivalent project structure already exists. The rule is separation by concern, deterministic loading and no duplicated hook registration.
+Do not force duplicate folders/modules when the project already has clean equivalents.
 
-## 2. One-time seed controller
+## Native element selection
 
-A seed routine should have a project-specific schema option such as `<prefix>_bricks_seed_version` and must check for existing intended templates/pages before creating anything.
-
-Behavior:
+Before custom markup, map the UI requirement to Bricks-native elements:
 
 ```text
-no marker + target absent -> seed -> verify -> write marker
-marker exists -> do not seed
-marker absent + target already exists -> adopt/inspect; do not overwrite
+layout -> section/container/block
+text -> heading/text-basic/text
+CTA -> button
+media -> image/slider
+navigation -> nav-menu/search
+blog archive -> posts + dynamic archive data
+single post -> post-title/post-content/post-navigation/related-posts
+product archive -> woocommerce-products + woocommerce-products-archive-description
+cart -> woocommerce-cart-items/coupon/collaterals
+checkout -> woocommerce-checkout-customer-details/order-review
+thank you -> woocommerce-checkout-thankyou
 ```
 
-Never make normal `init` traffic rewrite the Builder tree on every request.
+Only fall through to custom element/API code when the installed version cannot express the required behavior cleanly.
 
-## 3. Stable semantic keys separate from Bricks IDs
+## One-time seed controller
 
-When AI creates a tree that may need future migration, retain a code-side map of semantic roles to the IDs originally managed by the seed, for example:
+Use a project-specific seed marker and inspect existing targets before create:
+
+```text
+no marker + intended target absent -> create real Bricks/WP data -> verify -> marker
+marker exists -> no seed
+marker missing + target exists -> inspect/adopt -> no overwrite
+```
+
+Normal `init`/frontend traffic must never rewrite the Builder tree repeatedly.
+
+## Semantic migration map, not source of truth
+
+Code may keep project-owned semantic keys for items initially managed by the seed:
 
 ```php
 $managed = [
     'header_root' => 'abc123',
     'primary_nav' => 'def456',
-    'cart_trigger' => 'ghi789',
 ];
 ```
 
-The semantic key is for migration code; Bricks still owns the actual current Builder data. A migration must inspect whether the recorded ID still exists and whether the relevant managed value is unchanged before modifying it.
+This map helps locate a migration target. It is not permission to recreate the original tree after Builder edits.
 
-Do not use this map as permission to recreate the original tree.
+## Real template lookup
 
-## 4. Template lookup by role, not title alone
+Do not identify templates by title alone. Combine the strongest available evidence:
 
-Template titles can be edited. Prefer a combination of stable post ID/seed metadata, Bricks template type and current template conditions. Before creating a template, inspect existing candidates and their conditions.
+- project-owned seed/meta marker;
+- current template post ID;
+- Bricks template type;
+- current template conditions;
+- current tree evidence.
 
-If multiple templates overlap, resolve the condition architecture instead of adding another duplicate template.
+Before creating a template, detect existing overlapping templates.
 
-## 5. Targeted tree edit
+## Targeted tree edit
 
 For a setting update:
 
 ```text
-load current tree
--> locate target element by stable ID/evidence
--> verify element name/expected old setting
--> clone only target element data
--> change one setting
--> write current tree with unrelated elements untouched
--> clean post cache
--> regenerate Bricks CSS when needed
--> write migration marker
+read current tree
+-> locate exact element
+-> verify expected managed old value
+-> change only one setting
+-> validate tree unchanged elsewhere
+-> backup if material
+-> save current tree
+-> clean_post_cache
+-> regenerate Bricks CSS when required
+-> marker
 ```
 
-For an ID update, modify reciprocal relations atomically and validate the tree before writing.
+For insert/delete/ID remap, update reciprocal parent/children atomically and preserve sibling order.
 
-## 6. Builder edit wins
+## Builder edit wins
 
-When a migration expected `gap=24px` because the original seed owned that value:
-
-- current is `24px` -> migration may change it to the new managed value;
-- current is already new value -> no-op and mark complete;
-- current is `30px` -> assume user changed it, preserve `30px`, record skip/conflict, do not force the new default.
-
-This compare-and-set rule applies to classes, labels, responsive settings, query options and similar managed values when possible.
-
-## 7. Shared menu source
-
-Use one WordPress menu location/menu ID as the content source. Desktop and mobile may use different Bricks responsive layout settings or render wrappers, but not different hand-maintained menu trees.
-
-If a mobile drawer is needed, the menu inside it must still resolve the same registered WordPress menu source.
-
-## 8. Header structure
-
-A typical Bricks-native header should use native containers/blocks, logo/image, Nav Menu and Woo/cart elements where available. Keep menu state in WordPress and cart state in WooCommerce.
-
-Before adding a hamburger, inspect whether the existing Nav Menu already provides mobile toggle behavior. Duplicate toggles are a common failure mode.
-
-## 9. Home/blog modules
-
-Homepage and blog work should separate data/query logic from layout styling.
-
-- native Query Loop first;
-- WordPress query filters only when the Bricks query cannot express the rule;
-- scope query filters to the intended query ID/context;
-- pagination/search/archive context must remain intact;
-- do not globally alter `pre_get_posts` unless the main query is explicitly the intended target.
-
-## 10. Shop/product modules
-
-WooCommerce modules should use WooCommerce objects/functions/hooks for product, price, stock, cart and order state. Bricks handles layout; Woo handles commerce state.
-
-For product grids:
-
-- prefer Bricks/Woo product/query elements;
-- scope sale/stock/category filtering to the target query;
-- preserve ordering/pagination unless task requires changing them;
-- use appropriate Woo image sizes instead of upscaling thumbnails.
-
-For single products:
-
-- use Woo product object/API;
-- preserve variation/add-to-cart form behavior;
-- related products should use Woo logic or a scoped Bricks query, not duplicated product IDs.
-
-For cart/checkout/thank-you:
-
-- preserve Woo endpoints, nonces, notices and order lifecycle;
-- prefer hooks/native elements for small customizations;
-- avoid replacing an entire Woo template for one visual block.
-
-## 11. Custom Bricks element pattern
-
-A custom element is appropriate when the component has reusable Builder controls plus behavior that native elements cannot express cleanly.
-
-Keep these layers separate:
+Compare-and-set example:
 
 ```text
-element registration/class
--> Builder controls
--> query/data resolver
--> render method
--> scoped CSS/JS
--> AJAX endpoint only if needed
+managed old = medium_large
+managed new = large
+
+current medium_large -> change
+current large        -> already applied/no-op
+current anything else -> preserve user edit; skip/conflict
 ```
 
-Use WordPress/Woo APIs in the data resolver. Do not hard-code project records into the element class.
+Apply this rule to managed responsive values, classes, image sizes, query settings, labels and conditions whenever a stable old value exists.
 
-## 12. AJAX pattern
+## One WordPress menu source
 
-For frontend mutations or dynamic loading:
+Seed/register one real WordPress menu/location when needed. Desktop and mobile Bricks presentations resolve the same source.
 
-- prefer native navigation/query behavior first;
-- when AJAX is justified, use a project-specific action name;
-- nonce-protect requests;
-- capability-check privileged changes;
-- sanitize request values;
-- return `wp_send_json_success/error` or a verified REST response;
-- do not return raw PHP warnings/notices;
-- scope JS initialization so Bricks Builder/frontend rerenders do not double-bind listeners.
+Do not maintain duplicate item sets. If mobile uses a drawer, the drawer still points to the same registered menu/location.
 
-## 13. Conditional assets
+If the user later edits/deletes seeded menu items, do not recreate defaults automatically.
 
-Register/enqueue assets through WordPress. Load feature assets only on affected templates/pages when practical.
+## Archive main-query pattern
 
-Examples of good scope evidence:
+For category/taxonomy/author/date archive templates, prefer native main-query consumption:
 
-- page/template ID;
-- `is_shop()`, `is_product()`, cart/checkout/order-received conditions;
-- shortcode/block/element presence when reliably detectable;
-- a custom Bricks element registering its own asset dependencies.
+```text
+real Bricks archive template
+-> dynamic archive title/description
+-> posts element
+-> archive-main-query setting (e.g. is_archive_main_query=true when supported)
+```
 
-Avoid a single global CSS/JS bundle for unrelated one-off features.
+Do not run another PHP category query when WordPress already built the archive main query.
 
-## 14. CSS scope and layout safety
+## Product taxonomy discovery
 
-Prefer a project prefix plus component class, e.g. `.<prefix>-product-card`, not bare `.title`, `.button`, `.container` selectors.
+Do not hard-code every product archive taxonomy.
 
-Responsive-safe defaults:
+Use current WordPress/Woo metadata, e.g. `get_object_taxonomies('product', 'objects')` and `wc_get_attribute_taxonomies()`, then retain public frontend archive taxonomies and reject internal ones such as `product_type` and `product_visibility`.
+
+## Single post composition
+
+Prefer native/dynamic source:
+
+```text
+post-title
+image + featured-image dynamic data
+post-content (WordPress data source)
+post-navigation
+related-posts
+```
+
+Do not duplicate post content in custom PHP markup.
+
+## Woo ownership pattern
+
+Bricks handles layout; WooCommerce owns state.
+
+- product state -> Woo product object/API;
+- cart totals/session -> Woo cart/session;
+- checkout/order creation -> Woo checkout lifecycle;
+- Thank You -> native Woo/Bricks order-received element;
+- related/upsell/cross-sell -> Woo relations/native element.
+
+Preserve Woo nonces, endpoints, fragments, forms and notices.
+
+## Custom Bricks element layering
+
+Use only when native elements cannot express the reusable behavior:
+
+```text
+class extends \Bricks\Element
+-> Builder controls/defaults
+-> WP/Woo data resolver
+-> render
+-> scoped CSS/JS
+-> AJAX/REST only if required
+```
+
+Keep site-varying values in controls/dynamic data, not hard-coded in the class.
+
+## Conditional assets
+
+Use WordPress enqueue APIs and scope by actual render context/page when practical.
+
+Use `filemtime($absolute_file)` for local development/cache busting when appropriate and the file exists.
+
+Avoid frontend-only scripts/styles in Bricks Builder when they interfere with editing/preview; gate them using a verified Builder/editor context check for the installed version/project.
+
+## Responsive-safe CSS
+
+Prefer scoped selectors plus intrinsic sizing:
 
 ```css
-.component { min-width: 0; }
-.component img { max-width: 100%; height: auto; }
-.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.<prefix>-component { min-width: 0; max-width: 100%; }
+.<prefix>-component img { max-width: 100%; height: auto; }
+.<prefix>-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 ```
 
-Use breakpoints/native Bricks controls to reduce columns. Fixed heights are allowed only for an intentional crop/aspect-ratio design, not as a shortcut to align cards.
+Use deliberate `aspect-ratio`/`object-fit` only when crop behavior is intended. Do not use fixed card/banner heights merely to force alignment.
 
-## 15. Cache/CSS completion
+## Discovery before constants/data
 
-After a Bricks DB mutation, treat frontend verification as part of the write transaction:
+Resolve project state rather than copying IDs/slugs:
+
+```php
+get_option('page_on_front');
+wc_get_page_id('shop');
+wc_get_page_id('cart');
+wc_get_page_id('checkout');
+wc_get_page_permalink('cart');
+get_page_by_path($path);
+get_nav_menu_locations();
+get_object_taxonomies('product', 'objects');
+wc_get_attribute_taxonomies();
+```
+
+Prefer stronger assignments/metadata over paths when available.
+
+## Save + CSS/cache is one transaction
+
+For Bricks DB changes:
 
 ```text
-write current Bricks data
--> clean affected WP post cache
--> regenerate affected Bricks CSS when CSS-file mode requires it
--> clear relevant page/object cache
--> request frontend/build output
--> confirm the new element selector/style is present
+validated save
+-> clean_post_cache($post_id)
+-> Bricks template/cache refresh when needed
+-> if cssLoading=file, generate_post_css_file with correct content/header/footer context
+-> relevant page/object cache refresh
+-> frontend verification
+-> migration marker
 ```
 
-A successful database write with stale frontend CSS is not a completed migration.
+A DB write with stale frontend CSS is incomplete.
