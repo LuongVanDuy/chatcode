@@ -7,6 +7,10 @@ function installRuntimePatches() {
   installWorkRuntimePatches();
   const { installAgentRuntimePatches } = require('./agent-runtime');
   installAgentRuntimePatches();
+  // Install last so this policy sees the final composed API and can group
+  // notifications across Terminal, Work Session and Fast Agent calls.
+  const { installTaskPolicyPatches } = require('./task-policy');
+  installTaskPolicyPatches();
   return true;
 }
 
