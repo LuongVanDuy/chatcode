@@ -1,4 +1,5 @@
 const { normalizeError, chatError } = require('./errors');
+const { skillsForTask } = require('./skill-runtime');
 
 const MAX_VERIFY = 6;
 const MAX_CONTEXT_FILES = 10;
@@ -60,6 +61,7 @@ function createAgentRuntime(api) {
     ]);
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
+    const skills = skillsForTask(inspect, text);
 
     return {
       ok:true,
@@ -69,6 +71,7 @@ function createAgentRuntime(api) {
       request:text,
       workspace_mode:session.workspace_mode,
       context:compactInspection(inspect),
+      skills,
       verification_hints:hints,
       agent_contract:{
         preferred_calls:2,
@@ -76,6 +79,7 @@ function createAgentRuntime(api) {
         next_tool:'complete_task',
         patch_format:'standard unified diff',
         guidance:[
+          'Nếu response có skills, các rule/instructions/resource đính kèm là contract bắt buộc cho task hiện tại.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dữ kiện thật sự.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
