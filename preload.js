@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   workSessionStatus: id => ipcRenderer.invoke('work:status', id),
   rollbackWorkSession: id => ipcRenderer.invoke('work:rollback', id),
   gitStatus: id => ipcRenderer.invoke('git:status', id),
-  gitDiff: id => ipcRenderer.invoke('git:diff', id, false),
+  gitDiff: id => ipcRenderer.invoke('git:diff', id),
 
   listApprovals: () => ipcRenderer.invoke('approval:list'),
   respondApproval: (id, decision) => ipcRenderer.invoke('approval:respond', id, decision),
