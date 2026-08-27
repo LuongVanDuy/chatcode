@@ -1,120 +1,228 @@
-# WordPress + Bricks validation
+# WordPress + Bricks acceptance validation
 
-Run only the checks relevant to the files/feature changed. Do not rerun unrelated ChatCode installer/tunnel/updater suites for a skill-only change.
+Run only checks relevant to the changed skill/feature. Do not rerun unrelated ChatCode Stage 1–4, tunnel, updater or installer regressions for a skill-only change.
 
-## Pre-change inspection
+## A. Inspect before implementation
 
-- [ ] Active child theme/custom plugin identified.
-- [ ] No planned edits target WordPress core, Bricks parent theme, WooCommerce core or vendor.
-- [ ] Affected Bricks page/template IDs and template type identified.
-- [ ] Current element tree/settings/conditions read before mutation.
-- [ ] Existing seed/migration markers inspected.
-- [ ] Existing WordPress menu source identified for navigation work.
-- [ ] Existing WooCommerce template/query flow identified for commerce work.
-- [ ] Existing custom element/assets checked to avoid duplicates.
+PASS only if:
 
-## Bricks-native decision
+- [ ] active child theme/custom plugin locations are identified;
+- [ ] Bricks and WooCommerce activation/version evidence is known when relevant;
+- [ ] the real page/template currently rendering is identified;
+- [ ] current Bricks tree/settings/conditions are read before DB mutation;
+- [ ] existing seed/migration markers are inspected;
+- [ ] current menu source and assigned Woo pages are discovered instead of guessed;
+- [ ] no planned edit targets WordPress core, Bricks parent theme, WooCommerce core or vendor.
 
-- [ ] Native Bricks element/control considered first.
-- [ ] WordPress/WooCommerce API considered before custom rendering/state.
-- [ ] Bricks dynamic data/query/conditions considered.
-- [ ] Custom element justified only if native approach is insufficient.
-- [ ] No parallel PHP/HTML UI duplicates a native Bricks feature.
+## B. Bricks-native decision
 
-## Seed/migration
-
-- [ ] Existing Builder content is not reseeded.
-- [ ] Seed routine is one-time/idempotent.
-- [ ] Migration targets exact element/setting/condition.
-- [ ] Migration has expected-old/precondition where applicable.
-- [ ] User-modified Builder value is preserved on conflict.
-- [ ] Marker/version advances only after success.
-- [ ] Running migration twice is a no-op on second run.
-- [ ] ID changes preserve reciprocal parent/children relations.
-- [ ] Unrelated siblings/settings/conditions remain untouched.
-
-## Bricks CSS/cache
-
-When Bricks data affecting rendered style/class/settings changed:
-
-- [ ] Current site CSS mode identified.
-- [ ] Affected post cache cleaned.
-- [ ] Bricks generated CSS regenerated if CSS-file mode requires it.
-- [ ] Relevant page/object/plugin cache cleared only as needed.
-- [ ] Frontend no longer serves stale generated CSS.
-
-## Menu/header
-
-- [ ] Desktop/mobile use the same WordPress menu source.
-- [ ] No second mobile-only menu content tree created.
-- [ ] No duplicate hamburger/toggle exists.
-- [ ] Header/Footer template conditions do not overlap unintentionally.
-
-## WooCommerce
-
-For relevant tasks:
-
-- [ ] Product archive query is scoped to intended loop/context.
-- [ ] Single product variation/add-to-cart behavior remains native.
-- [ ] Cart/session state remains WooCommerce-owned.
-- [ ] Checkout fields/nonces/endpoints remain valid.
-- [ ] Thank-you/order-received lifecycle remains WooCommerce-owned.
-- [ ] Mini-cart/fragments behavior is not duplicated unnecessarily.
-- [ ] Related products logic uses Woo/native scoped query.
-- [ ] No whole Woo template override was introduced for a small change without justification.
-
-## Custom element/AJAX
-
-- [ ] Builder controls exist for configurable values.
-- [ ] Output is escaped and scoped.
-- [ ] Project data is not unnecessarily hard-coded.
-- [ ] Query/API is WordPress/WooCommerce-native.
-- [ ] AJAX nonce/capability/sanitization checks are present where required.
-- [ ] JS does not double-bind after Bricks frontend/builder rerender.
-- [ ] Assets load only where needed when practical.
-
-## Syntax/behavior
-
-Run only what applies:
+PASS only if the solution ordering is respected:
 
 ```text
-changed PHP -> php -l each changed PHP file
-changed JS  -> node --check each changed plain JS/CJS/MJS file when applicable
-changed CSS -> inspect syntax + target selectors + responsive behavior
-Bricks data -> tree integrity + migration idempotency + CSS refresh verification
-query change -> target query + negative/unrelated query check
-menu change  -> desktop + mobile same source
-Woo change   -> affected Woo flow only
+Bricks native element
+-> Bricks dynamic data / Query Loop / conditions
+-> WordPress/WooCommerce API
+-> Custom Bricks Element only when native is insufficient
 ```
 
-## Responsive QA
+- [ ] native element exists/was considered for the active Bricks version;
+- [ ] no parallel PHP/HTML layout duplicates an available Bricks element;
+- [ ] custom element has a concrete native-gap justification.
 
-For visual changes test at least:
+## C. Real Bricks template
+
+For Header/Footer/Archive/Single/Woo template work:
+
+- [ ] implementation creates/updates a real Bricks template, not a fake PHP/Page replacement;
+- [ ] current version contract for `BRICKS_DB_TEMPLATE_SLUG` is respected;
+- [ ] `BRICKS_DB_TEMPLATE_TYPE` is correct;
+- [ ] tree is stored in the correct Bricks content/header/footer context (`BRICKS_DB_PAGE_CONTENT`, `BRICKS_DB_HEADER`, `BRICKS_DB_FOOTER` as applicable);
+- [ ] `BRICKS_DB_TEMPLATE_SETTINGS` contains the intended conditions/settings;
+- [ ] conditions match the intended context and do not unintentionally overlap other templates;
+- [ ] Woo template role is correct when applicable: `wc_archive`, `wc_cart`, `wc_cart_empty`, `wc_form_checkout`, `wc_thankyou`.
+
+## D. Tree integrity
+
+- [ ] every element has `id`, `name`, `parent`, `children`, `settings` in the current-version shape;
+- [ ] new generated IDs are unique and six-character alphanumeric unless the installed version proves another native contract;
+- [ ] no duplicate IDs;
+- [ ] every non-root parent exists;
+- [ ] every child ID exists;
+- [ ] parent/children relations are reciprocal;
+- [ ] sibling order is preserved unless intentionally changed;
+- [ ] an ID remap updates element ID + parent children + child parents + only proven ID references;
+- [ ] no global serialized ID replacement is used.
+
+## E. Seed once / Builder truth
+
+- [ ] first seed has a project-specific seed key/meta marker;
+- [ ] second seed run is a no-op;
+- [ ] existing intended template/page/menu is not overwritten;
+- [ ] increasing a code/layout version does not rewrite the whole Builder tree;
+- [ ] user-edited/deleted seeded menu/template content is not silently recreated;
+- [ ] current Builder data remains source of truth.
+
+## F. Targeted migration
+
+- [ ] migration locates exact target via stable evidence;
+- [ ] only target node/setting/condition changes;
+- [ ] expected-old precondition exists for managed setting updates;
+- [ ] user-changed Builder value is preserved;
+- [ ] migration is idempotent;
+- [ ] material/destructive DB change has an appropriate backup/recovery point;
+- [ ] marker advances only after save + cache/CSS completion;
+- [ ] unrelated siblings/settings/conditions are preserved.
+
+Test compare-and-set example:
 
 ```text
-desktop: wide layout
- tablet: intermediate breakpoint
- mobile: narrow layout
+imageSize medium_large -> large
+current medium_large => changed
+current large => no-op
+current custom value => preserved/conflict
 ```
 
-Check:
+## G. Delete element
 
-- [ ] no horizontal overflow;
-- [ ] no unintended fixed-width clipping;
-- [ ] images are not unnecessarily blurred/upscaled;
-- [ ] intentional crops use an explicit aspect ratio/object-fit;
-- [ ] grids shrink using `minmax(0, 1fr)`/equivalent native controls;
-- [ ] flex/grid children can shrink;
-- [ ] menu toggle appears once;
-- [ ] cards/content do not stretch to broken fixed heights.
+- [ ] exact target ID is located;
+- [ ] deleted ID/subtree behavior is explicit;
+- [ ] deleted ID is removed from parent `children`;
+- [ ] no dangling child `parent` references remain;
+- [ ] sibling order/settings remain unchanged;
+- [ ] template was not reseeded merely to remove one node.
+
+## H. Bricks CSS/cache
+
+After Bricks DB changes:
+
+- [ ] `clean_post_cache($post_id)` is part of completion;
+- [ ] affected Bricks template/cache is refreshed when required;
+- [ ] `\Bricks\Database::get_setting('cssLoading')` is checked;
+- [ ] when CSS loading is `file`, `\Bricks\Assets_Files::generate_post_css_file(...)` is invoked using the installed-version signature;
+- [ ] context is correct: `content`, `header`, or `footer`;
+- [ ] migration is not marked complete if CSS generation fails;
+- [ ] frontend output is checked for stale CSS.
+
+## I. WordPress menu
+
+- [ ] menu source is a real WordPress nav menu/location;
+- [ ] seed uses WordPress menu APIs only once/explicitly;
+- [ ] desktop and mobile resolve the same menu source;
+- [ ] there is no duplicate independently maintained mobile menu;
+- [ ] there is no duplicate hamburger when Bricks nav already handles it;
+- [ ] user-edited/deleted seeded menu content is not auto-recreated.
+
+## J. Archive
+
+### WordPress archive
+
+- [ ] real Bricks Archive template;
+- [ ] dynamic archive title/description;
+- [ ] native `posts` element/main-query consumption;
+- [ ] archive-main-query setting such as `is_archive_main_query=true` is used when supported;
+- [ ] no redundant manual category/term query when main query already supplies records.
+
+### Product archive
+
+- [ ] real `wc_archive` template;
+- [ ] native archive title/description/product elements when supported;
+- [ ] public product taxonomies are discovered;
+- [ ] `product_type` and `product_visibility` are excluded from generic public taxonomy conditions;
+- [ ] product archive uses intended main query rather than leaking custom filters globally.
+
+## K. Single post
+
+- [ ] `post-title` preferred;
+- [ ] featured image uses native dynamic data/image;
+- [ ] `post-content` uses WordPress content source when supported;
+- [ ] `post-navigation` preferred;
+- [ ] `related-posts` preferred;
+- [ ] post body is not duplicated via PHP.
+
+## L. WooCommerce native flow
+
+PASS relevant flow checks:
+
+- [ ] product archive uses native Woo/Bricks archive flow;
+- [ ] single product preserves Woo variations/add-to-cart/business state;
+- [ ] Cart prefers native cart items/coupon/collaterals;
+- [ ] Empty Cart uses native Bricks Woo role when supported;
+- [ ] Checkout prefers customer-details + order-review native elements;
+- [ ] Thank You prefers `woocommerce-checkout-thankyou`;
+- [ ] mini cart keeps Woo cart/session/fragments as source of truth;
+- [ ] related/upsell/cross-sell uses Woo/native relations rather than hard-coded product IDs;
+- [ ] no whole Woo template override is introduced for a small presentation change.
+
+## M. Woo Blocks vs Bricks classic migration
+
+- [ ] assigned Cart/Checkout page is resolved by `wc_get_page_id()`;
+- [ ] current post content is inspected;
+- [ ] migration runs only when relevant Woo block is actually present;
+- [ ] verified Bricks setup actually requires classic shortcode content;
+- [ ] original block content is backed up exactly;
+- [ ] unrelated custom page content is not overwritten;
+- [ ] migration has marker, is idempotent and reversible.
+
+## N. Custom Bricks element
+
+- [ ] extends `\Bricks\Element`;
+- [ ] Builder controls exist;
+- [ ] configurable settings have sane defaults;
+- [ ] site-varying data remains editable/dynamic;
+- [ ] render uses WP/Woo APIs;
+- [ ] output is escaped and class-scoped;
+- [ ] AJAX/mutations use nonce/capability/sanitization as required;
+- [ ] JS avoids duplicate binding after Bricks rerender.
+
+## O. Architecture/assets
+
+- [ ] `functions.php` remains a thin loader/registration/enqueue layer;
+- [ ] feature logic is modular (`inc/setup`, header/home/blog/shop/product/pages, `elements`, `assets/css`, `assets/js` or existing equivalent);
+- [ ] CSS/JS is scoped by page/component;
+- [ ] enqueue is conditional where practical;
+- [ ] local assets may use `filemtime()` versioning appropriately;
+- [ ] frontend-only assets do not break/run unnecessarily in Bricks Builder.
+
+## P. Responsive
+
+Check desktop, tablet, mobile:
+
+- [ ] no horizontal overflow/hard width bug;
+- [ ] banner/media not broken by unjustified fixed height;
+- [ ] grid cards do not stretch into excessive blank space;
+- [ ] image source/size is not unnecessarily blurred/upscaled;
+- [ ] product cards stay inside viewport;
+- [ ] no duplicate hamburger;
+- [ ] mobile and desktop menu data are identical in source;
+- [ ] scoped use of `minmax(0,1fr)`, `width:100%`, `max-width`, `aspect-ratio`, `object-fit`/media queries is appropriate.
+
+## Q. Discovery/no hard-code
+
+- [ ] no project/reference domain embedded in skill;
+- [ ] no copied project prefix;
+- [ ] no hard-coded post/template/attachment/term IDs in reusable skill logic;
+- [ ] Woo pages resolve with Woo APIs;
+- [ ] nav locations resolve with WordPress APIs;
+- [ ] product taxonomies are discovered when possible;
+- [ ] prefix is derived/reused from the current project.
+
+## R. Syntax + focused behavior tests
+
+Run only relevant checks:
+
+```text
+changed PHP -> php -l changed PHP files
+changed JS -> node --check changed plain JS/CJS/MJS files when applicable
+Bricks tree migration -> tree integrity + idempotency + user-edit preservation + CSS refresh
+menu -> same source desktop/mobile
+archive -> main query + negative/unrelated query check
+Woo flow -> affected flow only
+UI -> desktop/tablet/mobile
+skill package -> contract/activation/resource routing tests
+```
 
 ## Skill independence contract
 
-The installed skill package must contain all rules needed to execute this workflow without another project as a reference.
+The skill must remain fully operational if every reference/sample project is deleted.
 
-Contract test must fail if:
-
-- the skill instructs the agent to open another project to learn implementation;
-- the skill contains a copied project-specific prefix;
-- seed-once, targeted migration, CSS regeneration, menu-source, WooCommerce, responsive or no-core-edit rules are missing;
-- `prepare_task` cannot attach the skill for a Bricks task/project.
+Contract test fails if the skill instructs the agent to open another project for implementation knowledge, embeds another project's domain/path/prefix/IDs, or omits the real-template/tree/seed/migration/CSS/menu/Woo/archive/responsive/discovery contracts above.
