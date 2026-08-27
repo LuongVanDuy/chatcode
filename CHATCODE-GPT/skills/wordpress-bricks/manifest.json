@@ -1,0 +1,29 @@
+{
+  "id": "wordpress-bricks",
+  "name": "WordPress + Bricks Native Delivery",
+  "version": 1,
+  "entry": "SKILL.md",
+  "resources": [
+    "resources/patterns.md",
+    "resources/migrations.md",
+    "resources/snippets.md",
+    "resources/validation.md"
+  ],
+  "activation": {
+    "frameworks": ["WordPress", "WooCommerce", "Bricks"],
+    "keywords": [
+      "bricks",
+      "bricks builder",
+      "template",
+      "query loop",
+      "dynamic data",
+      "woocommerce",
+      "product archive",
+      "single product",
+      "cart",
+      "checkout",
+      "thankyou",
+      "mini cart"
+    ]
+  }
+}
