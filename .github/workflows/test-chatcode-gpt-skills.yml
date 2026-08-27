@@ -1,0 +1,35 @@
+name: Test ChatCode GPT skills
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'CHATCODE-GPT/**'
+      - 'core/skill-runtime.js'
+      - 'core/agent-runtime.js'
+      - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'CHATCODE-GPT/**'
+      - 'core/skill-runtime.js'
+      - 'core/agent-runtime.js'
+      - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'package.json'
+
+jobs:
+  wordpress-bricks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Syntax check skill loader
+        run: |
+          node --check core/skill-runtime.js
+          node --check core/agent-runtime.js
+          node --check scripts/smoke-wordpress-bricks-skill.cjs
+      - name: WordPress + Bricks skill contract
+        run: npm run test:wordpress-bricks-skill
