@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
-const MAX_ENTRY_CHARS = 18000;
-const MAX_RESOURCE_CHARS = 14000;
+const MAX_ENTRY_CHARS = 22000;
+const MAX_RESOURCE_CHARS = 16000;
 
 function safeRead(file, maxChars) {
   try {
@@ -51,10 +51,20 @@ function chooseResources(manifest, request) {
   const chosen = new Set(['resources/patterns.md', 'resources/validation.md']);
   const text = String(request || '').toLowerCase();
 
-  if (/seed|reseed|migration|migrate|element\s+id|template\s+condition|builder\s+data|database|css\s+file|regenerate|cache/.test(text)) {
+  if (/seed|reseed|migration|migrate|element\s+id|delete\s+element|remove\s+element|builder\s+data|database|db\b|css\s+file|regenerate|cache|block\s*(?:cart|checkout)|classic\s+shortcode/.test(text)) {
     chosen.add('resources/migrations.md');
   }
-  if (/custom\s+element|ajax|query|menu|header|footer|woocommerce|product|cart|checkout|thank|mini\s*cart|responsive|css|javascript|js/.test(text)) {
+
+  if (/template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition/.test(text)) {
+    chosen.add('resources/templates.md');
+  }
+
+  if (/woocommerce|\bwoo\b|product|shop|cart|checkout|thank|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou/.test(text)) {
+    chosen.add('resources/woocommerce.md');
+    chosen.add('resources/templates.md');
+  }
+
+  if (/custom\s+element|ajax|query|menu|nav|header|footer|product|cart|checkout|thank|responsive|css|javascript|\bjs\b|enqueue|filemtime|element\s+id|delete\s+element/.test(text)) {
     chosen.add('resources/snippets.md');
   }
 
