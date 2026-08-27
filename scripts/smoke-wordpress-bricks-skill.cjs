@@ -30,6 +30,7 @@ function collectText(dir) {
 
   assert.equal(lower.includes('tongkhokhoathongminh.com'), false, 'skill must not depend on reference project domain');
   assert.equal(lower.includes('tkk-'), false, 'skill must not copy a reference-project prefix');
+  assert.equal(/d:\\duyanhweb/i.test(text), false, 'skill must not depend on a local reference-project path');
 
   for (const required of [
     'bricks native',
