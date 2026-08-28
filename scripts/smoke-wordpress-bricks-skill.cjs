@@ -66,7 +66,6 @@ function names(items) {
   }
   assert.equal(CORE_RESOURCE, 'resources/core-checklist.md');
 
-  // Detailed rules still exist somewhere in the package; they are simply routed on demand.
   includesAll(collected.text, [
     'BRICKS_DB_TEMPLATE_TYPE', 'six-character alphanumeric', 'compare-and-set',
     'clean_post_cache($post_id)', 'generate_post_css_file',
@@ -77,26 +76,22 @@ function names(items) {
     'minmax(0, 1fr)', 'aspect-ratio', 'page_on_front', 'wc_get_attribute_taxonomies()'
   ]);
 
-  // Minimal context for a tiny task.
   assert.deepEqual(
     chooseResources(manifest, 'Change one Bricks text label'),
     ['resources/core-checklist.md']
   );
 
-  // UI task: no DB/migration/full-validation noise.
   const css = chooseResources(manifest, 'Fix responsive CSS padding and typography on the frontend');
   includesAll(css.join('\n'), ['core-checklist.md', 'code-organization.md', 'design-system.md', 'snippets.md']);
   assert.equal(css.includes('resources/data-seeding.md'), false);
   assert.equal(css.includes('resources/migrations.md'), false);
   assert.equal(css.includes('resources/validation.md'), false);
 
-  // Data task: no design-system noise unless UI is also requested.
   const seed = chooseResources(manifest, 'Create a Bricks Archive template and seed sample CPT posts safely without duplicates');
   includesAll(seed.join('\n'), ['core-checklist.md', 'data-seeding.md', 'templates.md', 'migrations.md']);
   assert.equal(seed.includes('resources/design-system.md'), false);
   assert.equal(seed.includes('resources/validation.md'), false);
 
-  // Broad audits deliberately load the full validation checklist.
   const audit = chooseResources(manifest, 'Quét lại toàn bộ frontend CSS và validate toàn bộ hệ thống');
   assert.ok(audit.includes('resources/design-system.md'));
   assert.ok(audit.includes('resources/validation.md'));
@@ -141,9 +136,8 @@ function names(items) {
   const prepared = await createAgentRuntime(fakeApi).prepareTask('p1', 'Build a real Bricks Woo checkout template with native order review');
   assert.equal(prepared.skills.length, 1);
   const preparedResources = names(prepared.skills[0].resources);
-  includesAll(preparedResources.join('\n'), ['core-checklist.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
+  includesAll(preparedResources.join('\n'), ['core-checklist.md', 'data-seeding.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
   assert.equal(preparedResources.includes('resources/design-system.md'), false);
-  assert.equal(preparedResources.includes('resources/data-seeding.md'), false);
   assert.equal(preparedResources.includes('resources/validation.md'), false);
   assert.match(prepared.agent_contract.guidance[0], /skills/i);
 
