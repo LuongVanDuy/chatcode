@@ -44,27 +44,24 @@ function has(resources, name) {
   const entry = fs.readFileSync(entryFile, 'utf8');
   const entryLower = entry.toLowerCase();
 
-  // Entry should stay compact enough to be cheap for every ChatGPT task.
   assert.ok(entry.length < 9000, `SKILL.md is too large for progressive loading: ${entry.length} chars`);
   assert.match(entryLower, /progressive resource loading/, 'SKILL.md must explain progressive resource loading');
   assert.match(entryLower, /do not load every resource/, 'SKILL.md must forbid loading every resource just in case');
 
-  // Independence: the installed skill must not require a former reference project.
   for (const forbidden of ['tongkhokhoathongminh.com', 'tongkhokhoathongminh', 'tkk-', 'd:\\duyanhweb']) {
     assert.equal(lower.includes(forbidden), false, `skill must not depend on reference-project value: ${forbidden}`);
   }
 
-  // Bricks-native priority stays in the compact entry.
   const nativePos = entryLower.indexOf('bricks native element/control/template');
   const dynamicPos = entryLower.indexOf('bricks dynamic data / query loop');
   const wpPos = entryLower.indexOf('wordpress or woocommerce public api/hook');
   const customPos = entryLower.indexOf('custom bricks element');
   assert.ok(nativePos >= 0 && nativePos < dynamicPos && dynamicPos < wpPos && wpPos < customPos, 'Bricks-native priority order is wrong');
 
-  // Full package still retains all detailed contracts even though they are no longer always loaded.
+  // Detailed knowledge stays in routed resources; it no longer needs to be duplicated in SKILL.md.
   requireText(lower, [
-    '`section`', '`container`', '`block`', '`heading`', '`text-basic`', '`button`', '`image`', '`nav-menu`', '`posts`',
-    '`woocommerce-products`', '`woocommerce-checkout-customer-details`', '`woocommerce-checkout-order-review`', '`woocommerce-checkout-thankyou`',
+    'section/container/block', 'nav-menu/search', 'post-title/post-content/post-navigation/related-posts',
+    'woocommerce-products', 'woocommerce-checkout-customer-details', 'woocommerce-checkout-order-review', 'woocommerce-checkout-thankyou',
     'BRICKS_DB_TEMPLATE_SLUG', 'BRICKS_DB_TEMPLATE_TYPE', 'BRICKS_DB_PAGE_CONTENT', 'BRICKS_DB_TEMPLATE_SETTINGS',
     'six-character alphanumeric', 'compare-and-set', 'clean_post_cache($post_id)', '\\Bricks\\Assets_Files::generate_post_css_file',
     'add_option()', 'race-prone', 'stable semantic identity', 'move proven duplicates to trash', 'live wordpress database state',
@@ -87,7 +84,6 @@ function has(resources, name) {
   }
   assert.equal(CORE_RESOURCE, 'resources/core-checklist.md');
 
-  // Progressive routing: small tasks get a small context; unrelated heavy resources stay out.
   const tiny = chooseResources(manifest, 'Change one Bricks text label');
   assert.deepEqual(tiny, ['resources/core-checklist.md'], 'tiny task should load only compact core checklist');
 
