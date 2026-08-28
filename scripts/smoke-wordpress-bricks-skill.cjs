@@ -1,8 +1,16 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { loadWordPressBricksSkill, skillsForTask, chooseResources, CORE_RESOURCE } = require('../core/skill-runtime');
+const {
+  loadWordPressBricksSkill,
+  skillsForTask,
+  chooseResources,
+  CORE_RESOURCE,
+  WORDPRESS_BRICKS_SKILL_ID,
+  hasBricksProjectEvidence
+} = require('../core/skill-runtime');
 const { createAgentRuntime } = require('../core/agent-runtime');
+const { createSkillPolicyApi, SKILL_ENTRY } = require('../core/skill-policy');
 
 const root = path.join(__dirname, '..');
 const skillRoot = path.join(root, 'CHATCODE-GPT', 'skills', 'wordpress-bricks');
@@ -41,9 +49,12 @@ function names(items) {
 
   assert.equal(manifest.id, 'wordpress-bricks');
   assert.equal(manifest.version, 2);
+  assert.equal(WORDPRESS_BRICKS_SKILL_ID, 'wordpress-bricks');
   assert.ok(entry.length < 9000, `SKILL.md too large: ${entry.length} chars`);
   assert.ok(entryLower.includes('progressive resource loading'));
   assert.ok(entryLower.includes('do not load every resource'));
+  assert.ok(entryLower.includes('this skill is **mandatory**'));
+  assert.ok(entryLower.includes('even when the user\'s prompt does not mention bricks'));
 
   const nativePos = entryLower.indexOf('bricks native element/control/template');
   const dynamicPos = entryLower.indexOf('bricks dynamic data / query loop');
@@ -114,6 +125,13 @@ function names(items) {
     relevant_files:[{ path:'wp-content/themes/fixture-child/functions.php' }]
   };
 
+  assert.equal(hasBricksProjectEvidence(bricksInspect).active, true);
+  const genericSkill = loadWordPressBricksSkill(bricksInspect, 'Đổi số điện thoại trong dự án');
+  assert.ok(genericSkill, 'Bricks project must attach skill even for a prompt that does not mention Bricks');
+  assert.equal(genericSkill.mandatory, true);
+  assert.equal(genericSkill.activation, 'mandatory-wordpress-bricks-project-policy');
+  assert.deepEqual(names(genericSkill.resources), ['resources/core-checklist.md']);
+
   const migrationSkill = loadWordPressBricksSkill(bricksInspect, 'Migrate one Bricks element ID and regenerate CSS file cache');
   assert.ok(migrationSkill);
   const migrationResources = names(migrationSkill.resources);
@@ -126,7 +144,8 @@ function names(items) {
     project:{ id:'p2', name:'plain-wp' }, framework_names:['WordPress'], frameworks:[{ name:'WordPress' }],
     wordpress:{ isWordPress:true, parentThemes:[{ slug:'twentytwentysix' }] }, relevant_files:[]
   };
-  assert.equal(skillsForTask(plainWpInspect, 'Fix a PHP helper').length, 0);
+  assert.equal(hasBricksProjectEvidence(plainWpInspect).active, false);
+  assert.equal(skillsForTask(plainWpInspect, 'Please use Bricks to fix a PHP helper').length, 0, 'Prompt text alone must not fake Bricks project evidence');
 
   const fakeApi = {
     startWork: async () => ({ work_session_id:'work-1', project_id:'p1', workspace_mode:'trusted', baseline:{} }),
@@ -135,16 +154,60 @@ function names(items) {
   };
   const prepared = await createAgentRuntime(fakeApi).prepareTask('p1', 'Build a real Bricks Woo checkout template with native order review');
   assert.equal(prepared.skills.length, 1);
+  assert.equal(prepared.skills[0].mandatory, true);
   const preparedResources = names(prepared.skills[0].resources);
   includesAll(preparedResources.join('\n'), ['core-checklist.md', 'data-seeding.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
   assert.equal(preparedResources.includes('resources/design-system.md'), false);
   assert.equal(preparedResources.includes('resources/validation.md'), false);
   assert.match(prepared.agent_contract.guidance[0], /skills/i);
 
+  let writes = 0;
+  const blockedLegacy = createSkillPolicyApi({
+    inspectProject: async () => bricksInspect,
+    writeFile: async () => { writes++; return { ok:true }; },
+    readFile: async () => ({ path:SKILL_ENTRY, content:entry })
+  });
+  await assert.rejects(
+    () => blockedLegacy.writeFile('p1', 'functions.php', '<?php'),
+    error => error?.code === 'SKILL_REQUIRED'
+  );
+  assert.equal(writes, 0, 'Direct Bricks mutation must be blocked before skill use');
+  await blockedLegacy.readFile('CHATCODE-GPT', SKILL_ENTRY);
+  await blockedLegacy.writeFile('p1', 'functions.php', '<?php');
+  assert.equal(writes, 1, 'Legacy mutation may continue after reading mandatory skill');
+
+  const inspectPolicyApi = createSkillPolicyApi({
+    inspectProject: async () => bricksInspect,
+    writeFile: async () => ({ ok:true })
+  });
+  const inspected = await inspectPolicyApi.inspectProject('p1', 'Đổi số điện thoại', 4);
+  assert.equal(inspected.skill_policy.mandatory, true);
+  assert.equal(inspected.skill_policy.skill_id, 'wordpress-bricks');
+  assert.equal(inspected.skills[0].mandatory, true);
+
+  const modernSkill = loadWordPressBricksSkill(bricksInspect, 'Đổi số điện thoại');
+  const modernPolicyApi = createSkillPolicyApi({
+    inspectProject: async () => bricksInspect,
+    prepareTask: async () => ({ task_id:'task-1', work_session_id:'task-1', context:bricksInspect, skills:[modernSkill] }),
+    completeTask: async () => ({ ok:true, status:'completed' }),
+    workStatus: async () => ({ project_id:'p1', project:'fixture', status:'active' })
+  });
+  const policyPrepared = await modernPolicyApi.prepareTask('p1', 'Đổi số điện thoại', 4);
+  assert.equal(policyPrepared.skill_policy.mandatory, true);
+  assert.equal(policyPrepared.skill_policy.attached, true);
+  const policyCompleted = await modernPolicyApi.completeTask('task-1', '', []);
+  assert.equal(policyCompleted.ok, true);
+
+  const plainPolicyApi = createSkillPolicyApi({
+    inspectProject: async () => plainWpInspect,
+    writeFile: async () => ({ ok:true })
+  });
+  assert.equal((await plainPolicyApi.writeFile('p2', 'functions.php', '<?php')).ok, true, 'Non-Bricks WordPress project must not be forced into Bricks skill');
+
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(pkg.build.files.includes('CHATCODE-GPT/**/*'));
 
-  console.log(`WordPress + Bricks skill v2 PASS: compact ChatGPT entry + progressive routing; ${collected.files.length} skill files, ${cases.length} acceptance routes`);
+  console.log(`WordPress + Bricks skill v2 PASS: mandatory project policy + compact ChatGPT routing; ${collected.files.length} skill files, ${cases.length} acceptance routes`);
 })().catch(error => {
   console.error(error);
   process.exit(1);
