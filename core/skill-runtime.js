@@ -60,8 +60,9 @@ function chooseResources(manifest, request) {
   const templateTask = /template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition|mẫu\s+bricks|mẫu\s+giao\s+diện/.test(text);
   const wooTask = /woocommerce|\bwoo\b|product|shop|cart|checkout|thank\s*you|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán/.test(text);
 
+  const creationVerb = /create|build|implement|tạo|xây\s+dựng|khởi\s+tạo|triển\s+khai/.test(text);
   const createData = /(?:create|tạo|seed|khởi\s+tạo)[^\n]{0,100}(?:template|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)|(?:template|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)[^\n]{0,100}(?:create|tạo|seed|khởi\s+tạo)/.test(text);
-  const seedTask = createData || /seed|reseed|generated\s+data|sample\s+data|default\s+data|wp_insert_post|add_option|duplicate|trùng\s+(?:dữ\s+liệu|template|bài|post)|semantic\s+(?:key|identity)|atomic\s+lock/.test(text);
+  const seedTask = createData || (creationVerb && templateTask) || /seed|reseed|generated\s+data|sample\s+data|default\s+data|wp_insert_post|add_option|duplicate|trùng\s+(?:dữ\s+liệu|template|bài|post)|semantic\s+(?:key|identity)|atomic\s+lock/.test(text);
   const migrationTask = elementDelete || /migration|migrate|builder\s+data|database|\bdb\b|element\s+id|repair|cleanup|duplicate|trùng|rollback|compare-and-set|css\s+file|regenerate|cache|classic\s+shortcode|block\s*(?:cart|checkout)|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
 
   const snippetTask = elementDelete || /custom\s+element|ajax|rest\s+api|query|menu|nav|enqueue|filemtime|element\s+id|javascript|\bjs\b|\bcss\b|hook|helper|render|renderer|slider|accordion/.test(text);
