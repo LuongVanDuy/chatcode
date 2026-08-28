@@ -156,7 +156,8 @@ function names(items) {
   assert.equal(prepared.skills.length, 1);
   assert.equal(prepared.skills[0].mandatory, true);
   const preparedResources = names(prepared.skills[0].resources);
-  includesAll(preparedResources.join('\n'), ['core-checklist.md', 'data-seeding.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
+  includesAll(preparedResources.join('\n'), ['core-checklist.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
+  assert.equal(preparedResources.includes('resources/data-seeding.md'), false, 'Woo task without create/seed intent should not load data-seeding');
   assert.equal(preparedResources.includes('resources/design-system.md'), false);
   assert.equal(preparedResources.includes('resources/validation.md'), false);
   assert.match(prepared.agent_contract.guidance[0], /skills/i);
