@@ -7,16 +7,18 @@ function installRuntimePatches() {
   installWorkRuntimePatches();
   const { installAgentRuntimePatches } = require('./agent-runtime');
   installAgentRuntimePatches();
-  // Install last so this policy sees the final composed API and can group
-  // notifications across Terminal, Work Session and Fast Agent calls.
+  // Install after Agent so task grouping sees Terminal, Work Session and Fast Agent calls.
   const { installTaskPolicyPatches } = require('./task-policy');
   installTaskPolicyPatches();
-  // Must be the final compatibility layer: older ChatGPT connector schemas may
-  // still expose only the original 13 tools. This adds CHATCODE-GPT as a
-  // read-only virtual project so those tools can discover/read built-in skills,
-  // while newer schemas continue to use prepare_task automatic skill loading.
+  // Compatibility layer for older ChatGPT connector schemas that expose only
+  // the original 13 tools. It adds CHATCODE-GPT as a read-only virtual project.
   const { installBuiltinSkillsProjectPatches } = require('./builtin-skills-project');
   installBuiltinSkillsProjectPatches();
+  // Final policy layer. It must see both modern Fast Agent methods and the
+  // legacy CHATCODE-GPT compatibility project so WordPress + Bricks work can
+  // never silently bypass the mandatory wordpress-bricks skill.
+  const { installSkillPolicyPatches } = require('./skill-policy');
+  installSkillPolicyPatches();
   return true;
 }
 
