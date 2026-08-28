@@ -54,9 +54,15 @@ function chooseResources(manifest, request) {
 
   const broadAudit = /audit|review|validate|validation|acceptance|regression|full\s+(?:check|audit|review)|check\s+(?:all|entire|whole)|scan\s+(?:all|entire|whole)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|kiểm\s+tra\s+toàn\s+bộ|refactor\s+(?:all|entire|whole)|tái\s+cấu\s+trúc\s+toàn\s+bộ/.test(text);
   const elementDelete = /(?:delete|remove|xóa|xoá)[^\n]{0,80}(?:element|phần tử)|(?:element|phần tử)[^\n]{0,80}(?:delete|remove|xóa|xoá)/.test(text);
+  const generatedCssMaintenance = /(?:regenerate|generate|rebuild|refresh)[^\n]{0,60}(?:bricks\s+)?css|(?:bricks\s+)?css[^\n]{0,60}(?:file\s+cache|generated\s+file|regenerate|generate|rebuild)|generate_post_css_file/.test(text);
 
-  const uiTask = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|style|styling|font|typography|màu|color|spacing|khoảng\s+cách|padding|margin|radius|shadow|transition|shell|gutter|container|hero|breadcrumb|page\s*title|section\s*title|card|button|input|width|chiều\s+rộng|trang\s+mới|new\s+page/.test(text);
-  const codeTask = /\bphp\b|javascript|\bjs\b|\bcss\b|functions\.php|enqueue|filemtime|asset|module|component|helper|hook|function|class|file|folder|filename|path|inc\/|assets\/|child\s*theme|plugin|tên\s+file|thư\s+mục|refactor|tái\s+cấu\s+trúc/.test(text);
+  const explicitUiTask = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|font|typography|màu|color|spacing|khoảng\s+cách|padding|margin|radius|shadow|transition|shell|gutter|container|hero|breadcrumb|page\s*title|section\s*title|card|button|input|width|chiều\s+rộng|trang\s+mới|new\s+page/.test(text);
+  const cssStylingTask = !generatedCssMaintenance && /\bcss\b|style|styling/.test(text);
+  const uiTask = explicitUiTask || cssStylingTask;
+
+  const fileStructureTask = /(?:create|rename|move|organize|refactor|tạo|đổi\s+tên|di\s+chuyển|sắp\s+xếp)[^\n]{0,80}(?:file|folder|filename|path|tệp|thư\s+mục)|(?:file|folder|filename|path|tệp|thư\s+mục)[^\n]{0,80}(?:create|rename|move|organize|refactor|tạo|đổi\s+tên|di\s+chuyển|sắp\s+xếp)/.test(text);
+  const codeTask = /\bphp\b|javascript|\bjs\b|functions\.php|enqueue|filemtime|asset|module|component|helper|hook|function|class|inc\/|assets\/|child\s*theme|plugin|tên\s+file|thư\s+mục|refactor|tái\s+cấu\s+trúc/.test(text) || fileStructureTask || (!generatedCssMaintenance && /\bcss\b/.test(text));
+
   const templateTask = /template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition|mẫu\s+bricks|mẫu\s+giao\s+diện/.test(text);
   const wooTask = /woocommerce|\bwoo\b|product|shop|cart|checkout|thank\s*you|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán/.test(text);
 
