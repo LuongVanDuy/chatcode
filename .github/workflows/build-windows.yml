@@ -42,6 +42,10 @@ jobs:
         run: npm run test:brain
       - name: Smoke test WordPress Brain
         run: npm run test:wordpress
+      - name: Smoke test WordPress + Bricks skill
+        run: npm run test:wordpress-bricks-skill
+      - name: Smoke test legacy 13-tool skill exposure
+        run: npm run test:builtin-skills-project
       - name: Smoke test fast coding path
         run: npm run test:fastpath
       - name: Regression test filesystem & Windows tasks
