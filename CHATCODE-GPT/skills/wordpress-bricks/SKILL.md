@@ -25,7 +25,7 @@ Do not build parallel PHP/HTML behavior when the installed Bricks/Woo stack alre
 
 Before editing, inspect enough current state to avoid guessing. Depending on the task this includes the active child theme/custom plugin, Bricks/Woo version, current page/template, Builder tree and conditions, menu source, assigned Woo pages, existing shared components, global design tokens, seed/migration markers, and CSS loading/cache mode.
 
-When the modern Fast Agent tools are available, WordPress + Bricks coding work should enter through `prepare_task`; the returned `wordpress-bricks` skill contract is mandatory for the task. When only the legacy ChatCode tool schema is available, read this skill from the virtual `CHATCODE-GPT` project before mutation and read the task-relevant routed resources.
+When the modern Fast Agent tools are available, WordPress + Bricks coding work should enter through `prepare_task`; the returned `wordpress-bricks` skill contract is mandatory for the task. When only the legacy ChatCode tool schema is available, inspect/read the **target project first**, then read this skill from the virtual `CHATCODE-GPT` project before mutation and read the task-relevant routed resources. Reading the skill for one project must not authorize another project.
 
 ## Non-negotiable rules
 
@@ -59,6 +59,10 @@ The runtime routes only resources relevant to the task:
 - `snippets.md` — implementation snippets for elements, menus, CSS/JS, AJAX and helpers.
 - `patterns.md` — broader reusable architecture/implementation patterns.
 - `validation.md` — full acceptance checklist only for broad audits/reviews; ordinary tasks use the compact checklist plus their domain resource.
+
+For explicit requests, route primarily from the request. For short referential follow-ups such as "sửa tiếp phần này", use the current ranked Project Brain/relevant-file evidence to recover the task domain without loading unrelated resources.
+
+Resource loading uses a soft context budget for speed. **Never drop a selected mandatory domain rule to satisfy that budget.** If context must be reduced, omit support/example resources such as `snippets.md` or `patterns.md` first. Required domain resources and `validation.md` when explicitly routed remain authoritative even if they cause a soft-budget overflow.
 
 Do not load every resource "just in case". Attached resources are mandatory; unattached resources are not required unless the task materially changes and routing must be reconsidered.
 
