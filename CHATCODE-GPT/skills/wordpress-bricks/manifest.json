@@ -6,6 +6,7 @@
   "resources": [
     "resources/patterns.md",
     "resources/code-organization.md",
+    "resources/data-seeding.md",
     "resources/templates.md",
     "resources/woocommerce.md",
     "resources/migrations.md",
