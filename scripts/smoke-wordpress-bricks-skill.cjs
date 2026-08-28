@@ -73,6 +73,14 @@ function requireText(lower, values) {
     'add_option()', 'race-prone', 're-query current db state while holding lock', 'move proven duplicates to trash',
     'stable semantic identity', 'repair option/pointer references', 'live wordpress database state',
 
+    // Frontend design system.
+    'frontend design system', 'global source of truth', 'one shell system across the site',
+    'component css consumes tokens', 'typography consistency', 'avoid override chains',
+    'shell/max width and horizontal gutters', 'spacing scale', 'border-radius scale',
+    'control/input/button heights', 'shadows', 'transitions/durations/easing',
+    'do not create new literal font sizes', 'narrower text column', 'outer bricks container',
+    'wordpress core, bricks parent/core css, woocommerce/plugin/vendor css',
+
     // CSS/cache.
     'clean_post_cache($post_id)', "\\Bricks\\Database::get_setting('cssLoading')", '\\Bricks\\Assets_Files::generate_post_css_file',
     '`content`', '`header`', '`footer`',
@@ -95,7 +103,7 @@ function requireText(lower, values) {
   assert.equal(manifest.id, 'wordpress-bricks');
   assert.equal(manifest.version, 2, 'WordPress + Bricks skill manifest must be v2');
   for (const resource of [
-    'resources/patterns.md', 'resources/code-organization.md', 'resources/data-seeding.md',
+    'resources/patterns.md', 'resources/code-organization.md', 'resources/design-system.md', 'resources/data-seeding.md',
     'resources/templates.md', 'resources/woocommerce.md', 'resources/migrations.md',
     'resources/snippets.md', 'resources/validation.md'
   ]) {
@@ -120,13 +128,15 @@ function requireText(lower, values) {
   const migrationSkill = loadWordPressBricksSkill(bricksInspect, 'Migrate one Bricks element ID and regenerate CSS file cache');
   assert.ok(migrationSkill, 'Bricks skill must activate from project evidence');
   assert.equal(migrationSkill.version, 2);
+  assert.ok(migrationSkill.resources.some(item => item.name === 'resources/code-organization.md'));
+  assert.ok(migrationSkill.resources.some(item => item.name === 'resources/design-system.md'));
   assert.ok(migrationSkill.resources.some(item => item.name === 'resources/data-seeding.md'));
   assert.ok(migrationSkill.resources.some(item => item.name === 'resources/migrations.md'));
   assert.ok(migrationSkill.resources.some(item => item.name === 'resources/snippets.md'));
   assert.ok(migrationSkill.resources.some(item => item.name === 'resources/validation.md'));
 
   const cases = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
-  assert.ok(Array.isArray(cases) && cases.length >= 15, 'acceptance task cases are incomplete');
+  assert.ok(Array.isArray(cases) && cases.length >= 17, 'acceptance task cases are incomplete');
   for (const testCase of cases) {
     const selected = chooseResources(manifest, testCase.request);
     for (const expected of testCase.resources) {
@@ -152,6 +162,7 @@ function requireText(lower, values) {
   assert.equal(prepared.skills.length, 1, 'prepare_task must attach one Bricks skill');
   assert.equal(prepared.skills[0].id, 'wordpress-bricks');
   assert.equal(prepared.skills[0].version, 2);
+  assert.ok(prepared.skills[0].resources.some(item => item.name === 'resources/design-system.md'));
   assert.ok(prepared.skills[0].resources.some(item => item.name === 'resources/data-seeding.md'));
   assert.ok(prepared.skills[0].resources.some(item => item.name === 'resources/woocommerce.md'));
   assert.ok(prepared.skills[0].resources.some(item => item.name === 'resources/templates.md'));
