@@ -48,7 +48,7 @@ function hasBricksEvidence(inspect, request) {
 
 function chooseResources(manifest, request) {
   const available = new Set((manifest?.resources || []).map(String));
-  const chosen = new Set(['resources/patterns.md', 'resources/validation.md']);
+  const chosen = new Set(['resources/patterns.md', 'resources/code-organization.md', 'resources/validation.md']);
   const text = String(request || '').toLowerCase();
   const elementDelete = /\b(?:delete|remove)\b[^\n]{0,80}\belement\b|\belement\b[^\n]{0,80}\b(?:delete|remove)\b/.test(text);
 
