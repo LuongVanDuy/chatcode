@@ -221,7 +221,26 @@ For product/post cards and repeated collection items:
 - [ ] a distinct item variant exists only when explicitly requested by the user or already intentionally defined by the project;
 - [ ] when duplicate item implementations are consolidated, current frontend output and Builder edits are preserved.
 
-## S. Syntax + focused behavior tests
+## S. Frontend design system consistency
+
+For frontend CSS/page/component work:
+
+- [ ] the project's global stylesheet (`main.css`, `base.css`, `variables.css`, or equivalent) is identified before inventing reusable visual values;
+- [ ] site-wide shell/max-width and desktop/mobile gutters come from one shared system for normal pages;
+- [ ] normal page titles, section titles, card titles, body text, metadata/labels and content headings reuse the established typography scale;
+- [ ] reusable colors, spacing, radii, control heights, shadows and transitions consume global tokens when equivalent tokens exist;
+- [ ] component/page stylesheets primarily own structure and intentional component-specific behavior rather than redefining global primitives;
+- [ ] a narrower text/content measure does not accidentally narrow the outer Bricks/site shell;
+- [ ] page-specific literal values are used only when genuinely local or an intentional named variant;
+- [ ] shared primitives such as shell, breadcrumb, page title, section title, buttons and inputs are not independently reimplemented across page stylesheets;
+- [ ] no new `*-v2.css`, `refinements.css`, `fixes.css` or equivalent override layer is introduced merely to fight existing CSS when the owning rule can be corrected;
+- [ ] proven obsolete override files are removed only after their live usages and enqueue order are mapped;
+- [ ] WordPress/Bricks/Woo/plugin/vendor core CSS is not edited to impose the child theme design system;
+- [ ] third-party frontend UI is adapted with documented controls or narrowly scoped child-theme CSS using site tokens where practical;
+- [ ] intentional special hero/editorial/layout variants are preserved rather than blindly normalized;
+- [ ] representative page families align visually at desktop/tablet/mobile after refactor.
+
+## T. Syntax + focused behavior tests
 
 Run only relevant checks:
 
@@ -233,6 +252,7 @@ menu -> same source desktop/mobile
 archive -> main query + negative/unrelated query check
 Woo flow -> affected flow only
 reusable item -> same renderer/layout across normal archive/related/featured/search contexts
+design system -> compare shell edges, typography scale, spacing/radius/color tokens and override/enqueue ownership across representative pages
 UI -> desktop/tablet/mobile
 skill package -> contract/activation/resource routing tests
 ```
@@ -241,4 +261,4 @@ skill package -> contract/activation/resource routing tests
 
 The skill must remain fully operational if every reference/sample project is deleted.
 
-Contract test fails if the skill instructs the agent to open another project for implementation knowledge, embeds another project's domain/path/prefix/IDs, or omits the real-template/tree/seed/migration/CSS/menu/Woo/archive/responsive/discovery/reusable-item contracts above.
+Contract test fails if the skill instructs the agent to open another project for implementation knowledge, embeds another project's domain/path/prefix/IDs, or omits the real-template/tree/seed/migration/CSS/menu/Woo/archive/responsive/discovery/reusable-item/design-system contracts above.
