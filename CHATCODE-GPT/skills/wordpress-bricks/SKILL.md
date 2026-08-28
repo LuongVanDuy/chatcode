@@ -1,6 +1,10 @@
 # WordPress + Bricks Native Delivery
 
-Use this skill only when the project is WordPress + Bricks. Keep work Bricks-native, editable in Builder, project-independent, and as small as the task allows.
+Use this skill for every ChatCode task on a project that project evidence identifies as **WordPress + Bricks**. In that case this skill is **mandatory**, even when the user's prompt does not mention Bricks, this skill, templates, or frontend work.
+
+Do not activate it merely because a prompt mentions Bricks; the project itself must provide WordPress + Bricks evidence such as the active/installed theme profile, child-theme `Template: bricks`, Bricks theme paths, or equivalent Project Brain evidence.
+
+Keep work Bricks-native, editable in Builder, project-independent, and as small as the task allows.
 
 This entry is intentionally compact for ChatGPT. Detailed rules live in routed resources and should be read only when attached to the current task.
 
@@ -20,6 +24,8 @@ Do not build parallel PHP/HTML behavior when the installed Bricks/Woo stack alre
 `INSPECT -> identify the real render/data owner -> reuse existing project system -> choose smallest patch -> backup when material -> implement -> refresh generated state when needed -> validate relevant scope`
 
 Before editing, inspect enough current state to avoid guessing. Depending on the task this includes the active child theme/custom plugin, Bricks/Woo version, current page/template, Builder tree and conditions, menu source, assigned Woo pages, existing shared components, global design tokens, seed/migration markers, and CSS loading/cache mode.
+
+When the modern Fast Agent tools are available, WordPress + Bricks coding work should enter through `prepare_task`; the returned `wordpress-bricks` skill contract is mandatory for the task. When only the legacy ChatCode tool schema is available, read this skill from the virtual `CHATCODE-GPT` project before mutation and read the task-relevant routed resources.
 
 ## Non-negotiable rules
 
