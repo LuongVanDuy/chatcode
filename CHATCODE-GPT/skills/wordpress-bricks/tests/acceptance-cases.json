@@ -82,6 +82,6 @@
   {
     "name": "new-page-reuses-site-system",
     "request": "Build a new Bricks frontend page that aligns with the existing site shell and uses the established page title, body, spacing, color and radius tokens; do not invent a new max-width, gutter or typography scale unless I explicitly request a special design variant",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
   }
 ]
