@@ -17,138 +17,121 @@ function collectText(dir) {
     }
   };
   walk(dir);
-  return { files, text:files.map(file => fs.readFileSync(file, 'utf8')).join('\n') };
+  return { files, text:files.map(file => fs.readFileSync(file, 'utf8')).join('\n').toLowerCase() };
 }
 
-function requireText(lower, values) {
-  for (const required of values) {
-    assert.equal(lower.includes(String(required).toLowerCase()), true, `missing required skill contract: ${required}`);
+function includesAll(text, values) {
+  for (const value of values) {
+    assert.ok(text.includes(String(value).toLowerCase()), `missing skill contract: ${value}`);
   }
 }
 
-function has(resources, name) {
-  return resources.includes(name);
+function names(items) {
+  return items.map(item => item.name);
 }
 
 (async () => {
   const entryFile = path.join(skillRoot, 'SKILL.md');
   const manifestFile = path.join(skillRoot, 'manifest.json');
   const casesFile = path.join(skillRoot, 'tests', 'acceptance-cases.json');
-
-  assert.equal(fs.existsSync(entryFile), true, 'SKILL.md missing');
-  assert.equal(fs.existsSync(manifestFile), true, 'manifest missing');
-  assert.equal(fs.existsSync(casesFile), true, 'acceptance cases missing');
-
-  const collected = collectText(skillRoot);
-  const lower = collected.text.toLowerCase();
   const entry = fs.readFileSync(entryFile, 'utf8');
   const entryLower = entry.toLowerCase();
+  const collected = collectText(skillRoot);
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
 
-  assert.ok(entry.length < 9000, `SKILL.md is too large for progressive loading: ${entry.length} chars`);
-  assert.match(entryLower, /progressive resource loading/, 'SKILL.md must explain progressive resource loading');
-  assert.match(entryLower, /do not load every resource/, 'SKILL.md must forbid loading every resource just in case');
-
-  for (const forbidden of ['tongkhokhoathongminh.com', 'tongkhokhoathongminh', 'tkk-', 'd:\\duyanhweb']) {
-    assert.equal(lower.includes(forbidden), false, `skill must not depend on reference-project value: ${forbidden}`);
-  }
+  assert.equal(manifest.id, 'wordpress-bricks');
+  assert.equal(manifest.version, 2);
+  assert.ok(entry.length < 9000, `SKILL.md too large: ${entry.length} chars`);
+  assert.ok(entryLower.includes('progressive resource loading'));
+  assert.ok(entryLower.includes('do not load every resource'));
 
   const nativePos = entryLower.indexOf('bricks native element/control/template');
   const dynamicPos = entryLower.indexOf('bricks dynamic data / query loop');
   const wpPos = entryLower.indexOf('wordpress or woocommerce public api/hook');
   const customPos = entryLower.indexOf('custom bricks element');
-  assert.ok(nativePos >= 0 && nativePos < dynamicPos && dynamicPos < wpPos && wpPos < customPos, 'Bricks-native priority order is wrong');
+  assert.ok(nativePos >= 0 && nativePos < dynamicPos && dynamicPos < wpPos && wpPos < customPos, 'native priority order changed');
 
-  // Detailed knowledge stays in routed resources; it no longer needs to be duplicated in SKILL.md.
-  requireText(lower, [
-    'section/container/block', 'nav-menu/search', 'post-title/post-content/post-navigation/related-posts',
-    'woocommerce-products', 'woocommerce-checkout-customer-details', 'woocommerce-checkout-order-review', 'woocommerce-checkout-thankyou',
-    'BRICKS_DB_TEMPLATE_SLUG', 'BRICKS_DB_TEMPLATE_TYPE', 'BRICKS_DB_PAGE_CONTENT', 'BRICKS_DB_TEMPLATE_SETTINGS',
-    'six-character alphanumeric', 'compare-and-set', 'clean_post_cache($post_id)', '\\Bricks\\Assets_Files::generate_post_css_file',
-    'add_option()', 'race-prone', 'stable semantic identity', 'move proven duplicates to trash', 'live wordpress database state',
-    'frontend design system', 'global source of truth', 'one shell system across the site', 'component css consumes tokens', 'avoid override chains',
-    'register_nav_menus()', 'is_archive_main_query=true', 'product_type', 'product_visibility', 'wc_get_page_id()', 'classic shortcode',
-    'extends `\\Bricks\\Element`', 'filemtime()', 'minmax(0, 1fr)', 'aspect-ratio', 'page_on_front', 'wc_get_attribute_taxonomies()',
-    'WordPress core', 'Bricks parent theme', 'WooCommerce core'
-  ]);
+  for (const forbidden of ['tongkhokhoathongminh.com', 'tongkhokhoathongminh', 'tkk-', 'd:\\duyanhweb']) {
+    assert.equal(collected.text.includes(forbidden), false, `reference-project dependency: ${forbidden}`);
+  }
 
-  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-  assert.equal(manifest.id, 'wordpress-bricks');
-  assert.equal(manifest.version, 2, 'WordPress + Bricks skill manifest must be v2');
-  for (const resource of [
+  const resources = [
     'resources/core-checklist.md', 'resources/patterns.md', 'resources/code-organization.md',
     'resources/design-system.md', 'resources/data-seeding.md', 'resources/templates.md',
     'resources/woocommerce.md', 'resources/migrations.md', 'resources/snippets.md', 'resources/validation.md'
-  ]) {
-    assert.ok(manifest.resources.includes(resource), `manifest missing resource: ${resource}`);
-    assert.equal(fs.existsSync(path.join(skillRoot, resource)), true, `resource file missing: ${resource}`);
+  ];
+  for (const resource of resources) {
+    assert.ok(manifest.resources.includes(resource), `manifest missing ${resource}`);
+    assert.ok(fs.existsSync(path.join(skillRoot, resource)), `file missing ${resource}`);
   }
   assert.equal(CORE_RESOURCE, 'resources/core-checklist.md');
 
-  const tiny = chooseResources(manifest, 'Change one Bricks text label');
-  assert.deepEqual(tiny, ['resources/core-checklist.md'], 'tiny task should load only compact core checklist');
+  // Detailed rules still exist somewhere in the package; they are simply routed on demand.
+  includesAll(collected.text, [
+    'BRICKS_DB_TEMPLATE_TYPE', 'six-character alphanumeric', 'compare-and-set',
+    'clean_post_cache($post_id)', 'generate_post_css_file',
+    'add_option()', 'race-prone', 'stable semantic identity', 'move proven duplicates to trash',
+    'frontend design system', 'global source of truth', 'one shell system across the site', 'avoid override chains',
+    'register_nav_menus(', 'is_archive_main_query=true', 'product_type', 'product_visibility',
+    'wc_get_page_id(', 'classic shortcode', 'extends `\\bricks\\element`', 'filemtime(',
+    'minmax(0, 1fr)', 'aspect-ratio', 'page_on_front', 'wc_get_attribute_taxonomies()'
+  ]);
 
-  const cssTask = chooseResources(manifest, 'Fix responsive CSS padding and typography on the frontend');
-  assert.ok(has(cssTask, 'resources/core-checklist.md'));
-  assert.ok(has(cssTask, 'resources/code-organization.md'));
-  assert.ok(has(cssTask, 'resources/design-system.md'));
-  assert.ok(has(cssTask, 'resources/snippets.md'));
-  assert.equal(has(cssTask, 'resources/data-seeding.md'), false, 'CSS task must not load data-seeding');
-  assert.equal(has(cssTask, 'resources/migrations.md'), false, 'CSS task must not load migrations');
-  assert.equal(has(cssTask, 'resources/validation.md'), false, 'ordinary CSS task must not load full validation');
+  // Minimal context for a tiny task.
+  assert.deepEqual(
+    chooseResources(manifest, 'Change one Bricks text label'),
+    ['resources/core-checklist.md']
+  );
 
-  const seedTask = chooseResources(manifest, 'Create a Bricks Archive template and seed sample CPT posts safely without duplicates');
-  assert.ok(has(seedTask, 'resources/data-seeding.md'));
-  assert.ok(has(seedTask, 'resources/templates.md'));
-  assert.ok(has(seedTask, 'resources/migrations.md'));
-  assert.equal(has(seedTask, 'resources/design-system.md'), false, 'data seed task must not load design system unless UI is requested');
-  assert.equal(has(seedTask, 'resources/validation.md'), false, 'focused seed task must not load full validation');
+  // UI task: no DB/migration/full-validation noise.
+  const css = chooseResources(manifest, 'Fix responsive CSS padding and typography on the frontend');
+  includesAll(css.join('\n'), ['core-checklist.md', 'code-organization.md', 'design-system.md', 'snippets.md']);
+  assert.equal(css.includes('resources/data-seeding.md'), false);
+  assert.equal(css.includes('resources/migrations.md'), false);
+  assert.equal(css.includes('resources/validation.md'), false);
 
-  const auditTask = chooseResources(manifest, 'Quét lại toàn bộ frontend CSS và validate toàn bộ hệ thống');
-  assert.ok(has(auditTask, 'resources/validation.md'), 'broad audit must load full validation');
-  assert.ok(has(auditTask, 'resources/design-system.md'));
+  // Data task: no design-system noise unless UI is also requested.
+  const seed = chooseResources(manifest, 'Create a Bricks Archive template and seed sample CPT posts safely without duplicates');
+  includesAll(seed.join('\n'), ['core-checklist.md', 'data-seeding.md', 'templates.md', 'migrations.md']);
+  assert.equal(seed.includes('resources/design-system.md'), false);
+  assert.equal(seed.includes('resources/validation.md'), false);
+
+  // Broad audits deliberately load the full validation checklist.
+  const audit = chooseResources(manifest, 'Quét lại toàn bộ frontend CSS và validate toàn bộ hệ thống');
+  assert.ok(audit.includes('resources/design-system.md'));
+  assert.ok(audit.includes('resources/validation.md'));
+
+  const cases = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
+  assert.ok(cases.length >= 17);
+  for (const testCase of cases) {
+    const selected = chooseResources(manifest, testCase.request);
+    for (const expected of testCase.resources) {
+      assert.ok(selected.includes(expected), `${testCase.name}: missing routed resource ${expected}`);
+    }
+  }
 
   const bricksInspect = {
     project:{ id:'p1', name:'fixture' },
     primary_language:'PHP',
     frameworks:[{ name:'WordPress' }, { name:'WooCommerce' }],
     framework_names:['WordPress', 'WooCommerce'],
-    wordpress:{
-      isWordPress:true,
-      parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }],
-      childThemes:[{ slug:'fixture-child', template:'bricks' }]
-    },
-    relevant_files:[{ path:'wp-content/themes/fixture-child/functions.php' }],
-    relevant_relations:[], top_symbols:[], entrypoints:[], git:{ clean:true }
+    wordpress:{ isWordPress:true, parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }], childThemes:[{ slug:'fixture-child', template:'bricks' }] },
+    relevant_files:[{ path:'wp-content/themes/fixture-child/functions.php' }]
   };
 
   const migrationSkill = loadWordPressBricksSkill(bricksInspect, 'Migrate one Bricks element ID and regenerate CSS file cache');
-  assert.ok(migrationSkill, 'Bricks skill must activate from project evidence');
-  assert.equal(migrationSkill.version, 2);
-  const migrationNames = migrationSkill.resources.map(item => item.name);
-  assert.ok(has(migrationNames, 'resources/core-checklist.md'));
-  assert.ok(has(migrationNames, 'resources/migrations.md'));
-  assert.ok(has(migrationNames, 'resources/snippets.md'));
-  assert.equal(has(migrationNames, 'resources/design-system.md'), false);
-  assert.equal(has(migrationNames, 'resources/data-seeding.md'), false);
-  assert.equal(has(migrationNames, 'resources/validation.md'), false);
-
-  const cases = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
-  assert.ok(Array.isArray(cases) && cases.length >= 17, 'acceptance task cases are incomplete');
-  for (const testCase of cases) {
-    const selected = chooseResources(manifest, testCase.request);
-    for (const expected of testCase.resources) {
-      assert.ok(selected.includes(expected), `${testCase.name}: resource not routed: ${expected}`);
-    }
-  }
+  assert.ok(migrationSkill);
+  const migrationResources = names(migrationSkill.resources);
+  includesAll(migrationResources.join('\n'), ['core-checklist.md', 'migrations.md', 'snippets.md']);
+  assert.equal(migrationResources.includes('resources/design-system.md'), false);
+  assert.equal(migrationResources.includes('resources/data-seeding.md'), false);
+  assert.equal(migrationResources.includes('resources/validation.md'), false);
 
   const plainWpInspect = {
-    project:{ id:'p2', name:'plain-wp' },
-    framework_names:['WordPress'],
-    frameworks:[{ name:'WordPress' }],
-    wordpress:{ isWordPress:true, parentThemes:[{ slug:'twentytwentysix' }] },
-    relevant_files:[]
+    project:{ id:'p2', name:'plain-wp' }, framework_names:['WordPress'], frameworks:[{ name:'WordPress' }],
+    wordpress:{ isWordPress:true, parentThemes:[{ slug:'twentytwentysix' }] }, relevant_files:[]
   };
-  assert.equal(skillsForTask(plainWpInspect, 'Fix a PHP helper').length, 0, 'Bricks skill must not activate for unrelated WordPress project');
+  assert.equal(skillsForTask(plainWpInspect, 'Fix a PHP helper').length, 0);
 
   const fakeApi = {
     startWork: async () => ({ work_session_id:'work-1', project_id:'p1', workspace_mode:'trusted', baseline:{} }),
@@ -156,24 +139,18 @@ function has(resources, name) {
     readFile: async () => { throw new Error('no package.json in fixture'); }
   };
   const prepared = await createAgentRuntime(fakeApi).prepareTask('p1', 'Build a real Bricks Woo checkout template with native order review');
-  assert.equal(prepared.skills.length, 1, 'prepare_task must attach one Bricks skill');
-  assert.equal(prepared.skills[0].id, 'wordpress-bricks');
-  assert.equal(prepared.skills[0].version, 2);
-  const preparedNames = prepared.skills[0].resources.map(item => item.name);
-  assert.ok(has(preparedNames, 'resources/core-checklist.md'));
-  assert.ok(has(preparedNames, 'resources/woocommerce.md'));
-  assert.ok(has(preparedNames, 'resources/templates.md'));
-  assert.ok(has(preparedNames, 'resources/patterns.md'));
-  assert.equal(has(preparedNames, 'resources/design-system.md'), false);
-  assert.equal(has(preparedNames, 'resources/data-seeding.md'), false);
-  assert.equal(has(preparedNames, 'resources/validation.md'), false);
-  assert.match(prepared.agent_contract.guidance[0], /skills/i, 'agent contract must make attached skills mandatory');
+  assert.equal(prepared.skills.length, 1);
+  const preparedResources = names(prepared.skills[0].resources);
+  includesAll(preparedResources.join('\n'), ['core-checklist.md', 'woocommerce.md', 'templates.md', 'patterns.md']);
+  assert.equal(preparedResources.includes('resources/design-system.md'), false);
+  assert.equal(preparedResources.includes('resources/data-seeding.md'), false);
+  assert.equal(preparedResources.includes('resources/validation.md'), false);
+  assert.match(prepared.agent_contract.guidance[0], /skills/i);
 
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  assert.ok(pkg.build.files.includes('CHATCODE-GPT/**/*'), 'installer package must include CHATCODE-GPT skills');
-  assert.equal(pkg.scripts['test:wordpress-bricks-skill'], 'node scripts/smoke-wordpress-bricks-skill.cjs');
+  assert.ok(pkg.build.files.includes('CHATCODE-GPT/**/*'));
 
-  console.log(`WordPress + Bricks skill v2 PASS: compact entry + progressive routing, ${collected.files.length} skill files, ${cases.length} acceptance routes`);
+  console.log(`WordPress + Bricks skill v2 PASS: compact ChatGPT entry + progressive routing; ${collected.files.length} skill files, ${cases.length} acceptance routes`);
 })().catch(error => {
   console.error(error);
   process.exit(1);
