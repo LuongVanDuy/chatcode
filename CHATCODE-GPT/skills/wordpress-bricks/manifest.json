@@ -5,6 +5,7 @@
   "entry": "SKILL.md",
   "resources": [
     "resources/patterns.md",
+    "resources/code-organization.md",
     "resources/templates.md",
     "resources/woocommerce.md",
     "resources/migrations.md",
