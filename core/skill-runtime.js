@@ -52,7 +52,7 @@ function chooseResources(manifest, request) {
   const chosen = new Set([CORE_RESOURCE]);
   const text = String(request || '').toLowerCase();
 
-  const broadAudit = /audit|review|validate|validation|acceptance|regression|full\s+(?:check|audit|review)|check\s+(?:all|entire|whole)|scan\s+(?:all|entire|whole)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|kiểm\s+tra\s+toàn\s+bộ|refactor\s+(?:all|entire|whole)|tái\s+cấu\s+trúc\s+toàn\s+bộ/.test(text);
+  const broadAudit = /audit|validate|validation|acceptance|regression|code\s+review|review\s+(?:this|code|project|implementation|all|entire|whole)|full\s+(?:check|audit|review)|check\s+(?:all|entire|whole)|scan\s+(?:all|entire|whole)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|kiểm\s+tra\s+toàn\s+bộ|refactor\s+(?:all|entire|whole)|tái\s+cấu\s+trúc\s+toàn\s+bộ/.test(text);
   const elementDelete = /(?:delete|remove|xóa|xoá)[^\n]{0,80}(?:element|phần tử)|(?:element|phần tử)[^\n]{0,80}(?:delete|remove|xóa|xoá)/.test(text);
   const generatedCssMaintenance = /(?:regenerate|generate|rebuild|refresh)[^\n]{0,60}(?:bricks\s+)?css|(?:bricks\s+)?css[^\n]{0,60}(?:file\s+cache|generated\s+file|regenerate|generate|rebuild)|generate_post_css_file/.test(text);
 
