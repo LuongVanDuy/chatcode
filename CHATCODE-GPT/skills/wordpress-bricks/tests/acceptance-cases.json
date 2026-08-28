@@ -47,22 +47,22 @@
   {
     "name": "responsive-assets",
     "request": "Fix Bricks responsive product cards and conditionally enqueue scoped CSS with filemtime",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
   },
   {
     "name": "clean-file-naming-global-css",
     "request": "Organize a Bricks child theme header and footer with short functional filenames; keep global :root design tokens in main.css and component rules in header-footer.css",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
   },
   {
     "name": "shared-product-item",
     "request": "Use one shared product item layout for product archive, taxonomy list, related products, featured products and slider output; only the query or wrapper should differ unless I explicitly request a special product layout",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
   },
   {
     "name": "shared-post-item",
     "request": "Use one shared post item layout for blog archive, category/tag lists, related posts and search results; do not create page-specific card markup unless I explicitly request a special variant",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/validation.md"]
   },
   {
     "name": "concurrent-seed-no-duplicates",
@@ -73,5 +73,15 @@
     "name": "duplicate-data-repair-live-db-evidence",
     "request": "Repair duplicate generated posts and Bricks templates in the database: keep one canonical record by stable role/type/conditions, move proven duplicates to Trash, repair option pointers, record a repair report, and do not claim exact live DB counts unless a live DB-capable tool actually verified them",
     "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/migrations.md", "resources/templates.md", "resources/validation.md"]
+  },
+  {
+    "name": "site-wide-design-system-refactor",
+    "request": "Audit all child-theme frontend CSS and refactor it so main.css or the existing global stylesheet owns shared shell, gutters, typography, colors, spacing, radius, controls, shadows and transitions; page/component CSS must reuse those tokens and obsolete override layers should be removed only after their live usages are mapped",
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "new-page-reuses-site-system",
+    "request": "Build a new Bricks frontend page that aligns with the existing site shell and uses the established page title, body, spacing, color and radius tokens; do not invent a new max-width, gutter or typography scale unless I explicitly request a special design variant",
+    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
   }
 ]
