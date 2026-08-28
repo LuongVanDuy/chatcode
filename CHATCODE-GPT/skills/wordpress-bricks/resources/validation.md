@@ -206,7 +206,22 @@ Check desktop, tablet, mobile:
 - [ ] product taxonomies are discovered when possible;
 - [ ] prefix is derived/reused from the current project.
 
-## R. Syntax + focused behavior tests
+## R. Reusable item layouts
+
+For product/post cards and repeated collection items:
+
+- [ ] existing item renderer/layout/component is searched before creating another implementation;
+- [ ] product archive, taxonomy, related, featured, search, homepage and slider collections reuse the same normal product item layout when no special layout was explicitly requested;
+- [ ] blog/archive, category/tag, related and search collections reuse the same normal post item layout when no special layout was explicitly requested;
+- [ ] query/filter/wrapper differences are kept separate from item presentation;
+- [ ] grid/list/slider wrapper changes do not duplicate the full item markup;
+- [ ] small contextual differences use arguments, data, modifier classes or wrapper CSS instead of copy/pasted card markup;
+- [ ] shared item CSS is owned by the component rather than duplicated across page stylesheets;
+- [ ] no page-specific renderer is introduced merely because the same item appears in another section;
+- [ ] a distinct item variant exists only when explicitly requested by the user or already intentionally defined by the project;
+- [ ] when duplicate item implementations are consolidated, current frontend output and Builder edits are preserved.
+
+## S. Syntax + focused behavior tests
 
 Run only relevant checks:
 
@@ -217,6 +232,7 @@ Bricks tree migration -> tree integrity + idempotency + user-edit preservation +
 menu -> same source desktop/mobile
 archive -> main query + negative/unrelated query check
 Woo flow -> affected flow only
+reusable item -> same renderer/layout across normal archive/related/featured/search contexts
 UI -> desktop/tablet/mobile
 skill package -> contract/activation/resource routing tests
 ```
@@ -225,4 +241,4 @@ skill package -> contract/activation/resource routing tests
 
 The skill must remain fully operational if every reference/sample project is deleted.
 
-Contract test fails if the skill instructs the agent to open another project for implementation knowledge, embeds another project's domain/path/prefix/IDs, or omits the real-template/tree/seed/migration/CSS/menu/Woo/archive/responsive/discovery contracts above.
+Contract test fails if the skill instructs the agent to open another project for implementation knowledge, embeds another project's domain/path/prefix/IDs, or omits the real-template/tree/seed/migration/CSS/menu/Woo/archive/responsive/discovery/reusable-item contracts above.
