@@ -84,7 +84,7 @@ const backups = {
     ['gitCommit', ['CHATCODE-GPT', 'should fail']]
   ]) {
     await assert.rejects(
-      () => Promise.resolve(api[name](...args)),
+      async () => api[name](...args),
       error => {
         const normalized = normalizeError(error);
         return normalized.code === 'PERMISSION_DENIED' && /read-only/i.test(normalized.message);
