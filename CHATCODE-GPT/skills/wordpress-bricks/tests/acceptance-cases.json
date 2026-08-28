@@ -2,86 +2,86 @@
   {
     "name": "real-header-template",
     "request": "Create a real Bricks global Header template with one WordPress nav menu and responsive mobile presentation",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/patterns.md"]
   },
   {
     "name": "archive-main-query",
     "request": "Fix the Bricks category archive so Posts uses the archive main query and dynamic archive title",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/templates.md", "resources/snippets.md"]
   },
   {
     "name": "targeted-id-migration",
-    "request": "Migrate one Bricks element ID without reseeding and regenerate CSS file cache",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/migrations.md", "resources/snippets.md", "resources/validation.md"]
+    "request": "Migrate one Bricks element ID and regenerate CSS file cache",
+    "resources": ["resources/core-checklist.md", "resources/migrations.md", "resources/snippets.md"]
   },
   {
     "name": "delete-element",
     "request": "Delete one obsolete Bricks element from an existing Builder template without changing siblings",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/migrations.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/migrations.md", "resources/templates.md", "resources/snippets.md"]
   },
   {
     "name": "woo-checkout",
     "request": "Build Bricks WooCommerce Checkout using native customer details and order review elements",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/woocommerce.md", "resources/patterns.md"]
   },
   {
     "name": "woo-block-migration",
     "request": "Migrate Woo Cart and Checkout Blocks to classic shortcode only if the assigned Woo pages require Bricks wc_cart and wc_form_checkout",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/migrations.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/woocommerce.md", "resources/migrations.md"]
   },
   {
     "name": "single-post-native",
     "request": "Create a Bricks Single Post template using post-title post-content post-navigation and related-posts",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/data-seeding.md", "resources/templates.md", "resources/patterns.md"]
   },
   {
     "name": "custom-element",
     "request": "Create a reusable custom Bricks Element with Builder controls and scoped AJAX behavior",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/snippets.md", "resources/patterns.md"]
   },
   {
     "name": "product-archive",
     "request": "Create wc_archive with public product taxonomy conditions and native Woo product archive description",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/data-seeding.md", "resources/templates.md", "resources/woocommerce.md", "resources/patterns.md"]
   },
   {
     "name": "responsive-assets",
     "request": "Fix Bricks responsive product cards and conditionally enqueue scoped CSS with filemtime",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/code-organization.md", "resources/design-system.md", "resources/templates.md", "resources/woocommerce.md", "resources/snippets.md"]
   },
   {
     "name": "clean-file-naming-global-css",
     "request": "Organize a Bricks child theme header and footer with short functional filenames; keep global :root design tokens in main.css and component rules in header-footer.css",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/code-organization.md", "resources/design-system.md", "resources/templates.md", "resources/snippets.md"]
   },
   {
     "name": "shared-product-item",
     "request": "Use one shared product item layout for product archive, taxonomy list, related products, featured products and slider output; only the query or wrapper should differ unless I explicitly request a special product layout",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/design-system.md", "resources/templates.md", "resources/woocommerce.md", "resources/snippets.md", "resources/patterns.md"]
   },
   {
     "name": "shared-post-item",
     "request": "Use one shared post item layout for blog archive, category/tag lists, related posts and search results; do not create page-specific card markup unless I explicitly request a special variant",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/design-system.md", "resources/templates.md", "resources/patterns.md"]
   },
   {
     "name": "concurrent-seed-no-duplicates",
     "request": "Seed recruitment CPT sample posts plus Bricks Archive and Single templates safely even if multiple WordPress requests run concurrently; use an atomic seed lock, re-query under lock, and never duplicate DB rows",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/migrations.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/data-seeding.md", "resources/migrations.md", "resources/templates.md"]
   },
   {
     "name": "duplicate-data-repair-live-db-evidence",
     "request": "Repair duplicate generated posts and Bricks templates in the database: keep one canonical record by stable role/type/conditions, move proven duplicates to Trash, repair option pointers, record a repair report, and do not claim exact live DB counts unless a live DB-capable tool actually verified them",
-    "resources": ["resources/code-organization.md", "resources/data-seeding.md", "resources/migrations.md", "resources/templates.md", "resources/validation.md"]
+    "resources": ["resources/core-checklist.md", "resources/data-seeding.md", "resources/migrations.md", "resources/templates.md"]
   },
   {
-    "name": "site-wide-design-system-refactor",
-    "request": "Audit all child-theme frontend CSS and refactor it so main.css or the existing global stylesheet owns shared shell, gutters, typography, colors, spacing, radius, controls, shadows and transitions; page/component CSS must reuse those tokens and obsolete override layers should be removed only after their live usages are mapped",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/snippets.md", "resources/validation.md"]
+    "name": "frontend-design-system-refactor",
+    "request": "Refactor all child-theme frontend CSS so main.css is the global design-system source for shell width, gutters, typography, colors, spacing, radius, controls, shadows and transitions; remove overlapping override layers without touching Bricks or plugin core CSS",
+    "resources": ["resources/core-checklist.md", "resources/code-organization.md", "resources/design-system.md", "resources/snippets.md", "resources/patterns.md", "resources/validation.md"]
   },
   {
     "name": "new-page-reuses-site-system",
-    "request": "Build a new Bricks frontend page that aligns with the existing site shell and uses the established page title, body, spacing, color and radius tokens; do not invent a new max-width, gutter or typography scale unless I explicitly request a special design variant",
-    "resources": ["resources/code-organization.md", "resources/design-system.md", "resources/data-seeding.md", "resources/validation.md"]
+    "request": "Create a new frontend page that reuses the existing global shell, page-title scale, card styles and spacing tokens instead of inventing page-local width, font-size, radius or gutter values",
+    "resources": ["resources/core-checklist.md", "resources/design-system.md", "resources/data-seeding.md", "resources/patterns.md"]
   }
 ]
