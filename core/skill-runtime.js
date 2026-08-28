@@ -59,7 +59,7 @@ function shouldUseProjectEvidence(request) {
   const explicitDomain = /frontend|giao\s+diện|layout|responsive|\bcss\b|style|typography|template|header|footer|archive|single|woocommerce|\bwoo\b|product|checkout|cart|database|\bdb\b|seed|migration|migrate|duplicate|builder\s+data|element\s+id|menu|ajax|rest\s+api|php|javascript|\bjs\b|enqueue|component|renderer|file|folder|refactor|tái\s+cấu\s+trúc|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán|dữ\s+liệu/.test(text);
   if (explicitDomain) return false;
   if (text.length > 180) return false;
-  return /sửa|chỉnh|đổi|update|fix|làm|tiếp|continue|phần\s+này|chỗ\s+này|cái\s+này|như\s+trên|same|this/.test(text);
+  return /sửa\s+tiếp|chỉnh\s+tiếp|làm\s+tiếp|tiếp\s+tục|phần\s+này|chỗ\s+này|cái\s+này|như\s+trên|same\s+(?:thing|part|section)|continue|this\s+(?:part|section|one)/.test(text);
 }
 
 function hasWordPressEvidence(inspect, haystack = '') {
