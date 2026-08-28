@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
-const MAX_ENTRY_CHARS = 22000;
+const MAX_ENTRY_CHARS = 9000;
 const MAX_RESOURCE_CHARS = 16000;
+const CORE_RESOURCE = 'resources/core-checklist.md';
 
 function safeRead(file, maxChars) {
   try {
@@ -48,32 +49,38 @@ function hasBricksEvidence(inspect, request) {
 
 function chooseResources(manifest, request) {
   const available = new Set((manifest?.resources || []).map(String));
-  const chosen = new Set([
-    'resources/patterns.md',
-    'resources/code-organization.md',
-    'resources/design-system.md',
-    'resources/data-seeding.md',
-    'resources/validation.md'
-  ]);
+  const chosen = new Set([CORE_RESOURCE]);
   const text = String(request || '').toLowerCase();
-  const elementDelete = /\b(?:delete|remove)\b[^\n]{0,80}\belement\b|\belement\b[^\n]{0,80}\b(?:delete|remove)\b/.test(text);
 
-  if (elementDelete || /seed|reseed|migration|migrate|element\s+id|builder\s+data|database|\bdb\b|css\s+file|regenerate|cache|block\s*(?:cart|checkout)|classic\s+shortcode/.test(text)) {
-    chosen.add('resources/migrations.md');
-  }
+  const broadAudit = /audit|review|validate|validation|acceptance|regression|full\s+(?:check|audit|review)|check\s+(?:all|entire|whole)|scan\s+(?:all|entire|whole)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|kiểm\s+tra\s+toàn\s+bộ|refactor\s+(?:all|entire|whole)|tái\s+cấu\s+trúc\s+toàn\s+bộ/.test(text);
+  const elementDelete = /(?:delete|remove|xóa|xoá)[^\n]{0,80}(?:element|phần tử)|(?:element|phần tử)[^\n]{0,80}(?:delete|remove|xóa|xoá)/.test(text);
 
-  if (/template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition/.test(text)) {
-    chosen.add('resources/templates.md');
-  }
+  const uiTask = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|style|styling|font|typography|màu|color|spacing|khoảng\s+cách|padding|margin|radius|shadow|transition|shell|gutter|container|hero|breadcrumb|page\s*title|section\s*title|card|button|input|width|chiều\s+rộng|trang\s+mới|new\s+page/.test(text);
+  const codeTask = /\bphp\b|javascript|\bjs\b|\bcss\b|functions\.php|enqueue|filemtime|asset|module|component|helper|hook|function|class|file|folder|filename|path|inc\/|assets\/|child\s*theme|plugin|tên\s+file|thư\s+mục|refactor|tái\s+cấu\s+trúc/.test(text);
+  const templateTask = /template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition|mẫu\s+bricks|mẫu\s+giao\s+diện/.test(text);
+  const wooTask = /woocommerce|\bwoo\b|product|shop|cart|checkout|thank\s*you|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán/.test(text);
 
-  if (/woocommerce|\bwoo\b|product|shop|cart|checkout|thank|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou/.test(text)) {
+  const createData = /(?:create|tạo|seed|khởi\s+tạo)[^\n]{0,100}(?:template|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)|(?:template|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)[^\n]{0,100}(?:create|tạo|seed|khởi\s+tạo)/.test(text);
+  const seedTask = createData || /seed|reseed|generated\s+data|sample\s+data|default\s+data|wp_insert_post|add_option|duplicate|trùng\s+(?:dữ\s+liệu|template|bài|post)|semantic\s+(?:key|identity)|atomic\s+lock/.test(text);
+  const migrationTask = elementDelete || /migration|migrate|builder\s+data|database|\bdb\b|element\s+id|repair|cleanup|duplicate|trùng|rollback|compare-and-set|css\s+file|regenerate|cache|classic\s+shortcode|block\s*(?:cart|checkout)|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
+
+  const snippetTask = elementDelete || /custom\s+element|ajax|rest\s+api|query|menu|nav|enqueue|filemtime|element\s+id|javascript|\bjs\b|\bcss\b|hook|helper|render|renderer|slider|accordion/.test(text);
+  const patternTask = broadAudit || /architecture|kiến\s+trúc|build|implement|triển\s+khai|xây\s+dựng|tạo\s+mới|restructure|refactor|tái\s+cấu\s+trúc|custom\s+element|reusable|dùng\s+chung/.test(text);
+
+  if (codeTask) chosen.add('resources/code-organization.md');
+  if (uiTask) chosen.add('resources/design-system.md');
+  if (seedTask) chosen.add('resources/data-seeding.md');
+  if (migrationTask) chosen.add('resources/migrations.md');
+  if (templateTask) chosen.add('resources/templates.md');
+
+  if (wooTask) {
     chosen.add('resources/woocommerce.md');
-    chosen.add('resources/templates.md');
+    if (/archive|single|template|shop|product|sản\s+phẩm/.test(text)) chosen.add('resources/templates.md');
   }
 
-  if (elementDelete || /custom\s+element|ajax|query|menu|nav|header|footer|product|cart|checkout|thank|responsive|css|javascript|\bjs\b|enqueue|filemtime|element\s+id/.test(text)) {
-    chosen.add('resources/snippets.md');
-  }
+  if (snippetTask) chosen.add('resources/snippets.md');
+  if (patternTask) chosen.add('resources/patterns.md');
+  if (broadAudit) chosen.add('resources/validation.md');
 
   return [...chosen].filter(file => available.has(file));
 }
@@ -113,6 +120,7 @@ function skillsForTask(inspect, request) {
 
 module.exports = {
   SKILL_ROOT,
+  CORE_RESOURCE,
   hasBricksEvidence,
   chooseResources,
   loadWordPressBricksSkill,
