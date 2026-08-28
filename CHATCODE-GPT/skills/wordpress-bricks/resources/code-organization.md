@@ -1,6 +1,6 @@
 # Child-theme code organization & CSS ownership
 
-These rules are mandatory for WordPress + Bricks projects. Prefer the current project's established clean convention; when creating or renaming files, optimize for obvious responsibility rather than clever terminology.
+These rules are mandatory for WordPress + Bricks projects. This resource is attached by default to every activated WordPress + Bricks task. Prefer the current project's established clean convention; when creating or renaming files, optimize for obvious responsibility rather than clever terminology.
 
 ## File naming: short, functional, obvious
 
