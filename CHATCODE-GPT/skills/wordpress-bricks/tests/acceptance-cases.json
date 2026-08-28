@@ -53,5 +53,15 @@
     "name": "clean-file-naming-global-css",
     "request": "Organize a Bricks child theme header and footer with short functional filenames; keep global :root design tokens in main.css and component rules in header-footer.css",
     "resources": ["resources/code-organization.md", "resources/templates.md", "resources/snippets.md", "resources/validation.md"]
+  },
+  {
+    "name": "shared-product-item",
+    "request": "Use one shared product item layout for product archive, taxonomy list, related products, featured products and slider output; only the query or wrapper should differ unless I explicitly request a special product layout",
+    "resources": ["resources/code-organization.md", "resources/woocommerce.md", "resources/templates.md", "resources/validation.md"]
+  },
+  {
+    "name": "shared-post-item",
+    "request": "Use one shared post item layout for blog archive, category/tag lists, related posts and search results; do not create page-specific card markup unless I explicitly request a special variant",
+    "resources": ["resources/code-organization.md", "resources/templates.md", "resources/validation.md"]
   }
 ]
