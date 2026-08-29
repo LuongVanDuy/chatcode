@@ -56,7 +56,7 @@ function routingEvidenceText(inspect) {
 function shouldUseProjectEvidence(request) {
   const text = String(request || '').trim().toLowerCase();
   if (!text) return true;
-  const explicitDomain = /frontend|giao\s+diện|layout|responsive|\bcss\b|style|typography|template|header|footer|archive|single|woocommerce|\bwoo\b|product|checkout|cart|database|\bdb\b|seed|migration|migrate|duplicate|builder\s+data|element\s+id|menu|ajax|rest\s+api|php|javascript|\bjs\b|enqueue|component|renderer|file|folder|refactor|tái\s+cấu\s+trúc|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán|dữ\s+liệu/.test(text);
+  const explicitDomain = /frontend|giao\s+diện|layout|responsive|\bcss\b|style|typography|template|header|footer|archive|single|woocommerce|\bwoo\b|product|checkout|cart|database|\bdb\b|seed|migration|migrate|duplicate|builder\s+data|builder\s+control|custom\s+(?:bricks\s+)?element|element\s+id|menu|ajax|rest\s+api|php|javascript|\bjs\b|enqueue|component|renderer|file|folder|refactor|tái\s+cấu\s+trúc|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán|dữ\s+liệu/.test(text);
   if (explicitDomain) return false;
   if (text.length > 180) return false;
   return /sửa\s+tiếp|chỉnh\s+tiếp|làm\s+tiếp|tiếp\s+tục|phần\s+này|chỗ\s+này|cái\s+này|như\s+trên|same\s+(?:thing|part|section)|continue|this\s+(?:part|section|one)/.test(text);
@@ -108,17 +108,19 @@ function chooseResources(manifest, request, inspect = null) {
   const codeTask = /\bphp\b|javascript|\bjs\b|\bcss\b|\.scss\b|functions\.php|enqueue|filemtime|asset|module|component|helper|hook|function|class|file|folder|filename|path|inc\/|assets\/|child\s*theme|plugin|tên\s+file|thư\s+mục|refactor|tái\s+cấu\s+trúc/.test(text);
   const templateTask = /template|header|footer|archive|taxonomy|category|author|date\s+archive|single\s+(?:post|product)|post-title|post-content|related-posts|template\s+condition|mẫu\s+bricks|mẫu\s+giao\s+diện|wc_archive|wc_cart|wc_form_checkout|wc_thankyou/.test(text);
   const wooTask = /woocommerce|\bwoo\b|product|shop|cart|checkout|thank\s*you|order\s+received|mini\s*cart|upsell|cross-sell|variation|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|sản\s+phẩm|giỏ\s+hàng|thanh\s+toán/.test(text);
+  const builderTask = /custom\s+(?:bricks\s+)?element|builder[-\s]?editable|builder\s+controls?|set_controls|repeater|media\s+(?:control|library)|link\s+(?:control|picker)|shortcode\s+element|replace[^\n]{0,80}shortcode|migrate[^\n]{0,80}shortcode|chọn\s+(?:thủ\s+công\s+)?sản\s*phẩm|chọn\s+(?:nhóm|loại|taxonomy|term)[^\n]{0,40}sản\s*phẩm|thay\s+đổi[^\n]{0,80}(?:tab\s*title|tab\s+title|content|nội\s+dung|hình\s+ảnh|image|link)|thêm\/xóa\/kéo|thêm[^\n]{0,40}xóa[^\n]{0,40}(?:tab|item)/.test(text);
 
   const evidenceDataFile = /(?:^|\/)(?:[^/]*-)?(?:seed|seeding|maintenance|repair|migration|migrations|installer|bootstrap)[^/]*\.(?:php|js|ts)\b/.test(evidenceText);
   const createData = /(?:create|tạo|seed|khởi\s+tạo)[^\n]{0,120}(?:template|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)|(?:template|wc_archive|wc_cart|wc_form_checkout|wc_thankyou|page|post|cpt|menu|sample|data|record|bài|trang|dữ\s+liệu)[^\n]{0,120}(?:create|tạo|seed|khởi\s+tạo)/.test(text);
   const seedTask = createData || evidenceDataFile || /seed|reseed|generated\s+data|sample\s+data|default\s+data|wp_insert_post|add_option|duplicate|trùng\s+(?:dữ\s+liệu|template|bài|post)|semantic\s+(?:key|identity)|atomic\s+lock/.test(text);
   const migrationTask = elementDelete || evidenceDataFile || /migration|migrate|builder\s+data|database|\bdb\b|element\s+id|repair|cleanup|duplicate|trùng|rollback|compare-and-set|css\s+file|regenerate|cache|classic\s+shortcode|block\s*(?:cart|checkout)|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
 
-  const snippetTask = elementDelete || /custom\s+element|ajax|rest\s+api|query|menu|nav|enqueue|filemtime|element\s+id|javascript|\bjs\b|\bcss\b|hook|helper|render|renderer|slider|accordion/.test(text);
-  const patternTask = broadAudit || /architecture|kiến\s+trúc|build|implement|create|triển\s+khai|xây\s+dựng|tạo\s+mới|restructure|refactor|tái\s+cấu\s+trúc|custom\s+element|reusable|shared|dùng\s+chung/.test(text);
+  const snippetTask = elementDelete || builderTask || /custom\s+element|ajax|rest\s+api|query|menu|nav|enqueue|filemtime|element\s+id|javascript|\bjs\b|\bcss\b|hook|helper|render|renderer|slider|accordion/.test(text);
+  const patternTask = broadAudit || builderTask || /architecture|kiến\s+trúc|build|implement|create|triển\s+khai|xây\s+dựng|tạo\s+mới|restructure|refactor|tái\s+cấu\s+trúc|custom\s+element|reusable|shared|dùng\s+chung/.test(text);
 
   if (codeTask) chosen.add('resources/code-organization.md');
   if (uiTask) chosen.add('resources/design-system.md');
+  if (builderTask) chosen.add('resources/builder-editability.md');
   if (seedTask) chosen.add('resources/data-seeding.md');
   if (migrationTask) chosen.add('resources/migrations.md');
   if (templateTask) chosen.add('resources/templates.md');
