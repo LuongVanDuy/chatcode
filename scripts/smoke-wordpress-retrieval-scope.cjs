@@ -1,7 +1,16 @@
 const assert = require('assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { planWordPressRetrieval, classifyWordPressPath } = require('../core/wordpress-retrieval');
 const { createScopedInspect } = require('../core/retrieval-scope');
 const { createAgentRuntime, verificationHints } = require('../core/agent-runtime');
+const { chooseResources } = require('../core/skill-runtime');
+
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'CHATCODE-GPT', 'skills', 'wordpress-bricks', 'manifest.json'), 'utf8'));
+const explicitRetrieval = chooseResources(manifest, 'Inspect this WordPress project with scope-first retrieval: search Project Brain before read and do not fetch wp-admin or wp-includes unless required');
+assert.ok(explicitRetrieval.includes('resources/retrieval-scope.md'));
+const ordinaryHeader = chooseResources(manifest, 'Fix the mobile header spacing');
+assert.equal(ordinaryHeader.includes('resources/retrieval-scope.md'), false, 'Detailed retrieval resource should not load for every normal task');
 
 const profile = {
   isWordPress:true,
