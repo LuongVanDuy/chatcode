@@ -1,6 +1,6 @@
 # Child-theme code organization & CSS ownership
 
-These rules are mandatory for WordPress + Bricks projects. This resource is attached by default to every activated WordPress + Bricks task. Prefer the current project's established clean convention; when creating or renaming files, optimize for obvious responsibility rather than clever terminology.
+Use these rules when the task creates, renames, reorganizes, or refactors child-theme files/assets. Prefer the current project's established clean convention; optimize for obvious responsibility rather than clever terminology.
 
 ## File naming: short, functional, obvious
 
@@ -61,6 +61,41 @@ style.css
 -> page/component CSS as needed
 ```
 
+## Page CSS: group page-owned sections instead of file-per-section sprawl
+
+When several sections belong only to one page, the default CSS owner is the page stylesheet, not one stylesheet per numbered section.
+
+Preferred homepage shape:
+
+```text
+assets/css/home.css
+
+/* Section 1 — Hero */
+/* Section 2 — Featured products */
+/* Section 3 — Product groups */
+/* Section 4 — About tabs */
+```
+
+Rules:
+
+- Do not create `home-section-2.css`, `home-section-3.css`, `home-section-4.css`, etc. merely because the page has multiple sections.
+- Keep page-only section CSS together in `home.css`, `about.css`, `contact.css`, `recruitment.css`, or the project's equivalent page owner.
+- Inside the page file, use clear section comments/order so the file remains easy to navigate.
+- If a section later becomes a genuinely reusable component across multiple pages/templates, move its styling to a functional shared component stylesheet such as `product-card.css`, `tabs.css`, or the project's existing equivalent. Do not keep both copies.
+- Shared item CSS such as the normal product card/post card remains owned by the shared component even when used on the homepage; the page stylesheet owns the page wrapper/section composition around it.
+- Do not split CSS solely to make a file look shorter. Split by **ownership/reuse boundary**, not by section number.
+- When consolidating old section CSS, remove the old enqueue registrations and old files only after confirming their rules have been migrated; do not leave duplicate cascade layers.
+
+JavaScript does **not** have to mirror CSS file grouping. Feature-specific JS may remain separate when behavior/state is independent or complex, for example:
+
+```text
+assets/js/home.js
+assets/js/home-product-groups.js
+assets/js/home-about-tabs.js
+```
+
+But avoid pointless JS fragmentation too: if a small section behavior is tightly coupled to the page and has no independent lifecycle, keeping it in `home.js` is cleaner.
+
 ## Reusable item layouts are the default
 
 Repeated content cards/items must have one shared presentation implementation unless the user explicitly asks for a special layout.
@@ -115,6 +150,14 @@ assets/css/main.css          # :root + global tokens
 assets/css/header-footer.css # only header/footer selectors
 ```
 
+PASS for one-page section ownership:
+
+```text
+assets/css/home.css
+# owns homepage section wrappers/composition
+# shared product-card.css still owns the reusable product item
+```
+
 PASS when split is warranted:
 
 ```text
@@ -142,6 +185,15 @@ assets/css/site-chrome.css
 assets/css/header-footer.css # contains site-wide :root tokens
 ```
 
+FAIL for page CSS fragmentation:
+
+```text
+home-section-2.css
+home-section-3.css
+home-section-4.css
+# all only belong to the same homepage and have separate enqueues for no reuse reason
+```
+
 FAIL for repeated item layouts:
 
 ```text
@@ -151,4 +203,4 @@ featured-product-item.php
 # same normal product card copied three times
 ```
 
-The goal is not one rigid folder template. The goal is predictable ownership: **global things in the global layer; component things in the component layer; repeated item presentation has one shared implementation; filenames describe the actual responsibility.**
+The goal is not one rigid folder template. The goal is predictable ownership: **global things in the global layer; page-only sections in the page layer; reusable components in the component layer; repeated item presentation has one shared implementation; filenames describe the actual responsibility.**
