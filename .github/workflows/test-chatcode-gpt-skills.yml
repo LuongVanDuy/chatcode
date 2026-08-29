@@ -8,11 +8,14 @@ on:
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
       - 'core/agent-runtime.js'
+      - 'core/retrieval-scope.js'
+      - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
@@ -21,11 +24,14 @@ on:
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
       - 'core/agent-runtime.js'
+      - 'core/retrieval-scope.js'
+      - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
@@ -45,14 +51,19 @@ jobs:
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
           node --check core/agent-runtime.js
+          node --check core/retrieval-scope.js
+          node --check core/wordpress-retrieval.js
           node --check core/runtime-bootstrap.js
           node --check mcp-server.mjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
+          node --check scripts/smoke-wordpress-retrieval-scope.cjs
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
       - name: Builder editability and page asset ownership
         run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
+      - name: Scope-first WordPress retrieval
+        run: node scripts/smoke-wordpress-retrieval-scope.cjs
 
   release-windows:
     if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
