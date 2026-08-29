@@ -25,11 +25,14 @@ Do not build parallel PHP/HTML behavior when the installed Bricks/Woo stack alre
 
 Before editing, inspect enough current state to avoid guessing. Depending on the task this includes the active child theme/custom plugin, Bricks/Woo version, current page/template, Builder tree and conditions, menu source, assigned Woo pages, existing shared components, global design tokens, seed/migration markers, and CSS loading/cache mode.
 
+Source retrieval is **scope-first**: Project Brain may index broadly, but source content should be fetched from the relevant child theme and directly related project-owned plugin code first. Search/Brain before read; widen to Bricks parent, Woo/third-party core, or WordPress core only when the request or concrete dependency/API evidence requires it. Never read broad core source merely to fill context.
+
 When the modern Fast Agent tools are available, WordPress + Bricks coding work should enter through `prepare_task`; the returned `wordpress-bricks` skill contract is mandatory for the task. When only the legacy ChatCode tool schema is available, inspect/read the **target project first**, then read this skill from the virtual `CHATCODE-GPT` project before mutation and read the task-relevant routed resources. Reading the skill for one project must not authorize another project.
 
 ## Non-negotiable rules
 
 - Never edit WordPress core, Bricks parent theme, WooCommerce core, or vendor code.
+- **Index broadly; fetch narrowly.** Do not broad-read `wp-admin`, `wp-includes`, Bricks parent, WooCommerce core, unrelated plugins, uploads, vendor/cache, or project-root files "just in case". Expand retrieval one evidence-backed tier at a time.
 - Current Builder/user-edited data is source of truth after initial seed. Never overwrite a whole Builder tree for a small update.
 - Real Header/Footer/Archive/Single/Woo work uses real Bricks templates and current-version storage/conditions, not fake PHP pages.
 - Bricks tree changes preserve unique IDs, reciprocal `parent`/`children`, sibling order, and unrelated settings.
@@ -51,6 +54,7 @@ When the modern Fast Agent tools are available, WordPress + Bricks coding work s
 The runtime routes only resources relevant to the task:
 
 - `core-checklist.md` — compact checks for every task.
+- `retrieval-scope.md` — source discovery/fetch scope, evidence-driven expansion, core/reference boundaries.
 - `code-organization.md` — files/modules/assets/component/page ownership.
 - `design-system.md` — frontend CSS, layout consistency, responsive visual system.
 - `builder-editability.md` — custom Bricks controls, configurable sections, shortcode-to-element migration, Builder-owned data.
