@@ -37,7 +37,7 @@
   {
     "name": "custom-element",
     "request": "Create a reusable custom Bricks Element with Builder controls and scoped AJAX behavior",
-    "resources": ["resources/core-checklist.md", "resources/snippets.md", "resources/patterns.md"]
+    "resources": ["resources/core-checklist.md", "resources/builder-editability.md", "resources/snippets.md", "resources/patterns.md"]
   },
   {
     "name": "product-archive",
@@ -83,5 +83,25 @@
     "name": "new-page-reuses-site-system",
     "request": "Create a new frontend page that reuses the existing global shell, page-title scale, card styles and spacing tokens instead of inventing page-local width, font-size, radius or gutter values",
     "resources": ["resources/core-checklist.md", "resources/design-system.md", "resources/data-seeding.md", "resources/patterns.md"]
+  },
+  {
+    "name": "homepage-css-owner",
+    "request": "Consolidate homepage Section 2, Section 3 and Section 4 CSS into assets/css/home.css, remove home-section-3.css and home-section-4.css plus their separate enqueues; keep feature JS split only where behavior is independently complex",
+    "resources": ["resources/core-checklist.md", "resources/code-organization.md", "resources/design-system.md", "resources/snippets.md"]
+  },
+  {
+    "name": "featured-products-builder-controls",
+    "request": "Refactor the Featured Products shortcode section into a custom Bricks Element that is editable in Builder: source Automatic or Manual, manual multi-select products, automatic featured rule, and render through the shared product card",
+    "resources": ["resources/core-checklist.md", "resources/builder-editability.md", "resources/templates.md", "resources/woocommerce.md", "resources/snippets.md", "resources/patterns.md"]
+  },
+  {
+    "name": "product-groups-builder-controls",
+    "request": "Make the custom Bricks product group tabs configurable in Builder: choose product taxonomy/group type and select the terms shown as tabs; AJAX must validate the configured taxonomy and reuse the shared product renderer",
+    "resources": ["resources/core-checklist.md", "resources/builder-editability.md", "resources/templates.md", "resources/woocommerce.md", "resources/snippets.md", "resources/patterns.md"]
+  },
+  {
+    "name": "about-tabs-builder-repeater",
+    "request": "Make the About Tabs custom Bricks Element fully editable with a repeater containing tab title, content title, rich text content, image, button text and link; migrate the four current tabs into the element settings so Builder opens with the current content already editable",
+    "resources": ["resources/core-checklist.md", "resources/builder-editability.md", "resources/migrations.md", "resources/snippets.md", "resources/patterns.md"]
   }
 ]
