@@ -12,6 +12,7 @@ on:
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
@@ -24,6 +25,7 @@ on:
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
@@ -46,8 +48,11 @@ jobs:
           node --check core/runtime-bootstrap.js
           node --check mcp-server.mjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
+          node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
+      - name: Builder editability and page asset ownership
+        run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
 
   release-windows:
     if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
