@@ -2,7 +2,7 @@ const { normalizeError, chatError } = require('./errors');
 const { skillsForTask } = require('./skill-runtime');
 
 const MAX_VERIFY = 6;
-const MAX_CONTEXT_FILES = 10;
+const MAX_CONTEXT_FILES = 6;
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 
@@ -10,16 +10,22 @@ function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
 
 async function verificationHints(api, projectId, inspect) {
   const hints = [];
-  try {
-    const pkg = await api.readFile(projectId, 'package.json');
-    const parsed = JSON.parse(String(pkg.content || '{}'));
-    const scripts = parsed && typeof parsed.scripts === 'object' ? parsed.scripts : {};
-    for (const name of ['test','lint','typecheck','check','build']) {
-      if (!scripts[name]) continue;
-      hints.push({ kind:'package-script', command:`npm run ${name}`, evidence:`package.json#scripts.${name}` });
-      if (hints.length >= 3) break;
-    }
-  } catch {}
+  const isWordPress = !!inspect?.wordpress?.isWordPress;
+  const packageWasRetrieved = (inspect?.relevant_files || []).some(item => String(item?.path || '').toLowerCase() === 'package.json');
+  // Do not probe project-root package.json on ordinary WordPress work. Use it only when
+  // the scoped inspection already established that package.json is relevant.
+  if (!isWordPress || packageWasRetrieved) {
+    try {
+      const pkg = await api.readFile(projectId, 'package.json');
+      const parsed = JSON.parse(String(pkg.content || '{}'));
+      const scripts = parsed && typeof parsed.scripts === 'object' ? parsed.scripts : {};
+      for (const name of ['test','lint','typecheck','check','build']) {
+        if (!scripts[name]) continue;
+        hints.push({ kind:'package-script', command:`npm run ${name}`, evidence:`package.json#scripts.${name}` });
+        if (hints.length >= 3) break;
+      }
+    } catch {}
+  }
 
   const language = String(inspect?.primary_language || '').toLowerCase();
   const frameworks = (inspect?.framework_names || []).map(String);
@@ -40,6 +46,7 @@ function compactInspection(inspect) {
     primary_language:inspect.primary_language,
     entrypoints:inspect.entrypoints,
     wordpress:inspect.wordpress,
+    retrieval_scope:inspect.retrieval_scope || null,
     relevant_files:(inspect.relevant_files || []).slice(0, MAX_CONTEXT_FILES),
     relevant_relations:(inspect.relevant_relations || []).slice(0,80),
     top_symbols:(inspect.top_symbols || []).slice(0,60),
@@ -81,6 +88,7 @@ function createAgentRuntime(api) {
         guidance:[
           'Nếu response có skills, các rule/instructions/resource đính kèm là contract bắt buộc cho task hiện tại.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dữ kiện thật sự.',
+          'Với WordPress, tôn trọng context.retrieval_scope: search/Brain trước, đọc active child theme và plugin liên quan trước; chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
           'Nếu cần hủy toàn bộ thay đổi của task, dùng rollback_work với cùng task_id.'
