@@ -64,18 +64,26 @@ function planWordPressRetrieval(files, profile = {}, query = '', limit = 6) {
 
   const selected = [];
   const expandedTo = [];
+  const addOne = (item, role) => {
+    if (!item || selected.length >= cap) return;
+    if (selected.some(existing => norm(existing?.path || existing?.file || existing) === norm(item?.path || item?.file || item))) return;
+    selected.push({ ...item, retrieval_role:role });
+  };
   const add = (items, role) => {
     for (const item of items) {
       if (selected.length >= cap) break;
-      if (selected.some(existing => norm(existing?.path || existing?.file || existing) === norm(item?.path || item?.file || item))) continue;
-      selected.push({ ...item, retrieval_role:role });
+      addOne(item, role);
     }
   };
 
-  // Brain ranking is already relevance evidence. Prefer project-owned wp-content code only.
-  add(buckets['child-theme'], 'child-theme');
-  add(buckets['custom-plugin'], 'custom-plugin');
-  add(buckets['wp-content-other'], 'wp-content-other');
+  // Keep Project Brain relevance order across all project-owned wp-content candidates.
+  // Child theme and custom plugins are both valid first-scope owners; do not let a lower-ranked
+  // theme file displace a highly relevant plugin file just because of directory type.
+  for (const item of candidates) {
+    if (selected.length >= cap) break;
+    const role = classifyWordPressPath(item?.path || item?.file || item, profile);
+    if (role === 'child-theme' || role === 'custom-plugin' || role === 'wp-content-other') addOne(item, role);
+  }
 
   // Explicit source/API verification may widen one reference tier. Never widen merely to fill the quota.
   if (flags.bricksParent) { add(buckets['parent-theme'], 'parent-theme-reference'); if (buckets['parent-theme'].length) expandedTo.push('parent-theme'); }
@@ -83,7 +91,7 @@ function planWordPressRetrieval(files, profile = {}, query = '', limit = 6) {
   if (flags.wordpressCore) { add(buckets['wordpress-core'], 'wordpress-core-reference'); if (buckets['wordpress-core'].length) expandedTo.push('wordpress-core'); }
   if (flags.outsideWpContent) { add(buckets['project-root'], 'project-root-reference'); if (buckets['project-root'].length) expandedTo.push('project-root'); }
 
-  // If scoped project-owned code yielded nothing, allow one ranked reference tier as evidence-driven fallback,
+  // If scoped project-owned code yielded nothing, allow one ranked framework reference as evidence-driven fallback,
   // but never auto-open WordPress core, uploads, vendor/cache, or arbitrary root files.
   if (!selected.length) {
     const fallback = candidates.find(item => {
