@@ -103,6 +103,7 @@ function chooseResources(manifest, request, inspect = null) {
   const broadAudit = /audit|validate|validation|acceptance|regression|code\s+review|project\s+review|review\s+(?:the\s+)?(?:code|project|site|theme)|full\s+(?:check|audit|review)|check\s+(?:all|entire|whole)|scan\s+(?:all|entire|whole)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|kiểm\s+tra\s+toàn\s+bộ|refactor\s+(?:all|entire|whole)|tái\s+cấu\s+trúc\s+toàn\s+bộ/.test(requestText);
   const elementDelete = /(?:delete|remove|xóa|xoá)[^\n]{0,80}(?:element|phần tử)|(?:element|phần tử)[^\n]{0,80}(?:delete|remove|xóa|xoá)/.test(text);
   const generatedCssMaintenance = /(?:regenerate|generate|refresh|rebuild|clear)[^\n]{0,80}(?:bricks\s+)?css[^\n]{0,80}(?:file|cache)|(?:bricks\s+)?css[^\n]{0,80}(?:file|cache)[^\n]{0,80}(?:regenerate|generate|refresh|rebuild|clear)/.test(text);
+  const retrievalTask = /scope[-\s]?first|retrieval|fetch\s+(?:source|files?|content)|source\s+scope|search\s+before\s+read|project\s+brain[^\n]{0,60}(?:search|read|fetch|context)|inspect[^\n]{0,80}(?:source|files?|wp-content|wp-admin|wp-includes)|scan[^\n]{0,80}(?:source|files?|wp-content)|quét[^\n]{0,80}(?:source|mã\s+nguồn|file|wp-content)|đọc[^\n]{0,80}(?:mã\s+nguồn|wp-admin|wp-includes|bricks\s+parent|woocommerce\s+core)|wp-admin|wp-includes|bricks\s+parent|bricks\s+core|woocommerce\s+core|woo\s+core|outside\s+wp-content|ngoài\s+wp-content/.test(requestText);
 
   const uiTask = !generatedCssMaintenance && /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|\.scss\b|assets\/css|style|styling|font|typography|màu|color|spacing|khoảng\s+cách|padding|margin|radius|shadow|transition|shell|gutter|container|hero|breadcrumb|page\s*title|section\s*title|card|button|input|width|chiều\s+rộng|trang\s+mới|new\s+page/.test(text);
   const codeTask = /\bphp\b|javascript|\bjs\b|\bcss\b|\.scss\b|functions\.php|enqueue|filemtime|asset|module|component|helper|hook|function|class|file|folder|filename|path|inc\/|assets\/|child\s*theme|plugin|tên\s+file|thư\s+mục|refactor|tái\s+cấu\s+trúc/.test(text);
@@ -118,6 +119,7 @@ function chooseResources(manifest, request, inspect = null) {
   const snippetTask = elementDelete || builderTask || /custom\s+element|ajax|rest\s+api|query|menu|nav|enqueue|filemtime|element\s+id|javascript|\bjs\b|\bcss\b|hook|helper|render|renderer|slider|accordion/.test(text);
   const patternTask = broadAudit || builderTask || /architecture|kiến\s+trúc|build|implement|create|triển\s+khai|xây\s+dựng|tạo\s+mới|restructure|refactor|tái\s+cấu\s+trúc|custom\s+element|reusable|shared|dùng\s+chung/.test(text);
 
+  if (retrievalTask) chosen.add('resources/retrieval-scope.md');
   if (codeTask) chosen.add('resources/code-organization.md');
   if (uiTask) chosen.add('resources/design-system.md');
   if (builderTask) chosen.add('resources/builder-editability.md');
