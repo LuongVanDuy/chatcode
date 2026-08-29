@@ -5,6 +5,7 @@
   "entry": "SKILL.md",
   "resources": [
     "resources/core-checklist.md",
+    "resources/retrieval-scope.md",
     "resources/patterns.md",
     "resources/code-organization.md",
     "resources/design-system.md",
