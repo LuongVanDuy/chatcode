@@ -5,6 +5,10 @@ function installRuntimePatches() {
   installTerminalRuntimePatches();
   const { installWorkRuntimePatches } = require('./work-runtime');
   installWorkRuntimePatches();
+  // Scope WordPress source-content retrieval before Fast Agent captures inspectProject.
+  // Project Brain may still index broadly; only content reads are narrowed.
+  const { installRetrievalScopePatches } = require('./retrieval-scope');
+  installRetrievalScopePatches();
   const { installAgentRuntimePatches } = require('./agent-runtime');
   installAgentRuntimePatches();
   // Install after Agent so task grouping sees Terminal, Work Session and Fast Agent calls.
