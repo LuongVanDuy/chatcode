@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.5**
+> Phiên bản hiện tại: **v1.0.7**
 
 ## Kiến trúc
 
@@ -156,10 +156,13 @@ Skill bao gồm rule và resource cho:
 - Migration Bricks data có kiểm soát.
 - CSS/cache regeneration.
 - Responsive patterns.
-- Child-theme architecture.
+- Child-theme architecture và design-system ownership.
+- Reusable product/post item layouts.
+- Builder-editable custom elements và controls.
+- Concurrency-safe seeding/duplicate repair.
 - Validation và acceptance cases.
 
-Khi `prepare_task` phát hiện đủ bằng chứng **WordPress + Bricks**, skill được tự động attach vào task và trở thành contract kỹ thuật mà agent phải tuân theo.
+Khi `prepare_task` phát hiện đủ bằng chứng **WordPress + Bricks**, skill được tự động attach và **bắt buộc** cho task, kể cả khi prompt không nhắc tới Bricks. Runtime dùng progressive routing để chỉ nạp resource phù hợp với task; các rule bắt buộc không bị loại bỏ chỉ để giảm context.
 
 Để tương thích với connector/schema legacy, skill cũng được expose dưới virtual project read-only:
 
@@ -464,6 +467,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.5** bổ sung compatibility layer để built-in skills có thể được discovery qua legacy 13-tool connector schema, đồng thời vẫn giữ đường auto-skill chuẩn qua `prepare_task` cho MCP schema mới.
+**v1.0.7** tập trung nâng cấp sâu WordPress + Bricks skill: skill trở thành mandatory project policy cho project Bricks, progressive resource routing theo task/Project Brain, context budget không làm mất rule bắt buộc, Builder-editable custom elements, reusable product/post layouts, design-system/CSS ownership, concurrency-safe seeding và regression tests cho multi-project/legacy workflow.
 
 Xem bản phát hành mới nhất tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases/latest)**.
