@@ -33,6 +33,7 @@ When the modern Fast Agent tools are available, WordPress + Bricks coding work s
 - Current Builder/user-edited data is source of truth after initial seed. Never overwrite a whole Builder tree for a small update.
 - Real Header/Footer/Archive/Single/Woo work uses real Bricks templates and current-version storage/conditions, not fake PHP pages.
 - Bricks tree changes preserve unique IDs, reciprocal `parent`/`children`, sibling order, and unrelated settings.
+- Custom project-owned sections should use native Bricks elements when possible; if a custom Bricks element is justified, normal editor-owned content/data must be exposed through suitable Builder controls/dynamic data instead of hard-coded render arrays or fixed IDs.
 - Post-seed DB changes are targeted, idempotent, Builder-preserving migrations; material changes get recovery/backup.
 - Generated template/page/post/menu data must not duplicate under concurrent requests. Use stable semantic identity and concurrency-safe creation when seeding is involved.
 - After Bricks DB mutation, cache/generated CSS refresh is part of the write when required by the installed setup.
@@ -50,8 +51,9 @@ When the modern Fast Agent tools are available, WordPress + Bricks coding work s
 The runtime routes only resources relevant to the task:
 
 - `core-checklist.md` — compact checks for every task.
-- `code-organization.md` — files/modules/assets/component ownership.
+- `code-organization.md` — files/modules/assets/component/page ownership.
 - `design-system.md` — frontend CSS, layout consistency, responsive visual system.
+- `builder-editability.md` — custom Bricks controls, configurable sections, shortcode-to-element migration, Builder-owned data.
 - `data-seeding.md` — generated data, concurrency-safe seed, duplicate repair, live-DB evidence.
 - `templates.md` — Bricks template storage, conditions, archive/single/header/footer.
 - `woocommerce.md` — WooCommerce-specific ownership and native flows.
@@ -68,6 +70,6 @@ Do not load every resource "just in case". Attached resources are mandatory; una
 
 ## Completion
 
-Before reporting done, validate only what the task touched: syntax where executable, correct Bricks data/conditions when touched, generated CSS/cache after DB writes, responsive states for UI, preservation of unrelated Builder edits, no new duplicate data/layout/component, and no stale override/enqueue left after refactor.
+Before reporting done, validate only what the task touched: syntax where executable, correct Bricks data/conditions when touched, Builder editability of configurable custom elements, generated CSS/cache after DB writes, responsive states for UI, preservation of unrelated Builder edits, no new duplicate data/layout/component, and no stale override/enqueue left after refactor.
 
 If a required check cannot run because the connector lacks the capability, state that limitation exactly instead of reporting it as passed.
