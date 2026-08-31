@@ -18,11 +18,14 @@ function installRuntimePatches() {
   // the original 13 tools. It adds CHATCODE-GPT as a read-only virtual project.
   const { installBuiltinSkillsProjectPatches } = require('./builtin-skills-project');
   installBuiltinSkillsProjectPatches();
-  // Final policy layer. It must see both modern Fast Agent methods and the
-  // legacy CHATCODE-GPT compatibility project so WordPress + Bricks work can
-  // never silently bypass the mandatory wordpress-bricks skill.
+  // Mandatory WordPress + Bricks policy must see both modern and legacy paths.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
+  // Final outer policy: once a target project is established, every project-aware
+  // read/write stays inside that target unless the user's task explicitly names
+  // a multi-project reference. Reference projects are read-only.
+  const { installProjectScopePatches } = require('./project-scope');
+  installProjectScopePatches();
   return true;
 }
 

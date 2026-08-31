@@ -7,6 +7,7 @@ on:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
+      - 'core/project-scope.js'
       - 'core/agent-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
@@ -16,6 +17,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
@@ -23,6 +25,7 @@ on:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
+      - 'core/project-scope.js'
       - 'core/agent-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
@@ -32,6 +35,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
@@ -50,6 +54,7 @@ jobs:
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
+          node --check core/project-scope.js
           node --check core/agent-runtime.js
           node --check core/retrieval-scope.js
           node --check core/wordpress-retrieval.js
@@ -58,12 +63,15 @@ jobs:
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
+          node --check scripts/smoke-project-scope.cjs
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
       - name: Builder editability and page asset ownership
         run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
       - name: Scope-first WordPress retrieval
         run: node scripts/smoke-wordpress-retrieval-scope.cjs
+      - name: Project scope lock
+        run: node scripts/smoke-project-scope.cjs
 
   release-windows:
     if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
@@ -84,9 +92,9 @@ jobs:
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $installer) { throw "Không tìm thấy installer v$version." }
-          if (-not (Test-Path "dist\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
+          if (-not (Test-Path "dist\\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
       - uses: actions/upload-artifact@v4
         with:
           name: chatcode-gpt-skill-windows
@@ -101,10 +109,10 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
-          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
-          $latest = Get-Item "dist\latest.yml"
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
+          $latest = Get-Item "dist\\latest.yml"
           $assets = @($installer.FullName, $latest.FullName)
-          $blockmaps = Get-ChildItem "dist\*.blockmap" -ErrorAction SilentlyContinue
+          $blockmaps = Get-ChildItem "dist\\*.blockmap" -ErrorAction SilentlyContinue
           foreach ($item in $blockmaps) { $assets += $item.FullName }
 
           gh release view $tag *> $null
@@ -113,4 +121,5 @@ jobs:
           }
 
           gh release create $tag @assets --target $env:GITHUB_SHA --title "ChatCode Cá Nhân $tag" --generate-notes --latest
-          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag." }
+          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag."
+          }

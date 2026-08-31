@@ -4,6 +4,7 @@ This is the only resource that should be loaded for every activated WordPress + 
 
 ## Before editing
 
+- **Lock to the user-named target project.** Do not list, search, Brain-inspect, or read another shared project just to “look around”. Cross-project access is allowed only when the user explicitly asks to copy, migrate, compare, synchronize, or use another named project as a reference. Reference projects are read-only; mutation stays on the target project.
 - Inspect the real current project state; do not guess template IDs, Builder trees, page assignments, menus, Woo pages, prefixes, paths, or data ownership.
 - **Search/Project Brain before source reads.** Brain may index broadly, but fetch content from the relevant child theme and directly related project-owned plugin first. Do not fill context with WordPress core, Bricks parent, Woo core, unrelated plugins, uploads, vendor/cache, or root files; widen scope only on concrete dependency/API evidence.
 - Work only in the active child theme/custom plugin/Builder data intended for the task. Never edit WordPress core, Bricks parent theme, WooCommerce core, or vendor code.
