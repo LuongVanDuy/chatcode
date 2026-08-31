@@ -29,6 +29,8 @@ bricks-child/
    └─ single-product.css
 ```
 
+Canonical owners: `inc/core/helpers.php`, `inc/core/templates.php`, `inc/setup/media.php`, `inc/setup/menus.php`, `inc/templates/header.php`, `inc/templates/footer.php`, `inc/templates/single-product.php`, `elements/product-support.php`.
+
 Ownership:
 
 - `functions.php` is the **thin entrypoint**: bootstrap/require modules and enqueue assets; no large feature/template/migration/helper implementations.
