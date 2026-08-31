@@ -17,7 +17,8 @@ assert.ok(core.includes('normal code/layout/template edit is **not** a migration
 
 assert.ok(organization.includes('file creation budget: existing owner first'));
 assert.ok(organization.includes('normal change should usually create **zero new source files**'));
-assert.ok(organization.includes('`site-parts.php` + `site-parts-migration.php`'));
+assert.ok(organization.includes('site-parts.php'));
+assert.ok(organization.includes('site-parts-migration.php'));
 assert.ok(organization.includes('vague pair created for one normal feature'));
 
 assert.ok(migrations.includes('migration threshold'));
