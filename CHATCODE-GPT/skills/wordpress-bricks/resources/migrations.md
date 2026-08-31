@@ -1,10 +1,47 @@
 # Targeted Bricks migration strategy
 
-Use this resource for every post-seed change to Bricks page/template/menu data. Builder-owned current data is the source of truth.
+Use this resource only when the task must **transform persisted Builder/WordPress/Woo content that already exists** and the transformation must be safe to re-run across deployments or repeated requests. Builder-owned current data remains the source of truth.
+
+## Migration threshold
+
+A migration is justified when all/most of these are true:
+
+- persisted Builder tree/template/menu/post/content/options already exist;
+- current stored state must be changed to a new schema/shape/value;
+- the change may run again and therefore needs idempotency/preconditions;
+- user/Builder edits outside the managed target must survive;
+- rollout state/marker/rollback matters across deployments or repeated executions.
+
+These are **not migrations by default**:
+
+- initial implementation of a new site/header/footer/page/section;
+- creating the first intended Bricks template during initial setup;
+- ordinary PHP/CSS/JS refactor;
+- changing rendering code without transforming stored Builder/DB data;
+- moving code between existing child-theme files;
+- adding a small setup hook tightly coupled to a feature;
+- changing a source default before any persisted managed record needs upgrading.
+
+Decision rule:
+
+```text
+normal code/layout/setup edit
+-> update the existing functional owner
+-> no migration file
+
+existing persisted data must be transformed safely
+-> targeted migration logic
+-> keep it in the existing owner/setup module when small and tightly coupled
+
+multiple independent/sequential persisted-data upgrades
+-> only then consider a dedicated migration module
+```
+
+Do **not** create `*-migration.php` merely because a task touches Bricks, a template, or setup code. A dedicated migration file needs a proven independent migration lifecycle. Avoid vague pairs such as `site-parts.php` + `site-parts-migration.php` for ordinary feature work.
 
 ## Migration state
 
-Choose/reuse a project-specific prefix and keep seed/schema markers separate, for example:
+When a real migration needs durable state, choose/reuse a project-specific prefix and keep seed/schema markers separate, for example:
 
 ```text
 <prefix>_bricks_seed_version
@@ -12,11 +49,11 @@ Choose/reuse a project-specific prefix and keep seed/schema markers separate, fo
 <prefix>_bricks_migration_<name>
 ```
 
-Never copy marker names or prefixes from another project.
+Never copy marker names or prefixes from another project. Do not introduce a marker for a normal code edit that requires no persisted-data upgrade.
 
 ## Required properties
 
-Every migration must be:
+Every real migration must be:
 
 - targeted: only the intended node/setting/condition/content changes;
 - preconditioned: expected old state is verified before mutation;
@@ -87,7 +124,7 @@ Do not advance the marker on conflict or partial CSS/cache failure.
 
 ## Six-character ID generation
 
-When creating a new Bricks element, generate a six-character alphanumeric ID matching native Bricks shape unless the installed version proves otherwise.
+When a real persisted-tree migration creates a new Bricks element, generate a six-character alphanumeric ID matching native Bricks shape unless the installed version proves otherwise.
 
 Algorithm contract:
 
@@ -133,7 +170,7 @@ Never do global serialized string replacement.
 
 ## Delete element migration
 
-Do not reseed the template to delete one node.
+Do not reseed the template to delete one existing persisted node.
 
 Deletion contract:
 
@@ -150,7 +187,7 @@ load current tree
 -> save
 -> clean post cache
 -> regenerate CSS/cache as required
--> mark migration
+-> mark migration when durable rollout state is actually needed
 ```
 
 Do not modify unrelated sibling settings/order.
@@ -159,7 +196,7 @@ If deleting a parent with children and the task does not state whether descendan
 
 ## Insert element migration
 
-For targeted insertion:
+For insertion into an already persisted tree that truly requires migration behavior:
 
 1. locate exact parent;
 2. generate unique six-character ID;
@@ -169,9 +206,11 @@ For targeted insertion:
 6. validate tree;
 7. persist and regenerate CSS/cache.
 
+Initial construction of a new page/template is setup/seeding, not automatically a migration.
+
 ## Template condition migration
 
-For Header/Footer/Archive/Single/Woo templates:
+For an already persisted Header/Footer/Archive/Single/Woo template whose stored conditions must be upgraded:
 
 ```text
 read current template type/settings/conditions
@@ -181,16 +220,14 @@ read current template type/settings/conditions
 -> preserve unrelated conditions and Builder settings
 -> validate positive and negative render contexts
 -> persist + cache/CSS refresh if relevant
--> mark migration
+-> mark migration only when durable rollout state is required
 ```
 
 Do not create a duplicate template to avoid fixing conditions.
 
 ## Seed evolution
 
-A changed default in source code does not authorize a reseed.
-
-Use sequential targeted schema migrations instead:
+A changed default in source code does not authorize a reseed. If existing persisted managed data actually needs upgrading, use sequential targeted schema migrations:
 
 ```text
 v1: initial seed
@@ -199,11 +236,11 @@ v3: remove one obsolete managed element if still present in expected form
 v4: repair one relation/condition if still at old managed state
 ```
 
-Each migration verifies current Builder state independently.
+Each migration verifies current Builder state independently. If there is no existing persisted record to upgrade, keep the change in normal setup/source code instead.
 
 ## Bricks CSS/cache transaction
 
-For a Bricks DB mutation:
+For a real Bricks DB mutation:
 
 1. write validated current tree/template settings;
 2. call `clean_post_cache($post_id)`;
@@ -211,13 +248,13 @@ For a Bricks DB mutation:
 4. if `\Bricks\Database::get_setting('cssLoading') === 'file'`, call `\Bricks\Assets_Files::generate_post_css_file(...)` using the correct `content`, `header`, or `footer` context and installed-version signature;
 5. clear only relevant page/object/plugin cache when needed;
 6. verify frontend generated output is current;
-7. only then write/advance migration marker.
+7. only then write/advance migration marker when such a marker is actually required.
 
 If CSS generation fails, migration status is partial/failed; do not report complete.
 
 ## Woo Blocks -> classic content migration
 
-Only run if the verified project/Bricks version requires classic shortcode content for the Bricks Cart/Checkout template path.
+Only run if the verified project/Bricks version requires classic shortcode content for the Bricks Cart/Checkout template path and the assigned Woo page already contains persisted block content that must be converted.
 
 ```text
 resolve assigned Woo page with wc_get_page_id()
@@ -251,6 +288,6 @@ proposed_new: ...
 
 ## Rollback
 
-Before material/destructive Bricks DB changes, use the project's work-session/recovery mechanism or an exact project-specific backup record.
+Before material/destructive persisted Bricks DB changes, use the project's work-session/recovery mechanism or an exact project-specific backup record.
 
 Rollback must restore the exact pre-migration tree/content and then repeat `clean_post_cache()` plus Bricks CSS/cache regeneration so frontend state matches restored Builder data.
