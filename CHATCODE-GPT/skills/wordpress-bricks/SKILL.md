@@ -1,16 +1,14 @@
 # WordPress + Bricks Native Delivery
 
-Use this skill for every ChatCode task on a project that project evidence identifies as **WordPress + Bricks**. In that case this skill is **mandatory**, even when the user's prompt does not mention Bricks, this skill, templates, or frontend work.
+Use this skill for every ChatCode task on a project that project evidence identifies as **WordPress + Bricks**. In that case this skill is **mandatory**, even when the user's prompt does not mention Bricks, templates, frontend work, or this skill.
 
-Do not activate it merely because a prompt mentions Bricks; the project itself must provide WordPress + Bricks evidence such as the active/installed theme profile, child-theme `Template: bricks`, Bricks theme paths, or equivalent Project Brain evidence.
+Do not activate it merely because a prompt mentions Bricks; the project itself must provide WordPress + Bricks evidence such as theme profile, child-theme `Template: bricks`, Bricks paths, or equivalent Project Brain evidence.
 
-Keep work Bricks-native, editable in Builder, project-focused, and as small as the task allows.
-
-This entry is intentionally compact for ChatGPT. Detailed rules live in routed resources and should be read only when attached to the current task.
+Keep work Bricks-native, editable in Builder, project-focused, and as small as the task allows. Detailed rules live in routed resources and should be read only when attached to the task.
 
 ## Core decision order
 
-Choose the smallest valid solution in this order:
+Choose the smallest valid solution:
 
 1. **Bricks native element/control/template**.
 2. **Bricks dynamic data / Query Loop / conditions**.
@@ -21,64 +19,64 @@ Do not build parallel PHP/HTML behavior when the installed Bricks/Woo stack alre
 
 ## Mandatory workflow
 
-`LOCK TARGET -> INSPECT -> identify the real render/data owner -> reuse existing project system -> choose smallest patch -> backup when material -> implement -> refresh generated state when needed -> validate relevant scope`
+`LOCK TARGET -> INSPECT -> identify real render/data owner -> reuse project system -> smallest patch -> backup when material -> implement -> refresh generated state when needed -> validate relevant scope`
 
-Before editing, inspect enough current state to avoid guessing. Depending on the task this includes the active child theme/custom plugin, Bricks/Woo version, current page/template, Builder tree and conditions, menu source, assigned Woo pages, existing shared components, global design tokens, seed/migration markers, and CSS loading/cache mode.
+Inspect enough current state to avoid guessing: active child theme/custom plugin, relevant Bricks/Woo state, current page/template, Builder tree/conditions, shared components, data ownership, design tokens, and migration/cache state when relevant.
 
-Source retrieval is **scope-first**: Project Brain may index broadly, but source content should be fetched from the relevant child theme and directly related project-owned plugin code first. Search/Brain before read; widen to Bricks parent, Woo/third-party core, or WordPress core only when the request or concrete dependency/API evidence requires it. Never read broad core source merely to fill context.
+Source retrieval is **scope-first**: Brain may index broadly, but fetch source from the relevant child theme and directly related project-owned plugin first. Search/Brain before read; widen to Bricks parent, Woo/third-party core, or WordPress core only on concrete request/dependency/API evidence.
 
-When the user names one local project, stay on that project. Cross-project reads are allowed only when the request explicitly names another project as a copy/migration/compare/reference source; references are read-only and mutation remains on the target project.
+When the user names one local project, stay on it. Cross-project reads require another project to be explicitly named as copy/migration/compare/reference source; references are read-only and mutation remains on the target.
 
-When the user names a specific external reference website/domain, treat it as the primary external source. Do not broad-search unrelated websites merely for inspiration. Expand external research only when the named source is unavailable/insufficient for a required fact or the user explicitly asks to research/find resources elsewhere.
+When the user names a specific external reference website/domain, use it as the primary external source. **Do not broad-search unrelated websites merely for inspiration.** Expand external research only when that source is unavailable/insufficient for a required fact or the user explicitly asks for wider research/resources.
 
-When the modern Fast Agent tools are available, WordPress + Bricks coding work should enter through `prepare_task`; the returned `wordpress-bricks` skill contract is mandatory for the task. When only the legacy ChatCode tool schema is available, inspect/read the **target project first**, then read this skill from the virtual `CHATCODE-GPT` project before mutation and read the task-relevant routed resources. Reading the skill for one project must not authorize another project.
+With modern Fast Agent tools, enter coding work through `prepare_task`; its `wordpress-bricks` contract is mandatory. With legacy ChatCode tools, inspect/read the target project first, then this skill from `CHATCODE-GPT`, then only task-relevant resources. Reading the skill for one project must not authorize another.
 
 ## Non-negotiable rules
 
 - Never edit WordPress core, Bricks parent theme, WooCommerce core, or vendor code.
-- **Index broadly; fetch narrowly.** Do not broad-read `wp-admin`, `wp-includes`, Bricks parent, WooCommerce core, unrelated plugins, uploads, vendor/cache, or project-root files "just in case". Expand retrieval one evidence-backed tier at a time.
-- **Existing owner before new file.** A normal edit defaults to zero new source files. Extend the clean functional owner first; create a new file only for a genuinely new independent/reusable responsibility with no suitable owner.
+- **Index broadly; fetch narrowly.** Do not broad-read core, unrelated plugins, uploads, vendor/cache, or root files "just in case".
+- **Existing owner before new file. A normal edit defaults to zero new source files.** Extend the clean functional owner first; create a file only for a genuinely new independent/reusable responsibility with no suitable owner.
 - Do not create vague file families such as `site-parts.php` + `site-parts-migration.php` for one normal feature. Use short functional names and split only on real ownership/lifecycle boundaries.
 - Current Builder/user-edited data is source of truth after initial seed. Never overwrite a whole Builder tree for a small update.
-- Real Header/Footer/Archive/Single/Woo work uses real Bricks templates and current-version storage/conditions, not fake PHP pages.
+- Real Header/Footer/Archive/Single/Woo work uses real Bricks templates/current storage and conditions, not fake PHP pages.
 - Bricks tree changes preserve unique IDs, reciprocal `parent`/`children`, sibling order, and unrelated settings.
-- Custom project-owned sections should use native Bricks elements when possible; if a custom Bricks element is justified, normal editor-owned content/data must be exposed through suitable Builder controls/dynamic data instead of hard-coded render arrays or fixed IDs.
-- **Migration has a threshold.** Normal code/layout/setup/template creation is not a migration. Use migration machinery only when transforming already-persisted Builder/DB/content state that must be safely, idempotently upgraded while preserving user edits. Keep small tightly coupled migration logic in the existing owner; create a dedicated migration module only for a proven independent/sequential migration lifecycle.
-- Generated template/page/post/menu data must not duplicate under concurrent requests. Use stable semantic identity and concurrency-safe creation when seeding is involved.
-- After real Bricks DB mutation, cache/generated CSS refresh is part of the write when required by the installed setup.
-- Desktop/mobile navigation consumes one real WordPress menu source; do not maintain duplicate menu datasets.
-- WooCommerce owns product/cart/session/checkout/order state; Bricks owns presentation. Preserve Woo endpoints, nonces, notices, fragments, variations, forms, and lifecycle behavior.
-- Product/post items reuse the existing shared normal renderer/layout across archive, taxonomy, related, featured, search, homepage, slider, and similar contexts unless the user explicitly requests a special variant.
-- Frontend pages/components reuse the site's global design system for shell/gutters, typography, colors, spacing, radius, controls, shadows, and transitions. Do not invent page-local values when an equivalent token exists.
-- Global `:root`/design tokens belong to `main.css`, `base.css`, `variables.css`, or the project's existing global layer; component stylesheets own component rules only.
+- Prefer native Bricks sections; if a custom element is justified, editor-owned content/data must use suitable Builder controls/dynamic data rather than hard-coded arrays/IDs.
+- **Migration has a threshold.** Normal code/layout/setup/template creation is not a migration. Use migration machinery only for already-persisted Builder/DB/content state that must be safely, idempotently upgraded while preserving user edits. Keep small coupled migration logic in the existing owner; create a dedicated migration module only for a proven independent/sequential migration lifecycle.
+- Generated template/page/post/menu data must not duplicate under concurrent requests; use stable semantic identity and concurrency-safe creation.
+- After real Bricks DB mutation, refresh relevant cache/generated CSS when required by the installed setup.
+- Desktop/mobile navigation consumes one WordPress menu source; do not maintain duplicate menu datasets.
+- WooCommerce owns product/cart/session/checkout/order state; Bricks owns presentation. Preserve Woo lifecycle behavior.
+- Product/post items reuse the existing shared normal renderer/layout across contexts unless a special variant is explicitly requested.
+- Frontend components reuse the site's global design system; do not invent page-local values when equivalent tokens exist.
+- Global `:root`/design tokens belong to the established global CSS layer; component stylesheets own component rules only.
 - Discover project data instead of hard-coding domain, prefix, IDs, Woo page IDs/slugs, menu locations, or discoverable taxonomies.
-- Do not claim exact live database state unless a live DB-capable tool actually verified it.
+- Do not claim exact live database state unless a live DB-capable tool verified it.
 
 ## Progressive resource loading
 
-The runtime routes only resources relevant to the task:
+The runtime routes only task-relevant resources:
 
 - `core-checklist.md` — compact checks for every task.
-- `retrieval-scope.md` — source discovery/fetch scope, evidence-driven expansion, core/reference boundaries.
-- `code-organization.md` — files/modules/assets/component/page ownership and new-file budget.
-- `design-system.md` — frontend CSS, layout consistency, responsive visual system.
-- `builder-editability.md` — custom Bricks controls, configurable sections, shortcode-to-element migration, Builder-owned data.
-- `data-seeding.md` — generated data, concurrency-safe seed, duplicate repair, live-DB evidence.
-- `templates.md` — Bricks template storage, conditions, archive/single/header/footer.
-- `woocommerce.md` — WooCommerce-specific ownership and native flows.
-- `migrations.md` — only for real persisted Builder/DB/content transformations, rollback and CSS/cache transaction.
-- `snippets.md` — implementation snippets for elements, menus, CSS/JS, AJAX and helpers.
-- `patterns.md` — broader reusable architecture/implementation patterns.
-- `validation.md` — full acceptance checklist only for broad audits/reviews; ordinary tasks use the compact checklist plus their domain resource.
+- `retrieval-scope.md` — source discovery/fetch boundaries.
+- `code-organization.md` — files/modules/assets/page ownership and new-file budget.
+- `design-system.md` — frontend layout/design consistency.
+- `builder-editability.md` — custom controls/configurable Builder content.
+- `data-seeding.md` — generated data, safe seed/duplicate repair.
+- `templates.md` — Bricks template storage/conditions.
+- `woocommerce.md` — Woo ownership/native flows.
+- `migrations.md` — only real persisted Builder/DB/content transformations, rollback/cache transaction.
+- `snippets.md` — implementation snippets.
+- `patterns.md` — reusable architecture patterns.
+- `validation.md` — full checklist only for broad audits/reviews.
 
-For explicit requests, route primarily from the request. For short referential follow-ups such as "sửa tiếp phần này", use the current ranked Project Brain/relevant-file evidence to recover the task domain without loading unrelated resources.
+For explicit requests, route primarily from the request. For short referential follow-ups such as "sửa tiếp phần này", use ranked Project Brain/relevant-file evidence to recover the domain without loading unrelated resources.
 
-Resource loading uses a soft context budget for speed. **Never drop a selected mandatory domain rule to satisfy that budget.** If context must be reduced, omit support/example resources such as `snippets.md` or `patterns.md` first. Required domain resources and `validation.md` when explicitly routed remain authoritative even if they cause a soft-budget overflow.
+Resource loading uses a soft context budget. **Never drop a selected mandatory domain rule to satisfy that budget.** Omit support/examples such as `snippets.md` or `patterns.md` first; required domain resources remain authoritative.
 
-Do not load every resource "just in case". Attached resources are mandatory; unattached resources are not required unless the task materially changes and routing must be reconsidered.
+**Do not load every resource "just in case".** Attached resources are mandatory; unattached resources are not required unless the task materially changes.
 
 ## Completion
 
-Before reporting done, validate only what the task touched: syntax where executable, correct Bricks data/conditions when touched, Builder editability of configurable custom elements, generated CSS/cache after DB writes, responsive states for UI, preservation of unrelated Builder edits, no new duplicate data/layout/component, **no unnecessary new file/migration module**, and no stale override/enqueue left after refactor.
+Validate only what the task touched: syntax where executable, Bricks data/conditions, Builder editability, generated CSS/cache after DB writes, responsive UI, preservation of unrelated Builder edits, no duplicate data/layout/component, **no unnecessary new file/migration module**, and no stale override/enqueue after refactor.
 
-If a required check cannot run because the connector lacks the capability, state that limitation exactly instead of reporting it as passed.
+If a required check cannot run, state that limitation exactly instead of reporting it as passed.
