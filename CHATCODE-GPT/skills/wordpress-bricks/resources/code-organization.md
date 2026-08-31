@@ -2,17 +2,61 @@
 
 Use this resource when creating, renaming, reorganizing, or refactoring child-theme files/assets. Follow the project's clean existing convention first; otherwise prefer obvious functional ownership.
 
+## Preferred WordPress + Bricks child-theme architecture
+
+For a new/clean Bricks child theme, or when deliberately cleaning up a messy project, prefer this shape when the corresponding responsibilities actually exist:
+
+```text
+bricks-child/
+├─ functions.php                 # bootstrap/enqueue only
+├─ inc/
+│  ├─ core/
+│  │  ├─ helpers.php             # shared helpers
+│  │  └─ templates.php           # shared Bricks template create/update/discovery helpers
+│  ├─ setup/
+│  │  ├─ media.php               # media/image-size setup
+│  │  └─ menus.php               # menu registration/setup
+│  └─ templates/
+│     ├─ header.php              # Header-specific template ownership
+│     ├─ footer.php              # Footer-specific template ownership
+│     └─ single-product.php      # Single Product-specific template ownership
+├─ elements/
+│  ├─ product-support.php        # reusable custom Bricks element
+│  └─ ...                        # product-card, CTA, other proven reusable elements
+└─ assets/css/
+   ├─ main.css                   # ONLY tokens/base/global
+   ├─ header-footer.css          # Header/Footer presentation
+   └─ single-product.css         # Single Product presentation
+```
+
+Ownership contract:
+
+- `functions.php` is the thin entrypoint: require/bootstrap modules and enqueue assets. Do not turn it into a feature dump, template renderer, migration bucket, or large helper library.
+- `inc/core/helpers.php` holds genuinely shared project helpers used across more than one feature/domain. Feature-specific helpers stay with their owner.
+- `inc/core/templates.php` holds shared Bricks template discovery/create/update utilities. It is **not** a place for one-off template content, per-template UI, or arbitrary migrations.
+- `inc/setup/` owns site setup/registration concerns such as menus and media. Do not put Header/Footer implementation into a vague setup file.
+- `inc/templates/` owns template-specific project code such as Header, Footer, Archive, Single Product, etc. Prefer `inc/templates/header.php` over vague `inc/setup/site-parts.php` when Header is the real responsibility.
+- `elements/` owns reusable custom Bricks Element classes/components. Create one only for a proven reusable/native-gap responsibility; do not wrap ordinary static layout in PHP just to have an element file.
+- `assets/css/main.css` owns only global tokens/base/site-wide rules. Template/page/component CSS stays with its scope.
+- This tree is a preferred ownership model, **not a scaffold checklist**. Do not create empty `helpers.php`, `media.php`, `menus.php`, template files, element files, or CSS files merely to make the tree look complete.
+- Small projects may keep tightly coupled responsibilities together until a real independent owner exists. Refactor into this shape when it reduces ambiguity, duplication, or file sprawl—not for aesthetics alone.
+
 ## File naming
 
 Prefer short functional names:
 
 ```text
-inc/setup/header-footer.php
-inc/header/header.php
-inc/footer/footer.php
+inc/core/helpers.php
+inc/core/templates.php
+inc/setup/media.php
+inc/setup/menus.php
+inc/templates/header.php
+inc/templates/footer.php
+inc/templates/single-product.php
+elements/product-support.php
 assets/css/main.css
 assets/css/header-footer.css
-assets/css/product-card.css
+assets/css/single-product.css
 assets/css/home.css
 ```
 
@@ -22,7 +66,7 @@ Rules:
 - Do not use vague default names such as `site-chrome`, `site-parts`, `misc`, `stuff`, `common2`, `new`, `final`, `latest`, `v2` unless the project intentionally uses that convention.
 - Do not prefix files with `bricks-` merely because the site uses Bricks.
 - Inspect existing files before creating another parallel module.
-- Combine small tightly coupled responsibilities (`header-footer.php/css`); split only when responsibilities are genuinely independent.
+- Combine small tightly coupled responsibilities; split only when responsibilities are genuinely independent.
 
 ## File creation budget: existing owner first
 
@@ -134,23 +178,30 @@ search query   ─┘
 PASS:
 
 ```text
-assets/css/main.css          # global tokens/base
-assets/css/home.css          # homepage section composition
-assets/css/product-card.css  # reusable product item
-inc/setup/header-footer.php  # small coupled header/footer setup when no cleaner owner exists
+functions.php                    # thin bootstrap/enqueue entry
+inc/core/templates.php           # shared Bricks template helpers
+inc/setup/menus.php              # menu registration/setup
+inc/templates/header.php         # Header-specific owner
+inc/templates/footer.php         # Footer-specific owner
+elements/product-support.php     # reusable custom Bricks element
+assets/css/main.css              # global tokens/base
+assets/css/header-footer.css     # Header/Footer presentation
+assets/css/single-product.css    # Single Product presentation
+assets/css/home.css              # homepage section composition
 ```
 
 FAIL:
 
 ```text
-assets/css/header-footer.css # contains site-wide :root tokens
+functions.php                    # contains large feature/template implementations
+assets/css/header-footer.css     # contains site-wide :root tokens
 home-section-2.css
 home-section-3.css
-home-section-4.css           # all page-only, separately enqueued
+home-section-4.css               # all page-only, separately enqueued
 site-parts.php
-site-parts-migration.php     # vague pair created for one normal feature
+site-parts-migration.php         # vague pair created for one normal feature
 archive-product-item.php
-featured-product-item.php    # same normal card duplicated
+featured-product-item.php        # same normal card duplicated
 ```
 
-Goal: **global things in the global layer; page-only sections in the page layer; reusable components in the component layer; repeated item presentation has one shared implementation; filenames describe responsibility; ordinary edits extend existing owners instead of creating file sprawl.**
+Goal: **thin bootstrap; core helpers shared; setup registrations scoped; template code in `inc/templates`; reusable Bricks elements in `elements`; global CSS stays global; page-only sections stay in the page layer; repeated item presentation has one shared implementation; ordinary edits extend existing owners instead of creating file sprawl.**
