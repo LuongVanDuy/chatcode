@@ -79,10 +79,10 @@ function fakeApi() {
   // Task/session mutations are also bound to the locked target.
   {
     const base = fakeApi();
+    const other = await base.prepareTask('vitas', 'internal pre-existing session');
     const api = createProjectScopeApi(base);
     const task = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
     await api.completeTask(task.task_id);
-    const other = await base.prepareTask('vitas', 'internal');
     await assert.rejects(() => api.completeTask(other.task_id), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
