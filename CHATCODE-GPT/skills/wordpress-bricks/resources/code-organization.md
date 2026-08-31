@@ -19,10 +19,34 @@ assets/css/home.css
 Rules:
 
 - Name files after what they own: `header`, `footer`, `menu`, `product-card`, `checkout`, `home`, `main`.
-- Do not use vague default names such as `site-chrome`, `misc`, `stuff`, `common2`, `new`, `final`, `latest`, `v2` unless the project intentionally uses that convention.
+- Do not use vague default names such as `site-chrome`, `site-parts`, `misc`, `stuff`, `common2`, `new`, `final`, `latest`, `v2` unless the project intentionally uses that convention.
 - Do not prefix files with `bricks-` merely because the site uses Bricks.
 - Inspect existing files before creating another parallel module.
 - Combine small tightly coupled responsibilities (`header-footer.php/css`); split only when responsibilities are genuinely independent.
+
+## File creation budget: existing owner first
+
+A normal change should usually create **zero new source files**.
+
+Decision order:
+
+```text
+search current owner
+-> clean owner exists: edit it
+-> no owner: can the change fit an established functional module? use it
+-> genuinely new independent/reusable responsibility: create one clear owner
+-> multiple new files only when each has a proven separate lifecycle/responsibility
+```
+
+Rules:
+
+- Do not create a new setup/helper/parts file just to avoid editing an existing clean owner.
+- Do not pair a normal feature file with a `*-migration.php` file by default.
+- Do not split one small feature into `site-parts.php`, `site-parts-migration.php`, `site-parts-setup.php`, etc.
+- Initial implementation and its small tightly coupled setup may live together in the functional owner.
+- Separate PHP/JS/CSS assets when their runtime/lifecycle genuinely differs, not because every section deserves a file.
+- Before adding a second new file for one request, state internally what independent responsibility requires it; if none exists, keep the implementation together.
+- Reuse or extend a clean existing module even if its filename is not the hypothetical filename you would choose for a new project.
 
 ## Global CSS belongs to the global layer
 
@@ -113,6 +137,7 @@ PASS:
 assets/css/main.css          # global tokens/base
 assets/css/home.css          # homepage section composition
 assets/css/product-card.css  # reusable product item
+inc/setup/header-footer.php  # small coupled header/footer setup when no cleaner owner exists
 ```
 
 FAIL:
@@ -122,8 +147,10 @@ assets/css/header-footer.css # contains site-wide :root tokens
 home-section-2.css
 home-section-3.css
 home-section-4.css           # all page-only, separately enqueued
+site-parts.php
+site-parts-migration.php     # vague pair created for one normal feature
 archive-product-item.php
 featured-product-item.php    # same normal card duplicated
 ```
 
-Goal: **global things in the global layer; page-only sections in the page layer; reusable components in the component layer; repeated item presentation has one shared implementation; filenames describe responsibility.**
+Goal: **global things in the global layer; page-only sections in the page layer; reusable components in the component layer; repeated item presentation has one shared implementation; filenames describe responsibility; ordinary edits extend existing owners instead of creating file sprawl.**
