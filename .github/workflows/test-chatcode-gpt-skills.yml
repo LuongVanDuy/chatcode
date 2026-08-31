@@ -16,6 +16,7 @@ on:
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'scripts/smoke-project-scope.cjs'
       - 'package.json'
@@ -34,6 +35,7 @@ on:
       - 'mcp-server.mjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'scripts/smoke-project-scope.cjs'
       - 'package.json'
@@ -62,12 +64,15 @@ jobs:
           node --check mcp-server.mjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
+          node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
       - name: Builder editability and page asset ownership
         run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
+      - name: Focused external reference and file discipline
+        run: node scripts/smoke-wordpress-bricks-focus-discipline.cjs
       - name: Scope-first WordPress retrieval
         run: node scripts/smoke-wordpress-retrieval-scope.cjs
       - name: Project scope lock
