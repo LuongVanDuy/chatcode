@@ -75,9 +75,10 @@ try {
   const publicUrl = new URL(`${baseUrl}${server.route}`);
   console.log(`Testing remote MCP endpoint: ${publicUrl.origin}/<secret>/mcp`);
 
-  // Quick Tunnels can need a moment after printing the URL before edge routing is ready.
+  // Quick Tunnels may print the URL before DNS/edge routing has propagated.
+  // Give DNS and edge routing up to ~60 seconds while keeping each attempt isolated.
   let lastError;
-  for (let attempt = 1; attempt <= 8; attempt++) {
+  for (let attempt = 1; attempt <= 20; attempt++) {
     try {
       client = new Client({ name: 'personal-chatcode-remote-ci', version: '1.0.0' });
       const transport = new StreamableHTTPClientTransport(publicUrl);
@@ -94,9 +95,10 @@ try {
       break;
     } catch (error) {
       lastError = error;
+      console.log(`Remote tunnel attempt ${attempt}/20 not ready yet: ${error?.cause?.code || error?.code || error?.message || error}`);
       try { await client?.close(); } catch {}
       client = undefined;
-      if (attempt < 8) await new Promise(resolve => setTimeout(resolve, 2500));
+      if (attempt < 20) await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
   if (lastError) throw lastError;
