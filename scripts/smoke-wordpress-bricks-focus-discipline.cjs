@@ -15,6 +15,23 @@ assert.ok(core.includes('do not broad-search unrelated websites'));
 assert.ok(core.includes('default new-file budget is zero'));
 assert.ok(core.includes('normal code/layout/template edit is **not** a migration'));
 
+assert.ok(organization.includes('preferred wordpress + bricks child-theme architecture'));
+assert.ok(organization.includes('functions.php                 # bootstrap/enqueue only'));
+assert.ok(organization.includes('inc/core/helpers.php'));
+assert.ok(organization.includes('inc/core/templates.php'));
+assert.ok(organization.includes('inc/setup/media.php'));
+assert.ok(organization.includes('inc/setup/menus.php'));
+assert.ok(organization.includes('inc/templates/header.php'));
+assert.ok(organization.includes('inc/templates/footer.php'));
+assert.ok(organization.includes('inc/templates/single-product.php'));
+assert.ok(organization.includes('elements/product-support.php'));
+assert.ok(organization.includes('assets/css/main.css'));
+assert.ok(organization.includes('assets/css/header-footer.css'));
+assert.ok(organization.includes('assets/css/single-product.css'));
+assert.ok(organization.includes('thin entrypoint'));
+assert.ok(organization.includes('not a scaffold checklist'));
+assert.ok(organization.includes('do not create empty'));
+
 assert.ok(organization.includes('file creation budget: existing owner first'));
 assert.ok(organization.includes('normal change should usually create **zero new source files**'));
 assert.ok(organization.includes('site-parts.php'));
@@ -30,6 +47,12 @@ assert.ok(migrations.includes('proven independent migration lifecycle'));
 assert.ok(skill.includes('do not broad-search unrelated websites merely for inspiration'));
 assert.ok(skill.includes('a normal edit defaults to zero new source files'));
 assert.ok(skill.includes('migration has a threshold'));
+
+const architectureTask = chooseResources(
+  manifest,
+  'Reorganize the Bricks child theme so functions.php is only bootstrap/enqueue, templates live in inc/templates and reusable custom elements live in elements'
+);
+assert.ok(architectureTask.includes('resources/code-organization.md'), 'child-theme architecture task must route code-organization rules');
 
 const initialHeader = chooseResources(
   manifest,
@@ -56,4 +79,4 @@ const referenceBuild = chooseResources(
 );
 assert.ok(referenceBuild.includes('resources/core-checklist.md'));
 
-console.log('Focused Bricks delivery PASS: reference scope + zero-file default + migration threshold');
+console.log('Focused Bricks delivery PASS: architecture + reference scope + zero-file default + migration threshold');
