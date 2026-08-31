@@ -121,5 +121,4 @@ jobs:
           }
 
           gh release create $tag @assets --target $env:GITHUB_SHA --title "ChatCode Cá Nhân $tag" --generate-notes --latest
-          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag."
-          }
+          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag." }
