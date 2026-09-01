@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.16**
+> Phiên bản hiện tại: **v1.0.18**
 
 ## Kiến trúc
 
@@ -467,18 +467,18 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.16** là bản acceptance hardening cho v1.0.15, tập trung sửa logic mà không thêm dependency hay runtime layer: project scope được giải phóng khi task/work session hoàn tất hoặc rollback nhưng session mutation vẫn bị khóa đúng target; thao tác filesystem có explicit path không còn bị route nhầm sang DATA/DEEP; Owner Resolver ưu tiên explicit user path trước semantic fallback; `project_context` ưu tiên Bricks child-theme owners cho task home/custom elements; Bricks version được lấy từ local theme/plugin metadata và chỉ tin version-specific Builder JSON shape khi version khớp chính xác.
+**v1.0.18** là bản maintenance hardening nhỏ, tập trung ngăn version drift giữa source, tài liệu và updater mà không thêm dependency hay runtime layer. `test:update` giờ kiểm tra version trong `package.json`, dòng version đầu README và phần `Release hiện tại`; nếu lệch nhau, CI dừng trước khi build/publish installer. Bản này giữ nguyên toàn bộ logic classifier, Owner Resolver, Project Scope, terminal và Bricks đã PASS ở v1.0.17.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.18** | Release consistency guard: package/README/update pipeline không được drift version. |
+| **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 | **v1.0.15** | Lean I/O optimization: parallel scoped context reads và honor micro/FAST retrieval budget end-to-end. |
 | **v1.0.14** | Lean fast-path: bounded built-in skill cache và context/patch budget nhỏ hơn cho micro task. |
-| **v1.0.13** | Project tab state hotfix, sửa leakage/state behavior ở tab dự án. |
-| **v1.0.12** | Permissions, switches và log/UI polish. |
 
-Source/package hiện đặt target release **1.0.16**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.18**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
