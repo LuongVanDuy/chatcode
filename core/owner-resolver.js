@@ -116,11 +116,35 @@ function componentOwner(rows, request) {
   return ranked[0]?.row || null;
 }
 
-function allowedKindsForTask(flags, primaryKind = '') {
+function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
+  if (taskType === 'PRODUCTION') return ['deployment'];
+  if (taskType === 'DATA') return ['data_model'];
+  if (taskType === 'BRICKS_BUILDER') {
+    if (flags.header && flags.footer && flags.template) return ['header_template','footer_template'];
+    if (flags.header && flags.template) return ['header_template'];
+    if (flags.footer && flags.template) return ['footer_template'];
+    if (flags.archive && flags.single && flags.template) return ['archive_template','single_template'];
+    if (flags.archive && flags.template) return ['archive_template'];
+    if (flags.single && flags.template) return ['single_template'];
+    return ['builder_component'];
+  }
+  if (taskType === 'FAST_UI') {
+    if (flags.header && flags.style) return ['header_css','global_css'];
+    if (flags.footer && flags.style) return ['footer_css','global_css'];
+    if (flags.homepage && flags.style) return ['homepage_css','global_css'];
+    if (flags.productCard && flags.style) return ['product_css','product_renderer'];
+    if (flags.productCard) return ['product_renderer','product_css'];
+    if (flags.globalStyle && flags.style) return ['global_css'];
+    if (flags.product) return ['product_renderer','product_css'];
+    if (flags.style) return ['global_css'];
+    return primaryKind ? [primaryKind] : [];
+  }
   if (flags.production) return ['deployment'];
   if (flags.data) return ['data_model'];
+  if (flags.header && flags.footer && flags.template) return ['header_template','footer_template'];
   if (flags.header && flags.template) return ['header_template'];
   if (flags.footer && flags.template) return ['footer_template'];
+  if (flags.archive && flags.single && flags.template) return ['archive_template','single_template'];
   if (flags.archive && flags.template) return ['archive_template'];
   if (flags.single && flags.template) return ['single_template'];
   if (flags.header && flags.style) return ['header_css','global_css'];
@@ -135,8 +159,11 @@ function allowedKindsForTask(flags, primaryKind = '') {
   return primaryKind ? [primaryKind] : [];
 }
 
-function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbackCandidates = [] } = {}) {
+function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbackCandidates = [], taskType = '' } = {}) {
   const flags = requestFlags(request), rows = fileRows(inspect), facts = projectProfile?.facts || {};
+  const isDataTask = taskType === 'DATA';
+  const isProductionTask = taskType === 'PRODUCTION';
+  const isBuilderTask = taskType === 'BRICKS_BUILDER';
   const map = [];
   const add = entry => {
     if (!entry) return;
@@ -220,12 +247,12 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   ]);
   if (productCss) add(evidenceEntry('product_css', { path:productCss.path, confidence:0.88, basis:['product component CSS path'] }));
 
-  if (flags.builder) {
+  if (flags.builder && (!taskType || isBuilderTask)) {
     const component = componentOwner(rows, request);
     if (component) add(evidenceEntry('builder_component', { path:component.path, confidence:0.84, basis:['request tokens match existing Builder/component source'] }));
   }
 
-  if (flags.data) {
+  if (isDataTask || (!taskType && flags.data)) {
     const dataOwner = firstPathMatch(rows, [
       lower => /(?:^|\/)(?:post-type|post_type|cpt)(?:[-_.][^/]*)?\.php$/.test(lower),
       lower => /\/(?:post-types?|cpt|content-types?)\//.test(lower),
@@ -234,7 +261,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     if (dataOwner) add(evidenceEntry('data_model', { path:dataOwner.path, confidence:0.92, basis:['CPT/data model owner path'] }));
   }
 
-  if (flags.production) {
+  if (isProductionTask || (!taskType && flags.production)) {
     const deployOwner = firstPathMatch(rows, [
       lower => /(?:^|\/)(?:deploy|deployment|ftp|sftp)[^/]*\.(?:js|cjs|mjs|ps1|sh|json|ya?ml)$/.test(lower),
       lower => /(?:^|\/)\.vscode\/sftp\.json$/.test(lower)
@@ -251,22 +278,41 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   };
 
   let primary = null;
-  if (flags.production) primary = choose(['deployment']);
-  else if (flags.data) primary = choose(['data_model']);
-  else if (flags.header && flags.template) primary = choose(['header_template']);
-  else if (flags.footer && flags.template) primary = choose(['footer_template']);
-  else if (flags.archive && flags.template) primary = choose(['archive_template']);
-  else if (flags.single && flags.template) primary = choose(['single_template']);
-  else if (flags.header && flags.style) primary = choose(['header_css','global_css']);
-  else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
-  else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
-  else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
-  else if (flags.productCard) primary = choose(['product_renderer','product_css']);
-  else if (flags.builder) primary = choose(['builder_component']);
-  else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
+  if (isProductionTask) primary = choose(['deployment']);
+  else if (isDataTask) primary = choose(['data_model']);
+  else if (isBuilderTask) {
+    if (flags.header && flags.template) primary = choose(['header_template']);
+    else if (flags.footer && flags.template) primary = choose(['footer_template']);
+    else if (flags.archive && flags.template) primary = choose(['archive_template']);
+    else if (flags.single && flags.template) primary = choose(['single_template']);
+    else primary = choose(['builder_component']);
+  } else if (taskType === 'FAST_UI') {
+    if (flags.header && flags.style) primary = choose(['header_css','global_css']);
+    else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
+    else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
+    else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
+    else if (flags.productCard) primary = choose(['product_renderer','product_css']);
+    else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
+    else if (flags.product) primary = choose(['product_renderer','product_css']);
+    else if (flags.style) primary = choose(['global_css']);
+  } else {
+    if (flags.production) primary = choose(['deployment']);
+    else if (flags.data) primary = choose(['data_model']);
+    else if (flags.header && flags.template) primary = choose(['header_template']);
+    else if (flags.footer && flags.template) primary = choose(['footer_template']);
+    else if (flags.archive && flags.template) primary = choose(['archive_template']);
+    else if (flags.single && flags.template) primary = choose(['single_template']);
+    else if (flags.header && flags.style) primary = choose(['header_css','global_css']);
+    else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
+    else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
+    else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
+    else if (flags.productCard) primary = choose(['product_renderer','product_css']);
+    else if (flags.builder) primary = choose(['builder_component']);
+    else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
+  }
 
-  if (!primary && flags.product) primary = choose(['product_renderer','product_css']);
-  if (!primary && flags.style && !flags.homepage && !flags.header && !flags.footer) primary = choose(['global_css']);
+  if (!primary && taskType !== 'DATA' && flags.product) primary = choose(['product_renderer','product_css']);
+  if (!primary && taskType !== 'DATA' && flags.style && !flags.homepage && !flags.header && !flags.footer) primary = choose(['global_css']);
 
   if (!primary) {
     const fallback = (fallbackCandidates || []).find(item => item?.path);
@@ -282,7 +328,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     }
   }
 
-  const allowedKinds = new Set(allowedKindsForTask(flags, primary?.kind || ''));
+  const allowedKinds = new Set(allowedKindsForTask(flags, primary?.kind || '', taskType));
   if (primary) allowedKinds.add(primary.kind);
   const scoped = map.filter(item => allowedKinds.has(item.kind)).sort((a,b) => {
     if (primary && a.kind === primary.kind && a.path === primary.path) return -1;
@@ -297,12 +343,13 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   ).slice(0,4);
 
   return {
-    version:2,
+    version:3,
     primary,
     entries:scoped,
     companion_paths:companionPaths,
     enforce_paths:enforcePaths,
     owner_set_mode:enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
+    task_type:taskType || null,
     fallback_used:primary?.status === OWNER_STATUS.CANDIDATE,
     requires_owner_read:!!(primary?.path && !exactFile(rows, primary.path))
   };
