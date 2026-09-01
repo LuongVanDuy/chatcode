@@ -1,13 +1,34 @@
 const fs = require('fs');
 const path = require('path');
+const { searchUiKnowledge, formatUiKnowledge } = require('./ui-knowledge');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
-const MAX_ENTRY_CHARS = 6000;
+const MAX_ENTRY_CHARS = 4200;
 const MAX_RESOURCE_CHARS = 7000;
-const MAX_SKILL_CONTEXT_CHARS = 10000;
+const MAX_SKILL_CONTEXT_CHARS = 12000;
+const MAX_DOMAIN_CHARS = 3200;
+const MAX_DOMAINS = 2;
 const CORE_RESOURCE = 'resources/core-checklist.md';
 const WORDPRESS_BRICKS_SKILL_ID = 'wordpress-bricks';
 const SUPPORT_RESOURCES = new Set(['resources/snippets.md', 'resources/patterns.md']);
+
+const DOMAIN_FILES = Object.freeze({
+  wordpress:'domains/wordpress.md',
+  bricks:'domains/bricks.md',
+  woocommerce:'domains/woocommerce.md',
+  media:'domains/media.md',
+  data:'domains/data.md',
+  ui:'domains/ui.md'
+});
+
+const DOMAIN_COMPACT = Object.freeze({
+  wordpress:'WordPress: reuse current owners/APIs/hooks; prefix only public/global boundaries; keep setup/admin work off ordinary frontend requests.',
+  bricks:'Bricks: native elements/dynamic data first; custom element only for a proven native gap; preserve Builder editability and existing IDs/relations.',
+  woocommerce:'WooCommerce: only when Woo behavior is explicit/relevant; use Woo public APIs/hooks and preserve cart/checkout/order semantics.',
+  media:'Media/icons: map reference media by semantic slot with allow_reuse=false by default; use Bricks/native verified icon infrastructure for functional icons.',
+  data:'Data: distinguish setup from migration; make seed/migration idempotent, recovery-aware and terminal after success; never keep one-time work on frontend runtime.',
+  ui:'UI: reuse project tokens/components; separate global vs local ownership; apply only verified UI knowledge matches and validate responsive/interaction states.'
+});
 
 function safeRead(file, maxChars) {
   try { return String(fs.readFileSync(file, 'utf8') || '').slice(0, maxChars); }
@@ -88,6 +109,7 @@ function classifyWooCommerceTask(request, inspect = null) {
   return genericProduct && (inspect == null || hasWooCommerceProjectEvidence(inspect));
 }
 
+// Legacy resource routing remains available for compatibility/tests. Modern prepare_task uses domain packs below.
 function chooseResources(manifest, request, inspect = null) {
   const available = new Set((manifest?.resources || []).map(String));
   const requestText = String(request || '').toLowerCase();
@@ -122,6 +144,32 @@ function chooseResources(manifest, request, inspect = null) {
   return [CORE_RESOURCE, primary].filter((file,index,array) => file && available.has(file) && array.indexOf(file) === index);
 }
 
+function routeSkillDomains(request, inspect = null, taskCard = null) {
+  const requestText = String(request || '').toLowerCase();
+  const evidenceText = shouldUseProjectEvidence(request) ? routingEvidenceText(inspect) : '';
+  const text = `${requestText}\n${evidenceText}`;
+  const taskType = String(taskCard?.type || '').toUpperCase();
+  const target = String(taskCard?.target || '').toLowerCase();
+
+  const data = taskType === 'DATA' || /migration|migrate|database|\bdb\b|builder\s+data|element\s+id|seed|reseed|bulk\s+import|import\s+(?:products?|posts?|media)|wp_insert_post|compare-and-set|rollback|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
+  const media = /reference\s+(?:image|media)|ảnh\s+(?:mẫu|tham\s+khảo)|hình\s+ảnh\s+(?:mẫu|tham\s+khảo)|upload\s+(?:image|media)|media\s+library|attachment\s+id|source\s+url|duplicate\s+(?:image|media)|\bicon\b|svg|zalo|logo|chứng\s+nhận|bộ\s+công\s+thương/.test(text);
+  const explicitWoo = /woocommerce|\bwoo\b|cart|checkout|order|variation|mini\s*cart|thank\s*you|giỏ\s+hàng|thanh\s+toán/.test(requestText) || /checkout|cart|order/.test(target);
+  const woo = explicitWoo && hasWooCommerceProjectEvidence(inspect);
+  const bricks = taskType === 'BRICKS_BUILDER' || /bricks|builder[-\s]?editable|builder\s+controls?|set_controls|custom\s+(?:bricks\s+)?element|query\s+loop|dynamic\s+data|template|header|footer|archive|taxonomy|single\s+(?:post|product)|repeater|shortcode\s+element/.test(text);
+  const ui = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|\.scss\b|style|font|typography|color|màu|spacing|padding|margin|radius|shadow|container|hero|breadcrumb|card|button|input|width|slider|testimonial|cảm\s+nhận|animation|transition/.test(text);
+  const wordpress = /\bphp\b|functions\.php|enqueue|hook|action|filter|nonce|capability|sanitize|escape|ajax|rest\s+api|child\s*theme|plugin|prefix|namespace|register_post_type|register_taxonomy/.test(text);
+
+  let domains = [];
+  if (data) domains = ['data', ...(bricks ? ['bricks'] : wordpress ? ['wordpress'] : [])];
+  else if (media) domains = ['media', ...(ui ? ['ui'] : bricks ? ['bricks'] : [])];
+  else if (woo) domains = ['woocommerce', ...(ui ? ['ui'] : bricks ? ['bricks'] : [])];
+  else if (bricks) domains = ['bricks', ...(ui ? ['ui'] : [])];
+  else if (ui) domains = ['ui'];
+  else if (wordpress) domains = ['wordpress'];
+
+  return [...new Set(domains)].filter(domain => DOMAIN_FILES[domain]).slice(0, MAX_DOMAINS);
+}
+
 function loadResourcesWithBudget(dir, selected) {
   const resources = [], omitted = [];
   let usedChars = 0;
@@ -135,16 +183,57 @@ function loadResourcesWithBudget(dir, selected) {
   }
   return {
     resources,
+    budget:{ soft_limit_chars:MAX_SKILL_CONTEXT_CHARS, used_chars:usedChars, exceeded_by_required_rules:false, omitted_support_resources:omitted }
+  };
+}
+
+function loadDomainPacks(dir, domains, request, inspect = null) {
+  const resources = [];
+  const omitted = [];
+  let usedChars = 0;
+
+  const add = (name, content) => {
+    if (!content) return;
+    const remaining = MAX_SKILL_CONTEXT_CHARS - usedChars;
+    if (remaining <= 0) { omitted.push(name); return; }
+    const clipped = String(content).slice(0, remaining);
+    resources.push({ name, content:clipped });
+    usedChars += clipped.length;
+  };
+
+  add(CORE_RESOURCE, safeRead(path.join(dir, CORE_RESOURCE), Math.min(MAX_DOMAIN_CHARS, MAX_SKILL_CONTEXT_CHARS)));
+  for (const domain of domains) {
+    const relative = DOMAIN_FILES[domain];
+    add(relative, safeRead(path.join(dir, relative), MAX_DOMAIN_CHARS));
+  }
+
+  const uiResults = domains.includes('ui') ? searchUiKnowledge(request, inspect, 3) : [];
+  const uiContext = formatUiKnowledge(uiResults);
+  if (uiContext) add('knowledge/ui-search', uiContext);
+
+  const compact = [
+    domains.length ? `Task domains: ${domains.join(', ')}` : 'Task domains: core only',
+    ...domains.map(domain => `- ${DOMAIN_COMPACT[domain]}`),
+    uiContext
+  ].filter(Boolean).join('\n').slice(0, 3200);
+
+  return {
+    resources,
+    compact_context:compact,
+    ui_results:uiResults,
     budget:{
       soft_limit_chars:MAX_SKILL_CONTEXT_CHARS,
       used_chars:usedChars,
       exceeded_by_required_rules:false,
-      omitted_support_resources:omitted
+      omitted_support_resources:omitted,
+      selected_domains:domains,
+      max_domains:MAX_DOMAINS,
+      ui_guidance_count:uiResults.length
     }
   };
 }
 
-function loadWordPressBricksSkill(inspect, request) {
+function loadWordPressBricksSkill(inspect, request, taskCard = null) {
   const evidence = hasBricksProjectEvidence(inspect);
   if (!evidence.active) return null;
   const loaded = readManifest(WORDPRESS_BRICKS_SKILL_ID);
@@ -152,8 +241,8 @@ function loadWordPressBricksSkill(inspect, request) {
   const { dir, manifest } = loaded;
   const instructions = safeRead(path.join(dir, String(manifest.entry || 'SKILL.md')), MAX_ENTRY_CHARS);
   if (!instructions) return null;
-  const selected = chooseResources(manifest, request, inspect);
-  const loadedResources = loadResourcesWithBudget(dir, selected);
+  const domains = routeSkillDomains(request, inspect, taskCard);
+  const loadedDomains = loadDomainPacks(dir, domains, request, inspect);
   return {
     id:String(manifest.id || WORDPRESS_BRICKS_SKILL_ID),
     name:String(manifest.name || 'WordPress + Bricks'),
@@ -161,13 +250,16 @@ function loadWordPressBricksSkill(inspect, request) {
     activation:'mandatory-wordpress-bricks-project-policy',
     mandatory:true,
     instructions,
-    resources:loadedResources.resources,
-    resource_context:{ selected, ...loadedResources.budget }
+    compact_context:loadedDomains.compact_context,
+    domains,
+    ui_guidance:loadedDomains.ui_results,
+    resources:loadedDomains.resources,
+    resource_context:{ selected:loadedDomains.resources.map(item => item.name), ...loadedDomains.budget }
   };
 }
 
-function skillsForTask(inspect, request) {
-  const skill = loadWordPressBricksSkill(inspect, request);
+function skillsForTask(inspect, request, taskCard = null) {
+  const skill = loadWordPressBricksSkill(inspect, request, taskCard);
   return skill ? [skill] : [];
 }
 
@@ -176,6 +268,9 @@ module.exports = {
   CORE_RESOURCE,
   WORDPRESS_BRICKS_SKILL_ID,
   MAX_SKILL_CONTEXT_CHARS,
+  MAX_DOMAINS,
+  DOMAIN_FILES,
+  DOMAIN_COMPACT,
   SUPPORT_RESOURCES,
   routingEvidenceText,
   shouldUseProjectEvidence,
@@ -186,7 +281,9 @@ module.exports = {
   hasWooCommerceProjectEvidence,
   classifyWooCommerceTask,
   chooseResources,
+  routeSkillDomains,
   loadResourcesWithBudget,
+  loadDomainPacks,
   loadWordPressBricksSkill,
   skillsForTask
 };
