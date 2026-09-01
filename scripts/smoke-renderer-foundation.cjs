@@ -15,25 +15,31 @@ for (const legacy of ['v07-runtime.js','v08-runtime.js','v081-runtime.js','v09-r
 }
 assert.ok(runtime.includes("foundation: 'ui-foundation.css'"));
 assert.ok(runtime.includes("new CustomEvent('chatcode:renderer-ready'"));
-assert.ok(runtime.includes('stage: 2'), 'current renderer must expose UI stage 2');
+assert.ok(runtime.includes('stage: 3'), 'current renderer must expose UI stage 3');
+assert.ok(runtime.includes("document.body.dataset.uiStage = '3'"), 'Stage 3 chrome must mark the document');
 assert.ok(runtime.includes("icon_system: 'lucide'"), 'current renderer must expose Lucide as the chrome icon system');
-for (const icon of ['panels-top-left','plug-zap','activity','settings','folder-plus','refresh-cw','trash-2']) {
-  assert.ok(runtime.includes(`'${icon}'`), `Stage 2 missing Lucide icon ${icon}`);
+for (const icon of ['panels-top-left','plug-zap','activity','settings','folder-plus','stethoscope','clipboard-copy','refresh-cw','trash-2','search','play','git-branch','file-diff']) {
+  assert.ok(runtime.includes(`'${icon}'`), `Stage 3 missing Lucide icon ${icon}`);
 }
-assert.ok(runtime.includes("document.body.dataset.uiStage = '2'"), 'Stage 2 chrome must mark the document');
 
 for (const token of ['--ui-bg:','--ui-sidebar:','--ui-surface:','--ui-text:','--ui-muted:','--ui-border:','--ui-accent:','--ui-radius-md:','--ui-font:']) {
   assert.ok(css.includes(token), `UI foundation missing ${token}`);
 }
 assert.ok(css.includes('color-scheme:dark'));
 assert.ok(css.includes('--shadow:var(--ui-shadow)'));
-assert.ok(css.includes('.sidebar{width:250px'), 'Stage 2 must use compact 250px sidebar');
-assert.ok(css.includes('.topbar{height:64px'), 'Stage 2 must use compact 64px topbar');
-assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'Stage 2 app shell must remove redundant topbar eyebrow');
-assert.ok(css.includes('/* Tabs become editor-style navigation rather than pills. */'));
-assert.ok(css.includes('.tabs button.active{background:transparent'), 'Stage 2 active tabs must be flat editor-style tabs');
+assert.ok(css.includes('.sidebar{width:250px'), 'Stage 3 must keep compact desktop sidebar');
+assert.ok(css.includes('.topbar{height:62px'), 'Stage 3 must use a compact 62px topbar');
+assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'topbar must not repeat eyebrow labels');
+assert.ok(css.includes('/* Dashboard: system overview, not KPI-card wall. */'));
+assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must be a flat strip');
+assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity must render as a flat log surface');
+assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'settings must use compact native-like toggles');
+assert.ok(css.includes('/* Project workspace: editor-like hierarchy. */'));
+assert.ok(css.includes('.project-page>.tabs{position:sticky'), 'project tabs must stay available while scrolling');
+assert.ok(css.includes('@media(max-width:820px){.sidebar{width:64px'), 'narrow windows must collapse sidebar to an icon rail');
+assert.ok(css.includes('@media(prefers-contrast:more)'));
 assert.ok(css.includes(':focus-visible'));
-assert.ok(css.includes('@media (prefers-reduced-motion:reduce)'));
+assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'));
 assert.equal(/https?:\/\//i.test(css), false, 'UI foundation must not depend on remote fonts/assets');
 
-console.log('Renderer foundation PASS: single entrypoint + Stage 2 compact shell + Lucide chrome + dark neutral component system');
+console.log('Renderer foundation PASS: single entrypoint + Stage 3 screen redesign + Lucide actions + responsive icon rail');
