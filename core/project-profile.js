@@ -17,7 +17,14 @@ function cleanKey(value) {
 }
 
 function isUnsafeMemory(key, value) {
-  return /password|secret|token|api[-_.\s]?key|credential|private[-_.\s]?key|https?:\/\/|www\./i.test(`${key} ${value}`);
+  const normalizedKey = cleanKey(key);
+  const text = String(value || '');
+  if (/(?:^|[-_.])(?:password|passwd|secret|credential|api[-_.]?key|access[-_.]?token|auth[-_.]?token|private[-_.]?key)(?:$|[-_.])/i.test(normalizedKey)) return true;
+  if (/https?:\/\/|www\./i.test(text)) return true;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)) return true;
+  if (/(?:password|passwd|secret|credential|api[-_.\s]?key|access[-_.\s]?token|auth[-_.\s]?token)\s*[:=]/i.test(text)) return true;
+  if (/\bbearer\s+[A-Za-z0-9._~+\/-]{8,}/i.test(text)) return true;
+  return false;
 }
 
 function normalizeDecisions(raw = []) {
@@ -190,10 +197,10 @@ function profilesEqual(a, b) {
 }
 
 function refreshProjectProfile(store, projectId, inspect = {}) {
-  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return normalizeProjectProfile();
+  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return readProjectProfile(store, projectId);
   const state = store.read();
   const index = state.projects.findIndex(project => project.id === projectId);
-  if (index < 0) return normalizeProjectProfile();
+  if (index < 0) return readProjectProfile(store, projectId);
   const project = state.projects[index];
   const current = normalizeProjectProfile(project.projectProfile, project.projectRules);
   const derived = deriveProjectFacts(inspect, current.facts, project);
@@ -215,12 +222,12 @@ function refreshProjectProfile(store, projectId, inspect = {}) {
 }
 
 function saveProjectDecisions(store, projectId, input) {
-  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return normalizeProjectProfile();
+  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return readProjectProfile(store, projectId);
   const proposed = Array.isArray(input) ? input : [];
   if (!proposed.length) return readProjectProfile(store, projectId);
   const state = store.read();
   const index = state.projects.findIndex(project => project.id === projectId);
-  if (index < 0) return normalizeProjectProfile();
+  if (index < 0) return readProjectProfile(store, projectId);
   const project = state.projects[index];
   const current = normalizeProjectProfile(project.projectProfile, project.projectRules);
   const now = new Date().toISOString();
