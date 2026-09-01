@@ -76,7 +76,7 @@ function analyzeImports(file, text) {
     const imp = /^\s*import\s+([\w.]+)/gm; while ((m = imp.exec(text))) add(m[1]);
   } else if (lang === 'Go') {
     const one = /\bimport\s+"([^"]+)"/g; while ((m = one.exec(text))) add(m[1]);
-    const block = /\bimport\s*\(([\s\S]*?)\)/g; while ((m = block.exec(m[1]))) { const q = /"([^"]+)"/g; let x; while ((x = q.exec(m[1]))) add(x[1]); }
+    const block = /\bimport\s*\(([\s\S]*?)\)/g; while ((m = block.exec(text))) { const q = /"([^"]+)"/g; let x; while ((x = q.exec(m[1]))) add(x[1]); }
   } else if (lang === 'Rust') {
     const use = /^\s*use\s+([^;]+);/gm; while ((m = use.exec(text))) add(m[1].trim());
     const mod = /^\s*mod\s+([A-Za-z_][\w]*)\s*;/gm; while ((m = mod.exec(text))) add(`./${m[1]}`, 'module');
