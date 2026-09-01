@@ -14,6 +14,7 @@ const {
   hasBricksProjectEvidence
 } = require('../core/skill-runtime');
 const { searchUiKnowledge } = require('../core/ui-knowledge');
+const { compactSkillsForFastPath } = require('../core/agent-runtime');
 
 const root = path.join(__dirname, '..');
 const skillRoot = path.join(root, 'CHATCODE-GPT', 'skills', 'wordpress-bricks');
@@ -121,6 +122,18 @@ assert.ok(skill.resource_context.used_chars <= MAX_SKILL_CONTEXT_CHARS);
 const totalContext = skill.instructions.length + skill.resources.reduce((sum,item) => sum + item.content.length, 0);
 assert.ok(totalContext <= 16500, `skill payload too large: ${totalContext}`);
 
+// Fast Path drops full domain files but must retain compact domain guidance + structured UI matches.
+const fastSkill = compactSkillsForFastPath([skill], 6000)[0];
+assert.deepEqual(fastSkill.domains, ['ui']);
+assert.deepEqual(fastSkill.resources, []);
+assert.ok(fastSkill.instructions.includes('Task-domain guidance:'), 'Fast skill lost v5 domain guidance');
+assert.ok(fastSkill.instructions.includes('Task domains: ui'), 'Fast skill lost routed UI domain identity');
+assert.ok(fastSkill.ui_guidance.length >= 1 && fastSkill.ui_guidance.length <= 3, 'Fast skill lost structured UI guidance');
+assert.equal(fastSkill.resource_context.fast_compact, true);
+assert.deepEqual(fastSkill.resource_context.selected_domains, ['ui']);
+assert.equal(fastSkill.resource_context.ui_guidance_count, fastSkill.ui_guidance.length);
+assert.ok(fastSkill.instructions.length <= 6000, `Fast v5 skill exceeded compact budget: ${fastSkill.instructions.length}`);
+
 const mediaSkill = loadWordPressBricksSkill(bricksInspect, 'Lấy ảnh từ mẫu cho 10 brand và icon location');
 assert.deepEqual(mediaSkill.domains, ['media']);
 assert.deepEqual(names(mediaSkill), [CORE_RESOURCE, 'domains/media.md']);
@@ -137,4 +150,4 @@ for (const forbidden of ['tongkhokhoathongminh.com', 'd:\\duyanhweb\\ftp\\boncau
   assert.equal(`${entry}\n${core}`.toLowerCase().includes(forbidden), false, `project-specific path leaked into generic skill: ${forbidden}`);
 }
 
-console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + deterministic UI search + legacy compatibility');
+console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + deterministic UI search + Fast compact guidance + legacy compatibility');
