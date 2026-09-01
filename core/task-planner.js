@@ -264,11 +264,14 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
   const primary = resolved.primary || null;
   const verification = unique([...verificationFromHints(verificationHints), ...policy.verify]).slice(0,8);
   const allowNewFile = execution.path === EXECUTION_PATHS.FAST && explicitNewFileRequest(request);
-  const expectedFiles = unique([
-    primary?.path,
-    ...(resolved.companion_paths || []),
-    ...ownerCandidates.map(item => item.path)
-  ]).slice(0,limit);
+  const explicitPaths = unique(explicitUserPaths(request));
+  const expectedFiles = explicitPaths.length
+    ? explicitPaths.slice(0,limit)
+    : unique([
+        primary?.path,
+        ...(resolved.companion_paths || []),
+        ...ownerCandidates.map(item => item.path)
+      ]).slice(0,limit);
 
   return {
     version:3,
