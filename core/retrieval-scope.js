@@ -1,13 +1,28 @@
 const { normalizeError } = require('./errors');
-const { planWordPressRetrieval } = require('./wordpress-retrieval');
+const { planWordPressRetrieval, queryFlags } = require('./wordpress-retrieval');
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
+
+function mergeCandidates(primary = [], expanded = []) {
+  const out = [], seen = new Set();
+  for (const item of [...primary, ...expanded]) {
+    const path = String(item?.path || item?.file || '').replace(/\\/g, '/');
+    if (!path || seen.has(path)) continue;
+    seen.add(path); out.push(item);
+  }
+  return out;
+}
+
+function explicitExpansionFlags(query) {
+  const flags = queryFlags(query);
+  return Object.entries(flags).filter(([, enabled]) => enabled).map(([name]) => name);
+}
 
 function createScopedInspect(api, store) {
   return async function inspectProject(ref, query, limit = 8) {
     const started = nowMs();
     const project = store.getProject(ref);
-    const telemetry = { total_ms:0, filesystem_ms:0, brain_refresh_ms:0, git_ms:0 };
+    const telemetry = { total_ms:0, filesystem_ms:0, brain_refresh_ms:0, git_ms:0, explicit_search_ms:0 };
     const rankedLimit = Math.min(16, Math.max(6, Number(limit) || 8));
 
     const brainStart = nowMs();
@@ -17,8 +32,28 @@ function createScopedInspect(api, store) {
     ]);
     telemetry.brain_refresh_ms = nowMs() - brainStart;
 
+    let candidates = context.files || [];
+    const expansionFlags = overview?.wordpress?.isWordPress ? explicitExpansionFlags(query) : [];
+    let explicitSearchUsed = false;
+    if (expansionFlags.length && typeof api.search === 'function') {
+      const searchStart = nowMs();
+      try {
+        const expanded = await api.search(project.id, query);
+        candidates = mergeCandidates(candidates, Array.isArray(expanded) ? expanded.slice(0, 40) : []);
+        explicitSearchUsed = true;
+      } catch {}
+      telemetry.explicit_search_ms = nowMs() - searchStart;
+    }
+
     const readLimit = overview?.wordpress?.isWordPress ? Math.min(6, rankedLimit) : Math.min(10, rankedLimit);
-    const retrieval = planWordPressRetrieval(context.files || [], overview.wordpress || {}, query, readLimit);
+    const retrieval = planWordPressRetrieval(candidates, overview.wordpress || {}, query, readLimit);
+    retrieval.scope = {
+      ...(retrieval.scope || {}),
+      explicit_expansion_search:explicitSearchUsed,
+      explicit_expansion_flags:expansionFlags,
+      explicit_expansion_candidate_count:Math.max(0, candidates.length - (context.files || []).length)
+    };
+
     const fsStart = nowMs();
     const relevantFiles = [];
     for (const item of retrieval.files) {
@@ -73,4 +108,4 @@ function installRetrievalScopePatches() {
   };
 }
 
-module.exports = { createScopedInspect, installRetrievalScopePatches };
+module.exports = { mergeCandidates, explicitExpansionFlags, createScopedInspect, installRetrievalScopePatches };
