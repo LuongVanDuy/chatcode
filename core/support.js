@@ -11,7 +11,7 @@ function classifyProcess(executable, args = []) {
   if (base.includes('cloudflared')) return 'cloudflared';
   if (base === 'git' || base === 'git.exe') return `git:${String(args[0] || 'command').slice(0, 40)}`;
   if (['cmd.exe','cmd','powershell.exe','powershell','pwsh.exe','pwsh'].includes(base)) return 'shell';
-  if (['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','npx','npx.cmd','node','node.exe','python','python.exe','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat'].includes(base)) return 'task';
+  if (['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','npx','npx.cmd','node','node.exe','python','python.exe','pytest','pytest.exe','php','php.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat'].includes(base)) return 'task';
   return 'process';
 }
 

@@ -88,6 +88,18 @@ includesAll(pageCss, [
 ]);
 assert.equal(pageCss.includes('resources/builder-editability.md'), false);
 
+const nonWooCatalog = chooseResources(
+  manifest,
+  'Tạo CPT sản phẩm catalog không WooCommerce và không có giá',
+  {
+    framework_names:['WordPress', 'Bricks Builder'],
+    frameworks:[{ name:'WordPress' }, { name:'Bricks Builder' }],
+    wordpress:{ isWordPress:true, woocommerce:false }
+  }
+);
+assert.equal(nonWooCatalog.includes('resources/woocommerce.md'), false);
+assert.equal(nonWooCatalog.includes('resources/templates.md'), false);
+
 const bricksInspect = {
   project:{ id:'builder-fixture', name:'builder-fixture' },
   frameworks:[{ name:'WordPress' }, { name:'Bricks Builder' }, { name:'WooCommerce' }],

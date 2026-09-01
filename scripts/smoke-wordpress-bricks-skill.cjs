@@ -50,7 +50,7 @@ function names(items) {
   const mcpServer = fs.readFileSync(path.join(root, 'mcp-server.mjs'), 'utf8');
 
   assert.equal(manifest.id, 'wordpress-bricks');
-  assert.equal(manifest.version, 2);
+  assert.equal(manifest.version, 3);
   assert.equal(WORDPRESS_BRICKS_SKILL_ID, 'wordpress-bricks');
   assert.ok(MAX_SKILL_CONTEXT_CHARS >= 48000 && MAX_SKILL_CONTEXT_CHARS <= 64000);
   assert.ok(entry.length < 9000, `SKILL.md too large: ${entry.length} chars`);
@@ -62,6 +62,7 @@ function names(items) {
   assert.ok(mcpServer.includes('WordPress + Bricks'));
   assert.ok(mcpServer.includes('wordpress-bricks skill is mandatory'));
   assert.ok(mcpServer.includes('SKILL_REQUIRED'));
+  assert.ok(mcpServer.includes('remember_project_rules'));
   assert.ok(mcpServer.includes('idempotentHint:true'));
   assert.ok(mcpServer.includes('openWorldHint:false'));
 
@@ -140,6 +141,20 @@ function names(items) {
     wordpress:{ isWordPress:true, parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }], childThemes:[{ slug:'fixture-two-child', template:'bricks' }] },
     relevant_files:[{ path:'wp-content/themes/fixture-two-child/functions.php' }]
   };
+
+  const catalogCptInspect = {
+    ...bricksInspect,
+    framework_names:['WordPress', 'Bricks Builder'],
+    frameworks:[{ name:'WordPress' }, { name:'Bricks Builder' }],
+    wordpress:{ ...bricksInspect.wordpress, woocommerce:false },
+    relevant_files:[{ path:'wp-content/themes/fixture-child/inc/product/post-type.php' }]
+  };
+
+  const catalogCpt = chooseResources(manifest, 'Tạo post type sản phẩm catalog, không WooCommerce, không giá', catalogCptInspect);
+  assert.equal(catalogCpt.includes('resources/woocommerce.md'), false, 'non-Woo product CPT must not load Woo rules');
+  assert.equal(catalogCpt.includes('resources/templates.md'), false, 'Woo templates must not leak into a non-Woo CPT task');
+  const wooProduct = chooseResources(manifest, 'Chỉnh product card dùng chung cho sản phẩm', bricksInspect);
+  assert.ok(wooProduct.includes('resources/woocommerce.md'), 'generic product wording should use Woo rules when Woo is detected');
 
   assert.equal(hasBricksProjectEvidence(bricksInspect).active, true);
   const genericSkill = loadWordPressBricksSkill(bricksInspect, 'Đổi số điện thoại trong dự án');
@@ -281,7 +296,7 @@ function names(items) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(pkg.build.files.includes('CHATCODE-GPT/**/*'));
 
-  console.log(`WordPress + Bricks skill v2 PASS: mandatory project policy + Brain-aware progressive routing + context budget; ${collected.files.length} skill files, ${cases.length} acceptance routes`);
+  console.log(`WordPress + Bricks skill v3 PASS: mandatory project policy + capability-aware routing + context budget; ${collected.files.length} skill files, ${cases.length} acceptance routes`);
 })().catch(error => {
   console.error(error);
   process.exit(1);
