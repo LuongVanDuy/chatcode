@@ -10,6 +10,7 @@ on:
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
+      - 'core/git-lazy.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -19,10 +20,12 @@ on:
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
+      - 'main.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -39,6 +42,7 @@ on:
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
+      - 'core/git-lazy.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -48,10 +52,12 @@ on:
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
+      - 'main.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -72,13 +78,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 3 runtime
+      - name: Syntax check Stage 4 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
           node --check core/agent-runtime.js
           node --check core/task-planner.js
+          node --check core/git-lazy.js
           node --check core/projects.js
           node --check core/store.js
           node --check core/support.js
@@ -87,16 +94,20 @@ jobs:
           node --check core/retrieval-scope.js
           node --check core/wordpress-retrieval.js
           node --check core/runtime-bootstrap.js
+          node --check main.js
           node --check mcp-server.mjs
           node --check scripts/smoke-agent.cjs
           node --check scripts/smoke-task-planner.cjs
           node --check scripts/smoke-fast-deep-routing.cjs
+          node --check scripts/smoke-git-lazy.cjs
           node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
+      - name: Git lazy explicit-only regression
+        run: node scripts/smoke-git-lazy.cjs
       - name: Task Planner scoped Task Card
         run: node scripts/smoke-task-planner.cjs
       - name: Fast/Deep execution routing and scope gate
