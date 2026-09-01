@@ -11,6 +11,8 @@ on:
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
       - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -27,6 +29,7 @@ on:
       - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-git-lazy.cjs'
       - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
@@ -43,6 +46,8 @@ on:
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
       - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -59,6 +64,7 @@ on:
       - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-git-lazy.cjs'
       - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
@@ -78,7 +84,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 4 runtime
+      - name: Syntax check Stage 5 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
@@ -86,6 +92,8 @@ jobs:
           node --check core/agent-runtime.js
           node --check core/task-planner.js
           node --check core/git-lazy.js
+          node --check core/brain.js
+          node --check core/brain-scope.js
           node --check core/projects.js
           node --check core/store.js
           node --check core/support.js
@@ -101,6 +109,7 @@ jobs:
           node --check scripts/smoke-fast-deep-routing.cjs
           node --check scripts/smoke-git-lazy.cjs
           node --check scripts/smoke-regression.cjs
+          node --check scripts/smoke-wordpress-brain-scope.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
@@ -108,6 +117,8 @@ jobs:
           node --check scripts/smoke-project-scope.cjs
       - name: Git lazy explicit-only regression
         run: node scripts/smoke-git-lazy.cjs
+      - name: WordPress Brain metadata/content scope
+        run: node scripts/smoke-wordpress-brain-scope.cjs
       - name: Task Planner scoped Task Card
         run: node scripts/smoke-task-planner.cjs
       - name: Fast/Deep execution routing and scope gate
