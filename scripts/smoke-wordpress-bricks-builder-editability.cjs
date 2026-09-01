@@ -44,23 +44,25 @@ assert.equal(nonWooCatalog.includes('resources/woocommerce.md'), false);
 
 const bricksInspect = {
   project:{ id:'builder-fixture', name:'builder-fixture' },
-  frameworks:[{ name:'WordPress' }, { name:'Bricks Builder' }, { name:'WooCommerce' }],
+  frameworks:[{ name:'WordPress' }, { name:'Bricks Builder', version:'2.3.6' }, { name:'WooCommerce' }],
   framework_names:['WordPress', 'Bricks Builder', 'WooCommerce'],
   wordpress:{
     isWordPress:true,
     woocommerce:true,
-    parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }],
+    parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks', version:'2.3.6' }],
     childThemes:[{ slug:'builder-fixture-child', template:'bricks' }]
   },
   relevant_files:[{ path:'wp-content/themes/builder-fixture-child/elements/home-featured-products.php' }]
 };
 
-// Modern prepare_task path loads the compact Bricks domain pack instead of the old deep resource.
+// Modern prepare_task path loads one domain plus bounded synthetic spec knowledge, not another deep domain pack.
 const loaded = loadWordPressBricksSkill(bricksInspect, 'Create a custom Bricks Element with Builder controls, repeater and manual product selection');
 assert.ok(loaded);
 assert.deepEqual(loaded.domains, ['bricks']);
-assert.deepEqual(loaded.resources.map(item => item.name), ['resources/core-checklist.md', 'domains/bricks.md']);
+assert.deepEqual(loaded.resources.map(item => item.name), ['resources/core-checklist.md', 'domains/bricks.md', 'knowledge/bricks-spec']);
+assert.equal(loaded.bricks_spec.status, 'exact');
+assert.ok(loaded.bricks_guidance.length <= 3);
 assert.ok(loaded.resource_context.used_chars <= MAX_SKILL_CONTEXT_CHARS);
 assert.ok(loaded.instructions.length + loaded.resources.reduce((sum,item) => sum + item.content.length, 0) <= 16000);
 
-console.log('WordPress + Bricks Builder editability PASS: legacy route compatibility + v5 Bricks domain pack');
+console.log('WordPress + Bricks Builder editability PASS: legacy compatibility + v5 domain + bounded Bricks spec knowledge');
