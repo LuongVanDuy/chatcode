@@ -44,15 +44,26 @@ assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'));
 assert.equal(/https?:\/\//i.test(css), false, 'UI foundation must not depend on remote fonts/assets');
 
 // 1.0.11 cleanup contract: keep backend capabilities, remove redundant desktop surfaces.
-assert.ok(runtime.includes("revision: '1.0.11-cleanup'"));
 assert.ok(runtime.includes("document.getElementById('v07SafetyNav')?.remove()"), 'Safety Center must not remain a sidebar route');
 assert.ok(runtime.includes("panel.id = 'settingsSafetyPanel'"), 'Safety controls must live inside Settings');
 assert.ok(runtime.includes('#route-dashboard .two-col>article:has(#dashboardActivity)'), 'dashboard recent activity card must be hidden');
 assert.ok(runtime.includes('#route-dashboard article:has(#dashboardProjects)'), 'dashboard shared project card must be hidden');
 assert.ok(runtime.includes('[data-project-tab="files"],[data-project-tab="search"]'), 'Files/Search tabs must be removed from desktop navigation');
 assert.ok(runtime.includes('#project-tab-overview .two-col>article:has(#indexDetails)'), 'duplicate Project Index card must be hidden');
-assert.ok(runtime.includes('radial-gradient(circle at 28px 50%'), 'settings switches must use stable gradient thumb rendering');
 assert.ok(runtime.includes('.settings-safety-panel .safety-summary'), 'Safety cards must inherit dark desktop surfaces');
 assert.equal(v08.includes('insertAdjacentHTML'), false, 'Project Brain must stay headless and not remount a card');
 
-console.log('Renderer foundation PASS: Stage 3 workspace + 1.0.11 cleanup contract');
+// Post-1.0.11 polish: permissions, switches and logs must use the current dark workspace language.
+assert.ok(runtime.includes("revision: 'permissions-log-polish'"));
+assert.ok(runtime.includes('#project-tab-permissions>.two-col{display:grid;grid-template-columns:minmax(260px,.88fr)'), 'permissions must use a single bounded two-column surface');
+assert.ok(runtime.includes('.v10-mode-option{min-height:70px!important'), 'Safe/Trusted mode options must not inherit white legacy cards');
+assert.ok(runtime.includes('.safety-rules-card .safety-rule-grid{display:grid!important'), 'Safety rules must render as one compact grid');
+assert.ok(runtime.includes("details.id = 'uiPermissionAdvanced'"), 'Terminal/Work Session/Fast Agent must be grouped under Advanced tools');
+assert.ok(runtime.includes("['v10TerminalRuntime', 'v10WorkSessions', 'v10FastAgentPath']"), 'all advanced permission cards must be grouped together');
+assert.ok(runtime.includes('#route-settings .setting input[type="checkbox"]::after'), 'settings switches must draw a deterministic thumb');
+assert.ok(runtime.includes('translateX(16px)'), 'settings switch thumb must move explicitly when checked');
+assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!important'), 'Activity and Support logs must share neutral dark surfaces');
+assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17181a!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
+assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must not introduce legacy white gradients');
+
+console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish contract');
