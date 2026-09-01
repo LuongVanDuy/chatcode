@@ -204,7 +204,7 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
   const typeLimit = TYPE_READ_LIMIT[type] || 6;
   const limit = Math.min(typeLimit, execution.limits.context_files);
   const ownerCandidates = selectOwnerCandidates(inspect, request, type, limit);
-  const resolved = ownershipMap({ request, inspect, projectProfile, fallbackCandidates:ownerCandidates });
+  const resolved = ownershipMap({ request, inspect, projectProfile, fallbackCandidates:ownerCandidates, taskType:type });
   const relevantRules = selectRelevantRules(projectRules, request, type);
   const policy = typePolicy(type);
   const primary = resolved.primary || null;
