@@ -35,6 +35,19 @@ function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+const STORED_STATE_TERM_RE = /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb|sql|table|tables|record|records|option|options|meta)\b|\$wpdb|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|post\s+meta|wp_options?|option\s+table|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)/gi;
+const NEGATED_CLAUSE_RE = /(?:\b(?:do\s+not|don't|dont|without|no|not)\b|\b(?:không|khong)\b)[^.!?\n]{0,180}/gi;
+const CONTRAST_RE = /\b(?:but|however|nhưng|nhung|tuy\s+nhiên|tuy\s+nhien)\b/i;
+
+function stripNegatedStoredStateEvidence(value) {
+  const text = normalizeText(value);
+  return text.replace(NEGATED_CLAUSE_RE, clause => {
+    const contrast = clause.search(CONTRAST_RE);
+    if (contrast < 0) return clause.replace(STORED_STATE_TERM_RE, ' ');
+    return `${clause.slice(0, contrast).replace(STORED_STATE_TERM_RE, ' ')}${clause.slice(contrast)}`;
+  });
+}
+
 function requestTokens(request) {
   const stop = new Set(['the','and','for','with','this','that','from','into','trong','cho','của','cua','với','voi','một','mot','phần','phan','sửa','sua','chỉnh','chinh','thêm','them','tạo','tao']);
   return unique(normalizeText(request).split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 3 && !stop.has(token))).slice(0,18);
@@ -51,8 +64,8 @@ function hasBricks(inspect = {}) {
 }
 
 function hasPersistedStateEvidence(request) {
-  const text = normalizeText(request);
-  return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb)\b|builder\s+data|persisted\s+data|persisted\s+state|stored\s+state|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|post\s+meta|wp_options?|option\s+table|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)/i.test(text);
+  const text = stripNegatedStoredStateEvidence(request);
+  return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb|sql)\b|\$wpdb|database\s+table|\bwp_[a-z0-9_]+\s+table\b|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|post\s+meta|wp_options?|option\s+table|post\s+content[^\n]{0,50}(?:database|stored|persisted)|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)|bulk\s+(?:stored\s+)?records?/i.test(text);
 }
 
 function isExplicitFilesystemTask(request) {
@@ -63,19 +76,20 @@ function isExplicitFilesystemTask(request) {
 
 function classifyTask(request, inspect = {}) {
   const text = normalizeText(request);
+  const evidenceText = stripNegatedStoredStateEvidence(request);
 
   const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
   if (production) return TASK_TYPES.PRODUCTION;
 
   if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
-  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
   if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
   if (hasBricks(inspect) && builderIntent) return TASK_TYPES.BRICKS_BUILDER;
 
-  const dataMutation = /(?:modify|update|change|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,24}(?:builder\s+data|dữ\s+liệu|du\s+lieu)|(?:builder\s+data|dữ\s+liệu|du\s+lieu)[^\n]{0,30}(?:repair|update|change|delete|remove|xóa|xoá|xoa|dọn|don)/i.test(text);
+  const dataMutation = /(?:modify|update|change|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,32}(?:builder\s+(?:data|json|tree)|dữ\s+liệu|du\s+lieu|wp_options?|option|post\s+meta|records?)|(?:builder\s+(?:data|json|tree)|dữ\s+liệu|du\s+lieu|wp_options?|option|post\s+meta|records?)[^\n]{0,36}(?:repair|update|change|delete|remove|xóa|xoá|xoa|dọn|don)/i.test(evidenceText);
   if (dataMutation) return TASK_TYPES.DATA;
 
   return TASK_TYPES.FAST_UI;
@@ -83,27 +97,28 @@ function classifyTask(request, inspect = {}) {
 
 function deepPathReasons(request, type = '') {
   const text = normalizeText(request);
+  const evidenceText = stripNegatedStoredStateEvidence(request);
   const reasons = [];
-  const add = (reason, re) => { if (re.test(text)) reasons.push(reason); };
+  const add = (reason, re, source = text) => { if (re.test(source)) reasons.push(reason); };
 
   if (type === TASK_TYPES.PRODUCTION) reasons.push('production-operation');
   add('production-operation', /\b(?:ftp|sftp|production|deploy|deployment|hosting|server)\b|website\s+live|live\s+(?:site|website|frontend)/i);
   add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
   add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
   add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,90}(?:(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks))|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks)/i);
-  add('persisted-data-migration', /\b(?:migration|migrate)\b|builder\s+data|persisted\s+(?:data|state)|stored\s+state|element\s+id|parent\s*\/\s*children|compare-and-set|rollback[^\n]{0,50}(?:db|database|builder\s+data|persisted\s+(?:data|state)|stored\s+state)/i);
-  add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm)/i);
+  add('persisted-data-migration', /\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta|rollback[^\n]{0,50}(?:db|database|builder\s+(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+state)/i, evidenceText);
+  add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm|records?)/i, evidenceText);
   add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
-  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+data|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i);
+  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+(?:data|json|tree)|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i, evidenceText);
   add('explicit-broad-scope', /full\s+(?:audit|refactor|review)|(?:audit|refactor|review)[^\n]{0,50}(?:entire|whole|all)\s+(?:project|site|code)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|tái\s+cấu\s+trúc\s+toàn\s+bộ/i);
 
   return unique(reasons);
 }
 
 function isMicroFastRequest(request) {
-  const text = normalizeText(request);
+  const text = stripNegatedStoredStateEvidence(request);
   if (!text || text.length > 170) return false;
-  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|refactor|redesign|migration|database|builder\s+data|template|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
+  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|refactor|redesign|migration|database|builder\s+(?:data|json|tree)|template|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
 
   const explicitSmallChange = /\b\d+(?:\.\d+)?\s*(?:px|rem|em|%)\b|\b(?:slightly|small|minor|a\s+bit)\b|\bnhẹ\b|một\s+chút|khoảng\s+\d/i.test(text);
   if (!explicitSmallChange) return false;
@@ -362,6 +377,8 @@ module.exports = {
   EXECUTION_PATHS,
   TYPE_READ_LIMIT,
   PATH_LIMITS,
+  stripNegatedStoredStateEvidence,
+  hasPersistedStateEvidence,
   classifyTask,
   deepPathReasons,
   preflightExecutionPath,
