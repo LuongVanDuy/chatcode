@@ -18,6 +18,18 @@ function explicitExpansionFlags(query) {
   return Object.entries(flags).filter(([, enabled]) => enabled).map(([name]) => name);
 }
 
+async function readRelevantFiles(api, projectId, files = []) {
+  return Promise.all((Array.isArray(files) ? files : []).map(async item => {
+    try {
+      const read = await api.readFile(projectId, item.path);
+      const content = String(read.content || '');
+      return { ...item, content:content.slice(0, 24000), content_truncated:content.length > 24000 };
+    } catch (error) {
+      return { ...item, error:normalizeError(error) };
+    }
+  }));
+}
+
 function createScopedInspect(api, store) {
   return async function inspectProject(ref, query, limit = 8) {
     const started = nowMs();
@@ -55,16 +67,7 @@ function createScopedInspect(api, store) {
     };
 
     const fsStart = nowMs();
-    const relevantFiles = [];
-    for (const item of retrieval.files) {
-      try {
-        const read = await api.readFile(project.id, item.path);
-        const content = String(read.content || '');
-        relevantFiles.push({ ...item, content:content.slice(0, 24000), content_truncated:content.length > 24000 });
-      } catch (error) {
-        relevantFiles.push({ ...item, error:normalizeError(error) });
-      }
-    }
+    const relevantFiles = await readRelevantFiles(api, project.id, retrieval.files);
     telemetry.filesystem_ms = nowMs() - fsStart;
 
     const gitStart = nowMs();
@@ -108,4 +111,4 @@ function installRetrievalScopePatches() {
   };
 }
 
-module.exports = { mergeCandidates, explicitExpansionFlags, createScopedInspect, installRetrievalScopePatches };
+module.exports = { mergeCandidates, explicitExpansionFlags, readRelevantFiles, createScopedInspect, installRetrievalScopePatches };
