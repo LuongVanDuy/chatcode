@@ -21,6 +21,10 @@ function installRuntimePatches() {
   // Mandatory WordPress + Bricks policy must see both modern and legacy paths.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
+  // Git is an explicit integration, not a default coding dependency. Install the
+  // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
+  const { installGitLazyPatches } = require('./git-lazy');
+  installGitLazyPatches();
   // Final outer policy: once a target project is established, every project-aware
   // read/write stays inside that target unless the user's task explicitly names
   // a multi-project reference. Reference projects are read-only.
