@@ -7,6 +7,7 @@ Loaded for every WordPress + Bricks task. Keep it short; one domain resource sup
 - Lock to the user-named target. Another project is read-only only when explicitly named as reference/copy/migration source.
 - Inspect real current state; do not guess owners, template IDs, Builder trees, media assignments, menus, Woo pages, prefixes or paths.
 - Search/Brain before reads. Read child-theme/project-owned code first; widen to Bricks/Woo/WP core only on concrete evidence.
+- Keep external references scoped: when the user names a reference site/domain, use it first and do not broad-search unrelated websites for substitutes/inspiration unless that source is unavailable or the user asks for wider research.
 - Existing owner before new file. Normal edit new-file budget is zero.
 - Prefer Bricks native structure/dynamic data/API before a custom Bricks element. Normal container/grid/image/icon/text/button/slider/query-loop composition is not a custom-element gap.
 - Preserve Builder/user edits and shared renderers/data sources.
