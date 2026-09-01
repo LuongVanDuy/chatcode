@@ -151,6 +151,8 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedMicro.execution_path, EXECUTION_PATHS.FAST);
   assert.equal(seenLimits[1], 3, 'Micro Fast prepare must inspect at most three ranked files');
   assert.ok(preparedMicro.context.relevant_files.length <= 3);
+  assert.ok(preparedMicro.context.relevant_relations.length <= 18);
+  assert.ok(preparedMicro.context.top_symbols.length <= 14);
   assert.equal(preparedMicro.task_card.execution.patch_file_limit, 2);
   assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 3600);
   assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
@@ -161,7 +163,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (3-file micro + 4-file fast + deep triggers + pre-mutation scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (3-file micro + compact graph + 4-file fast + deep triggers + pre-mutation scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
