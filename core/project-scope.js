@@ -131,6 +131,20 @@ function createProjectScopeApi(api) {
     );
   }
 
+  function missingSessionScopeViolation(attempted, operation) {
+    return chatError(
+      'PROJECT_SCOPE_VIOLATION',
+      `Không có project scope đang active cho ${operation}.`,
+      {
+        target_project:null,
+        attempted_project:scopeProjectShape(attempted || {}),
+        operation,
+        reference_projects:[],
+        rule:'Session mutation không được tự khóa project. Hãy bắt đầu task mới bằng prepare_task trên target project trước khi complete/finish/rollback session của project đó.'
+      }
+    );
+  }
+
   function referenceWriteViolation(current, attempted, operation) {
     return chatError(
       'PROJECT_SCOPE_READ_ONLY',
@@ -218,7 +232,11 @@ function createProjectScopeApi(api) {
     if (!original.workStatus) return null;
     const status = await original.workStatus(String(sessionId || ''));
     const ref = status?.project_id || status?.project || '';
-    if (ref) await ensureProject(ref, operation, mode);
+    if (!ref) return status;
+    const projects = await allProjects();
+    const attempted = await resolveProject(ref, projects);
+    if (mode === 'write' && !activeScope()) throw missingSessionScopeViolation(attempted, operation);
+    await ensureProject(ref, operation, mode);
     return status;
   }
 
