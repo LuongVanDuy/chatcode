@@ -2,7 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { planWordPressRetrieval, classifyWordPressPath } = require('../core/wordpress-retrieval');
-const { createScopedInspect } = require('../core/retrieval-scope');
+const { createScopedInspect, readRelevantFiles } = require('../core/retrieval-scope');
 const { createAgentRuntime, verificationHints } = require('../core/agent-runtime');
 const { chooseResources } = require('../core/skill-runtime');
 
@@ -69,6 +69,20 @@ assert.deepEqual(nonWp.files.map(item => item.path), ['src/a.js', 'src/b.js']);
 assert.equal(nonWp.scope.strategy, 'project-ranked');
 
 (async () => {
+  let activeReads = 0;
+  let maxActiveReads = 0;
+  const concurrent = await readRelevantFiles({
+    readFile:async (_ref, rel) => {
+      activeReads++;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeReads--;
+      return { content:`parallel:${rel}` };
+    }
+  }, 'p1', [{ path:'a.php' }, { path:'b.php' }, { path:'c.php' }]);
+  assert.equal(maxActiveReads, 3, 'scoped context files should be read concurrently');
+  assert.deepEqual(concurrent.map(item => item.path), ['a.php','b.php','c.php'], 'concurrent reads must preserve ranked order');
+
   const readPaths = [];
   let searchCalls = 0;
   const fakeApi = {
