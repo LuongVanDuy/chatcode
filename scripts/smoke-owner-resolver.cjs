@@ -47,13 +47,18 @@ const profile = {
 const globalOwner = ownershipMap({ request:'Đổi font toàn site', inspect, projectProfile:profile });
 assert.equal(globalOwner.primary.kind, 'global_css');
 assert.equal(globalOwner.primary.status, OWNER_STATUS.CONFIRMED);
-assert.ok(globalOwner.primary.path.endsWith('/assets/css/main.css'));
+assert.deepEqual(globalOwner.enforce_paths, ['wp-content/themes/fixture-child/assets/css/main.css']);
 
 const homeOwner = ownershipMap({ request:'Sửa width container trang chủ', inspect, projectProfile:profile });
 assert.equal(homeOwner.primary.kind, 'homepage_css');
 assert.equal(homeOwner.primary.status, OWNER_STATUS.DETECTED);
 assert.ok(homeOwner.primary.path.endsWith('/assets/css/home.css'));
-assert.ok(homeOwner.entries.some(item => item.kind === 'global_css'), 'global CSS should remain visible as a related owner, not primary');
+assert.ok(homeOwner.entries.some(item => item.kind === 'global_css'));
+assert.deepEqual(new Set(homeOwner.enforce_paths), new Set([
+  'wp-content/themes/fixture-child/assets/css/home.css',
+  'wp-content/themes/fixture-child/assets/css/main.css'
+]));
+assert.equal(homeOwner.owner_set_mode, 'any-evidence-backed-owner');
 
 const productOwner = ownershipMap({ request:'Dùng chung product card hiện tại ở trang chủ', inspect, projectProfile:profile });
 assert.equal(productOwner.primary.kind, 'product_renderer');
@@ -64,12 +69,13 @@ assert.ok(productOwner.primary.path.endsWith('/inc/product/card.php'));
 const productStyleOwner = ownershipMap({ request:'Sửa spacing CSS của product card', inspect, projectProfile:profile });
 assert.equal(productStyleOwner.primary.kind, 'product_css');
 assert.ok(productStyleOwner.primary.path.endsWith('/assets/css/products.css'));
-assert.ok(productStyleOwner.entries.some(item => item.kind === 'product_renderer'), 'renderer remains a companion owner for product card styling');
+assert.ok(productStyleOwner.entries.some(item => item.kind === 'product_renderer'));
 
 const headerStyle = ownershipMap({ request:'Sửa spacing header trên mobile', inspect, projectProfile:profile });
 assert.equal(headerStyle.primary.kind, 'header_css');
 assert.ok(headerStyle.primary.path.endsWith('/assets/css/header-footer.css'));
-assert.notEqual(headerStyle.primary.kind, 'header_template');
+assert.ok(headerStyle.entries.some(item => item.kind === 'global_css'));
+assert.equal(headerStyle.entries.some(item => item.kind === 'header_template'), false, 'header template must not be an allowed owner for a Fast styling task');
 
 const headerTemplate = ownershipMap({ request:'Sửa Bricks Header template hiện tại', inspect, projectProfile:profile });
 assert.equal(headerTemplate.primary.kind, 'header_template');
@@ -87,11 +93,14 @@ const homeCard = buildTaskCard({ request:'Sửa width container trang chủ', in
 assert.equal(homeCard.version, 3);
 assert.equal(homeCard.execution.path, EXECUTION_PATHS.FAST);
 assert.equal(homeCard.owner.kind, 'homepage_css');
-assert.deepEqual(homeCard.owner.enforce_paths, ['wp-content/themes/fixture-child/assets/css/home.css']);
+assert.deepEqual(new Set(homeCard.owner.enforce_paths), new Set([
+  'wp-content/themes/fixture-child/assets/css/home.css',
+  'wp-content/themes/fixture-child/assets/css/main.css'
+]));
 assert.ok(homeCard.ownership_map.length <= 8);
 assert.equal(homeCard.expected_files[0], 'wp-content/themes/fixture-child/assets/css/home.css');
 
-const wrongOwnerPatch = [
+const globalOnlyPatch = [
   '--- a/wp-content/themes/fixture-child/assets/css/main.css',
   '+++ b/wp-content/themes/fixture-child/assets/css/main.css',
   '@@ -1 +1 @@',
@@ -99,11 +108,9 @@ const wrongOwnerPatch = [
   '+:root{--container:1200px}',
   ''
 ].join('\n');
-const wrongCheck = validatePatchAgainstTaskCard(homeCard, wrongOwnerPatch);
-assert.equal(wrongCheck.ok, false, 'known page owner must prevent a Fast patch from silently editing global CSS instead');
-assert.ok(wrongCheck.violations.some(item => /bypasses resolved homepage_css/i.test(item)));
+assert.equal(validatePatchAgainstTaskCard(homeCard, globalOnlyPatch).ok, true, 'Home task may resolve to the global owner when the root cause is a shared token');
 
-const correctOwnerPatch = [
+const homeOnlyPatch = [
   '--- a/wp-content/themes/fixture-child/assets/css/home.css',
   '+++ b/wp-content/themes/fixture-child/assets/css/home.css',
   '@@ -1 +1 @@',
@@ -111,6 +118,33 @@ const correctOwnerPatch = [
   '+.home{max-width:1200px}',
   ''
 ].join('\n');
-assert.equal(validatePatchAgainstTaskCard(homeCard, correctOwnerPatch).ok, true);
+assert.equal(validatePatchAgainstTaskCard(homeCard, homeOnlyPatch).ok, true);
 
-console.log('Owner Resolver smoke test: PASS (profile facts + source evidence + owner-first Fast scope gate)');
+const bothOwnersPatch = [
+  '--- a/wp-content/themes/fixture-child/assets/css/main.css',
+  '+++ b/wp-content/themes/fixture-child/assets/css/main.css',
+  '@@ -1 +1 @@',
+  '-:root{}',
+  '+:root{--container:1200px}',
+  '--- a/wp-content/themes/fixture-child/assets/css/home.css',
+  '+++ b/wp-content/themes/fixture-child/assets/css/home.css',
+  '@@ -1 +1 @@',
+  '-.home{}',
+  '+.home{padding:24px}',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(homeCard, bothOwnersPatch).ok, true);
+
+const unrelatedPatch = [
+  '--- a/wp-content/themes/fixture-child/assets/css/products.css',
+  '+++ b/wp-content/themes/fixture-child/assets/css/products.css',
+  '@@ -1 +1 @@',
+  '-.product{}',
+  '+.product{max-width:1200px}',
+  ''
+].join('\n');
+const unrelatedCheck = validatePatchAgainstTaskCard(homeCard, unrelatedPatch);
+assert.equal(unrelatedCheck.ok, false, 'Home task must still reject unrelated ownership');
+assert.ok(unrelatedCheck.violations.some(item => /bypasses resolved homepage_css/i.test(item)));
+
+console.log('Owner Resolver smoke test: PASS (primary preference + evidence-backed companion owner set + Fast scope gate)');
