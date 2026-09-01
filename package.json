@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "bootstrap-main.js",
   "private": true,
@@ -53,41 +53,9 @@
     "appId": "com.personal.chatcode",
     "productName": "ChatCode Cá Nhân",
     "asar": true,
-    "files": [
-      "bootstrap-main.js",
-      "main.js",
-      "mcp-server.mjs",
-      "preload.js",
-      "core/**/*",
-      "CHATCODE-GPT/**/*",
-      "renderer/**/*",
-      "assets/icon.png",
-      "assets/THIRD_PARTY_ICONS.txt",
-      "package.json"
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "LuongVanDuy",
-        "repo": "chatcode",
-        "releaseType": "release"
-      }
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "assets/icon.ico",
-      "artifactName": "ChatCode-Ca-Nhan-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "ChatCode Cá Nhân",
-      "installerIcon": "assets/icon.ico",
-      "uninstallerIcon": "assets/icon.ico"
-    }
+    "files": ["bootstrap-main.js","main.js","mcp-server.mjs","preload.js","core/**/*","CHATCODE-GPT/**/*","renderer/**/*","assets/icon.png","assets/THIRD_PARTY_ICONS.txt","package.json"],
+    "publish": [{"provider":"github","owner":"LuongVanDuy","repo":"chatcode","releaseType":"release"}],
+    "win": {"target":["nsis"],"icon":"assets/icon.ico","artifactName":"ChatCode-Ca-Nhan-Setup-${version}.${ext}"},
+    "nsis": {"oneClick":false,"allowToChangeInstallationDirectory":true,"createDesktopShortcut":true,"createStartMenuShortcut":true,"shortcutName":"ChatCode Cá Nhân","installerIcon":"assets/icon.ico","uninstallerIcon":"assets/icon.ico"}
   }
 }
