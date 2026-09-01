@@ -27,6 +27,7 @@
     "test:editing": "node scripts/smoke-editing.cjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
     "test:safety": "node scripts/smoke-safety.cjs",
+    "benchmark:v109": "node scripts/benchmark-v109.cjs",
     "predist:win": "npm run prepare:icons",
     "dist:win": "electron-builder --win nsis --publish never",
     "predist:portable": "npm run prepare:icons",
