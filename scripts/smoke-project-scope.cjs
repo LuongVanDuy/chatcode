@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { createProjectScopeApi } = require('../core/project-scope');
 
 function errCode(error) { return String(error?.code || error?.details?.code || ''); }
+function errDetails(error) { return error?.details?.details || error?.details || {}; }
 
 function fakeApi() {
   const projects = [
@@ -11,7 +12,9 @@ function fakeApi() {
     { id:'CHATCODE-GPT', name:'CHATCODE-GPT', root:'virtual' }
   ];
   const sessions = new Map();
+  const jobs = new Map();
   let seq = 0;
+  let jobSeq = 0;
   return {
     async listProjects() { return projects; },
     async search(project, query) { return [{ project, query }]; },
@@ -29,7 +32,37 @@ function fakeApi() {
     async finishWork(id) { const session=sessions.get(id); if (session) session.status='completed'; return { ok:true, id, status:'completed' }; },
     async rollbackWork(id) { const session=sessions.get(id); if (session) session.status='rolled_back'; return { ok:true, id, status:'rolled_back' }; },
     async gitStatus(project) { return { project, ok:true }; },
-    async gitStage(project) { return { project, ok:true }; }
+    async gitStage(project) { return { project, ok:true }; },
+    async exec(project, command, options = {}) {
+      if (command === 'spawn-failure') throw Object.assign(new Error('spawn failed'), { code:'SPAWN_FAILED' });
+      if (!options.background) {
+        if (command === 'exit-nonzero') return { project_id:project, status:'failed', exit_code:7, background:false, terminal:{ hidden:true } };
+        if (command === 'timeout') return { project_id:project, status:'timeout', exit_code:null, background:false, terminal:{ hidden:true } };
+        return { project_id:project, status:'completed', exit_code:0, background:false, terminal:{ hidden:true } };
+      }
+      const id = `job-${++jobSeq}`;
+      const job = { job_id:id, project_id:project, status:'running', exit_code:null, background:true, terminal:{ hidden:true } };
+      jobs.set(id, job);
+      return { ...job };
+    },
+    async jobStatus(id) {
+      const job = jobs.get(id);
+      if (!job) throw Object.assign(new Error('missing job'), { code:'FILE_NOT_FOUND' });
+      return { ...job };
+    },
+    async jobStop(id) {
+      const job = jobs.get(id);
+      if (!job) throw Object.assign(new Error('missing job'), { code:'FILE_NOT_FOUND' });
+      job.status = 'stopped';
+      job.exit_code = null;
+      return { ...job, stop_requested:true };
+    },
+    __setJobStatus(id, status, exitCode = status === 'completed' ? 0 : null) {
+      const job = jobs.get(id);
+      if (!job) throw new Error(`missing fake job ${id}`);
+      job.status = status;
+      job.exit_code = exitCode;
+    }
   };
 }
 
@@ -66,19 +99,22 @@ function fakeApi() {
     await assert.rejects(() => api.projectBrain('vitas'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  // While a task is still active, an ambiguous prepare cannot silently switch target.
-  // A clear user intent naming the new project may switch it.
+  // A truly active task/work holder cannot be bypassed even with explicit switch wording.
   {
     const api = createProjectScopeApi(fakeApi());
-    await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
-    await assert.rejects(() => api.prepareTask('eupharma', 'check header'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
-    const switched = await api.prepareTask('eupharma', 'Tiếp theo sửa dự án eupharma phần header');
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
+    await assert.rejects(
+      () => api.prepareTask('eupharma', 'Tiếp theo chuyển sang project eupharma phần header'),
+      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
+        && errDetails(error).scope_holder_type === 'work_session'
+        && errDetails(error).active_work_session_ids.includes(first.task_id)
+    );
+    await api.finishWork(first.task_id);
+    const switched = await api.prepareTask('eupharma', 'Tiếp theo chuyển sang project eupharma phần header');
     assert.equal(switched.project_scope.target.id, 'eupharma');
-    await assert.rejects(() => api.search('boncauinax', 'header'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  // Acceptance A: rollback releases the old target. The next prepare_task may select a new project
-  // even when the request itself does not repeat that project name.
+  // Rollback releases the old target. The next prepare_task may select a new project.
   {
     const api = createProjectScopeApi(fakeApi());
     const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
@@ -108,7 +144,115 @@ function fakeApi() {
     assert.equal(next.project_scope.target.id, 'eupharma');
   }
 
-  // Session mutations remain strict: once the completed A scope is released, an old B session
+  // Read-only calls do not become active scope holders and may be superseded by explicit prepare intent.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    await api.readFile('vitas', 'readme.txt');
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+
+  // A. Standalone foreground completion releases its temporary holder.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
+    await api.finishWork(first.task_id);
+    const terminal = await api.exec('vitas', 'foreground-success');
+    assert.equal(terminal.status, 'completed');
+    assert.equal(terminal.terminal.hidden, true);
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+
+  // B. Foreground non-zero, timeout, and spawn failure all clean up scope in finally paths.
+  for (const command of ['exit-nonzero', 'timeout']) {
+    const api = createProjectScopeApi(fakeApi());
+    const terminal = await api.exec('vitas', command);
+    assert.ok(['failed','timeout'].includes(terminal.status));
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+  {
+    const api = createProjectScopeApi(fakeApi());
+    await assert.rejects(() => api.exec('vitas', 'spawn-failure'), /spawn failed/);
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+
+  // C. Completed background job releases the job lease when observed terminal.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const job = await api.exec('vitas', 'background-complete', { background:true });
+    assert.equal(api.projectScope().scope_holder_type, 'terminal_job');
+    api.__setJobStatus(job.job_id, 'completed');
+    const status = await api.jobStatus(job.job_id);
+    assert.equal(status.status, 'completed');
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+
+  // D. Running background job remains a real holder and blocks project switching with precise details.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const job = await api.exec('vitas', 'background-running', { background:true });
+    assert.equal((await api.jobStatus(job.job_id)).status, 'running');
+    await assert.rejects(
+      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
+      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
+        && errDetails(error).scope_holder_type === 'terminal_job'
+        && errDetails(error).active_job_ids.includes(job.job_id)
+    );
+  }
+
+  // E. Stopped background job releases its lease.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const job = await api.exec('vitas', 'background-stop', { background:true });
+    const stopped = await api.jobStop(job.job_id);
+    assert.equal(stopped.status, 'stopped');
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
+    assert.equal(next.project_scope.target.id, 'boncauinax');
+  }
+
+  // F. One completed job must not release a project while another job is still running.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const first = await api.exec('vitas', 'background-one', { background:true });
+    const second = await api.exec('vitas', 'background-two', { background:true });
+    api.__setJobStatus(first.job_id, 'completed');
+    await api.jobStatus(first.job_id);
+    assert.deepEqual(api.projectScope().active_job_ids, [second.job_id]);
+    await assert.rejects(
+      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
+      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
+        && errDetails(error).active_job_ids.length === 1
+        && errDetails(error).active_job_ids[0] === second.job_id
+    );
+    api.__setJobStatus(second.job_id, 'completed');
+    await api.jobStatus(second.job_id);
+    assert.equal(api.projectScope().locked, false);
+  }
+
+  // G. Explicit start_work is a holder and must still protect its target.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const work = await api.startWork('vitas', 'active work');
+    await assert.rejects(
+      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
+      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
+        && errDetails(error).scope_holder_type === 'work_session'
+        && errDetails(error).active_work_session_ids.includes(work.work_session_id)
+    );
+    await api.rollbackWork(work.work_session_id);
+    assert.equal(api.projectScope().locked, false);
+  }
+
+  // Session mutations remain strict: once completed A scope is released, an old B session
   // cannot self-pin B via complete_task. A new prepare_task must establish B first.
   {
     const base = fakeApi();
@@ -120,7 +264,7 @@ function fakeApi() {
     await assert.rejects(() => api.completeTask(other.task_id), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  console.log('Project scope lock PASS: active target guard + finished/rollback scope release + strict session mutation binding');
+  console.log('Project scope lock PASS: active holder lifecycle + terminal cleanup + strict session mutation binding');
 })().catch(error => {
   console.error(error);
   process.exit(1);
