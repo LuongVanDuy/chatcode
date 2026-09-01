@@ -61,7 +61,7 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
 
   const session = await api.startWork('editing', 'Refactor total and add helper');
   assert.equal(session.status, 'active');
-  assert.equal(session.baseline.git.is_repository, true);
+  assert.equal(session.baseline.git, null, 'Git Lazy must sanitize start_work baseline in normal workflow.');
   assert.equal(session.changed_files.length, 0);
 
   const patch = [
@@ -110,13 +110,13 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.ok(status.changed_files.includes('src/app.js'));
   assert.ok(status.changed_files.includes('src/new.js'));
   assert.ok(status.commands.some(x => String(x.command).includes('SESSION_EXEC_OK')), 'exec linked to work_session_id must be recorded.');
-  assert.match(status.current.git.diff, /stageThreeCreated|const result/);
+  assert.equal(status.current.git, null, 'Git Lazy must sanitize work_status Git in normal workflow.');
 
   const verify = `node -e "const fs=require('fs');process.exit(fs.readFileSync('src/app.js','utf8').includes('const result')?0:1)"`;
   const finished = await api.finishWork(session.work_session_id, [verify]);
   assert.equal(finished.verification_passed, true);
   assert.equal(finished.status, 'completed');
-  assert.ok(finished.final.git.diff.length > 0);
+  assert.equal(finished.final.git, null, 'Git Lazy must sanitize finish_work Git in normal workflow.');
 
   const rollback = await api.rollbackWork(session.work_session_id);
   assert.equal(rollback.ok, true, JSON.stringify(rollback.errors));
