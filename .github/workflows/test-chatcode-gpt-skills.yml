@@ -28,6 +28,8 @@ on:
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'main.js'
+      - 'preload.js'
+      - 'renderer/**'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-project-profile.cjs'
@@ -39,6 +41,7 @@ on:
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
@@ -72,6 +75,8 @@ on:
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'main.js'
+      - 'preload.js'
+      - 'renderer/**'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-project-profile.cjs'
@@ -83,6 +88,7 @@ on:
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
@@ -102,7 +108,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 8 + Skill v5 + Bricks Spec runtime
+      - name: Syntax check Stage 8 + Skill v5 + Bricks Spec + current renderer
         run: |
           node --check core/skill-runtime.js
           node --check core/ui-knowledge.js
@@ -126,6 +132,8 @@ jobs:
           node --check core/wordpress-retrieval.js
           node --check core/runtime-bootstrap.js
           node --check main.js
+          node --check preload.js
+          node --check renderer/current-runtime.js
           node --check mcp-server.mjs
           node --check scripts/smoke-agent.cjs
           node --check scripts/smoke-project-profile.cjs
@@ -137,11 +145,14 @@ jobs:
           node --check scripts/smoke-wordpress-brain-scope.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-bricks-spec.cjs
+          node --check scripts/smoke-renderer-foundation.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
           node --check scripts/benchmark-v109.cjs
+      - name: Renderer single-entry foundation regression
+        run: npm run test:renderer-foundation
       - name: Git lazy explicit-only regression
         run: node scripts/smoke-git-lazy.cjs
       - name: Project Profile facts and decisions
