@@ -184,8 +184,8 @@ function createAgentRuntime(api, store = null) {
         next_tool:'complete_task',
         patch_format:'standard unified diff',
         guidance:[
-          pathGuidance,
           'Nếu response có skills, các rule/instructions đính kèm là contract bắt buộc cho task hiện tại.',
+          pathGuidance,
           'Bám task_card: giữ đúng target, ưu tiên owner candidate hiện có, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
           'FAST không được tự chuyển thành DEEP trong complete_task. Nếu evidence mới làm task hiện tại không an toàn, dừng và re-plan thay vì patch rộng.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dependency cụ thể.',
