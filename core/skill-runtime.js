@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { searchUiKnowledge, formatUiKnowledge } = require('./ui-knowledge');
+const { resolveBricksSpec, searchBricksKnowledge, formatBricksKnowledge } = require('./bricks-spec');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
 const MAX_ENTRY_CHARS = 4200;
@@ -23,7 +24,7 @@ const DOMAIN_FILES = Object.freeze({
 
 const DOMAIN_COMPACT = Object.freeze({
   wordpress:'WordPress: reuse current owners/APIs/hooks; prefix only public/global boundaries; keep setup/admin work off ordinary frontend requests.',
-  bricks:'Bricks: native elements/dynamic data first; custom element only for a proven native gap; preserve Builder editability and existing IDs/relations.',
+  bricks:'Bricks: native elements/dynamic data first; custom element only for a proven native gap; preserve Builder editability/IDs/relations and use exact spec facts only when version evidence supports them.',
   woocommerce:'WooCommerce: only when Woo behavior is explicit/relevant; use Woo public APIs/hooks and preserve cart/checkout/order semantics.',
   media:'Media/icons: map reference media by semantic slot with allow_reuse=false by default; use Bricks/native verified icon infrastructure for functional icons.',
   data:'Data: distinguish setup from migration; make seed/migration idempotent, recovery-aware and terminal after success; never keep one-time work on frontend runtime.',
@@ -213,16 +214,24 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
   const uiContext = formatUiKnowledge(uiResults);
   if (uiContext) add('knowledge/ui-search', uiContext);
 
+  const bricksResolution = domains.includes('bricks') ? resolveBricksSpec(inspect) : null;
+  const bricksResults = bricksResolution ? searchBricksKnowledge(request, bricksResolution, 3) : [];
+  const bricksContext = bricksResolution ? formatBricksKnowledge(bricksResults, bricksResolution) : '';
+  if (bricksContext) add('knowledge/bricks-spec', bricksContext);
+
   const compact = [
     domains.length ? `Task domains: ${domains.join(', ')}` : 'Task domains: core only',
     ...domains.map(domain => `- ${DOMAIN_COMPACT[domain]}`),
-    uiContext
-  ].filter(Boolean).join('\n').slice(0, 3200);
+    uiContext,
+    bricksContext
+  ].filter(Boolean).join('\n').slice(0, 3600);
 
   return {
     resources,
     compact_context:compact,
     ui_results:uiResults,
+    bricks_results:bricksResults,
+    bricks_resolution:bricksResolution,
     budget:{
       soft_limit_chars:MAX_SKILL_CONTEXT_CHARS,
       used_chars:usedChars,
@@ -230,7 +239,11 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
       omitted_support_resources:omitted,
       selected_domains:domains,
       max_domains:MAX_DOMAINS,
-      ui_guidance_count:uiResults.length
+      ui_guidance_count:uiResults.length,
+      bricks_guidance_count:bricksResults.length,
+      bricks_spec_status:bricksResolution?.status || null,
+      bricks_spec_version:bricksResolution?.spec_version || null,
+      bricks_detected_version:bricksResolution?.detected_version || null
     }
   };
 }
@@ -245,6 +258,14 @@ function loadWordPressBricksSkill(inspect, request, taskCard = null) {
   if (!instructions) return null;
   const domains = routeSkillDomains(request, inspect, taskCard);
   const loadedDomains = loadDomainPacks(dir, domains, request, inspect);
+  const specInfo = loadedDomains.bricks_resolution ? {
+    source:loadedDomains.bricks_resolution.source,
+    status:loadedDomains.bricks_resolution.status,
+    detected_version:loadedDomains.bricks_resolution.detected_version,
+    spec_version:loadedDomains.bricks_resolution.spec_version,
+    exact_shapes:!!loadedDomains.bricks_resolution.exact_shapes,
+    source_required:!!loadedDomains.bricks_resolution.source_required
+  } : null;
   return {
     id:String(manifest.id || WORDPRESS_BRICKS_SKILL_ID),
     name:String(manifest.name || 'WordPress + Bricks'),
@@ -255,6 +276,8 @@ function loadWordPressBricksSkill(inspect, request, taskCard = null) {
     compact_context:loadedDomains.compact_context,
     domains,
     ui_guidance:loadedDomains.ui_results,
+    bricks_guidance:loadedDomains.bricks_results,
+    bricks_spec:specInfo,
     resources:loadedDomains.resources,
     resource_context:{ selected:loadedDomains.resources.map(item => item.name), ...loadedDomains.budget }
   };
