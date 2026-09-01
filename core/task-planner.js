@@ -51,7 +51,7 @@ function classifyTask(request, inspect = {}) {
   const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
   if (production) return TASK_TYPES.PRODUCTION;
 
-  const data = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|builder\s+data|dữ\s+liệu|du\s+lieu|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
+  const data = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|(?:modify|update|change|migrate|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,50}(?:builder\s+data|dữ\s+liệu|du\s+lieu)|(?:builder\s+data|dữ\s+liệu|du\s+lieu)[^\n]{0,50}(?:migration|migrate|import|seed|database|\bdb\b)|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
   if (data) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
@@ -69,7 +69,7 @@ function deepPathReasons(request, type = '') {
   add('production-operation', /\b(?:ftp|sftp|production|deploy|deployment|hosting|server)\b|website\s+live|live\s+(?:site|website|frontend)/i);
   add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
   add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
-  add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,70}(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)/i);
+  add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,90}(?:(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks))|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks)/i);
   add('persisted-data-migration', /\b(?:migration|migrate)\b|builder\s+data|element\s+id|parent\s*\/\s*children|compare-and-set|rollback[^\n]{0,50}(?:db|database|builder|data)/i);
   add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm)/i);
   add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
