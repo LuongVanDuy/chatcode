@@ -19,10 +19,10 @@ function cleanKey(value) {
 function isUnsafeMemory(key, value) {
   const normalizedKey = cleanKey(key);
   const text = String(value || '');
-  if (/(?:^|[-_.])(?:password|passwd|secret|credential|api[-_.]?key|access[-_.]?token|auth[-_.]?token|private[-_.]?key)(?:$|[-_.])/i.test(normalizedKey)) return true;
+  if (/(?:^|[-_.])(?:password|passwd|secret|credential|api[-_.]?(?:key|token)|access[-_.]?token|auth[-_.]?token|refresh[-_.]?token|session[-_.]?token|private[-_.]?key)(?:$|[-_.])/i.test(normalizedKey)) return true;
   if (/https?:\/\/|www\./i.test(text)) return true;
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text)) return true;
-  if (/(?:password|passwd|secret|credential|api[-_.\s]?key|access[-_.\s]?token|auth[-_.\s]?token)\s*[:=]/i.test(text)) return true;
+  if (/(?:password|passwd|secret|credential|api[-_.\s]?(?:key|token)|access[-_.\s]?token|auth[-_.\s]?token|refresh[-_.\s]?token|session[-_.\s]?token)\s*[:=]/i.test(text)) return true;
   if (/\bbearer\s+[A-Za-z0-9._~+\/-]{8,}/i.test(text)) return true;
   return false;
 }
