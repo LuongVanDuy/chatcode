@@ -1,8 +1,10 @@
 const { normalizeError, chatError } = require('./errors');
 const { skillsForTask } = require('./skill-runtime');
+const { buildTaskCard } = require('./task-planner');
 
 const MAX_VERIFY = 6;
 const MAX_CONTEXT_FILES = 6;
+const MAX_TASK_CARDS = 200;
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 
@@ -87,6 +89,13 @@ function compactInspection(inspect) {
 }
 
 function createAgentRuntime(api, store = null) {
+  const taskCards = new Map();
+
+  function rememberTaskCard(taskId, taskCard) {
+    taskCards.set(String(taskId), taskCard);
+    while (taskCards.size > MAX_TASK_CARDS) taskCards.delete(taskCards.keys().next().value);
+  }
+
   async function prepareTask(ref, request, limit = 8) {
     const started = nowMs();
     const text = String(request || '').trim();
@@ -101,8 +110,9 @@ function createAgentRuntime(api, store = null) {
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
     const skills = skillsForTask(inspect, text);
-
     const projectRules = readProjectRules(store, session.project_id);
+    const taskCard = buildTaskCard({ request:text, inspect, projectRules, verificationHints:hints });
+    rememberTaskCard(session.work_session_id, taskCard);
 
     return {
       ok:true,
@@ -114,6 +124,7 @@ function createAgentRuntime(api, store = null) {
       context:compactInspection(inspect),
       skills,
       project_rules:projectRules,
+      task_card:taskCard,
       verification_hints:hints,
       agent_contract:{
         preferred_calls:2,
@@ -122,6 +133,7 @@ function createAgentRuntime(api, store = null) {
         patch_format:'standard unified diff',
         guidance:[
           'Nếu response có skills, các rule/instructions/resource đính kèm là contract bắt buộc cho task hiện tại.',
+          'Bám task_card: giữ đúng target, ưu tiên owner candidate hiện có, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dữ kiện thật sự.',
           'Tôn trọng project_rules như quyết định bền vững đã được người dùng xác nhận; không trộn quy ước từ dự án hoặc theme khác.',
           'Với WordPress, tôn trọng context.retrieval_scope: search/Brain trước, đọc active child theme và plugin liên quan trước; chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
@@ -159,6 +171,7 @@ function createAgentRuntime(api, store = null) {
     const started = nowMs();
     const id = String(taskId || '').trim();
     if (!id) throw chatError('FILE_NOT_FOUND', 'task_id đang trống.');
+    const taskCard = taskCards.get(id) || null;
     const before = typeof api.workMeta === 'function' ? await api.workMeta(id) : await api.workStatus(id);
     if (before.status !== 'active') throw chatError('PERMISSION_DENIED', 'Fast Agent task không còn active.', { task_id:id, status:before.status });
     const projectId = before.project_id;
@@ -177,8 +190,10 @@ function createAgentRuntime(api, store = null) {
     if (!verificationPassed) {
       if (rollbackOnFailure) {
         const rolled = await api.rollbackWork(id);
+        taskCards.delete(id);
         return {
           ok:false, status:'rolled_back', task_id:id, work_session_id:id,
+          task_card:taskCard,
           verification, verification_passed:false, changed_files:applied.changed_files || [], patch:applied,
           rollback:rolled,
           next_action:'Task đã rollback vì verification fail. Gọi prepare_task nếu muốn thử lại từ baseline.',
@@ -188,6 +203,7 @@ function createAgentRuntime(api, store = null) {
       const current = await api.workStatus(id);
       return {
         ok:false, status:'needs_fix', task_id:id, work_session_id:id,
+        task_card:taskCard,
         verification, verification_passed:false,
         changed_files:current.changed_files || applied.changed_files || [],
         git:current.current?.git || applied.git || null,
@@ -201,6 +217,7 @@ function createAgentRuntime(api, store = null) {
       const current = await api.workStatus(id);
       return {
         ok:true, status:'ready_for_more', task_id:id, work_session_id:id,
+        task_card:taskCard,
         verification, verification_passed:true,
         changed_files:current.changed_files || applied.changed_files || [], git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
@@ -213,8 +230,10 @@ function createAgentRuntime(api, store = null) {
     const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
     const projectRules = saveProjectRules(store, projectId, rememberProjectRules);
+    taskCards.delete(id);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
+      task_card:taskCard,
       verification, verification_passed:true,
       changed_files:finished.changed_files || applied.changed_files || [],
       recovery_points:finished.recovery_points || applied.recovery_points || [],
