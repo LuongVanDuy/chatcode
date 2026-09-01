@@ -44,6 +44,8 @@ When one project is named, stay on it. Cross-project reads require an explicitly
 
 Brain may index broadly, but content reads start with the active child theme and directly related project-owned plugins. Widen to Bricks parent, Woo core or WordPress core only on concrete dependency/API evidence.
 
+When the user names a reference website/domain, use that source first. Do not broad-search unrelated websites for substitute images, icons or inspiration unless the named source is unavailable/insufficient or the user explicitly asks for wider research.
+
 Builder/user-edited data is source of truth after initial seed. WordPress owns posts/taxonomies/media/menus/routing. WooCommerce owns cart/session/checkout/order behavior only when Woo is actually detected or explicitly requested. Reuse shared product/post renderers and global design tokens.
 
 ## Media and icons
