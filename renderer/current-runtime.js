@@ -25,8 +25,23 @@
     addProject: ['folder-plus', 'Thêm dự án'],
     dashboardAddProject: ['folder-plus', 'Thêm dự án'],
     copyMcpTop: ['copy', 'Sao chép URL MCP'],
+    heroDiagnose: ['stethoscope', 'Chẩn đoán'],
+    diagnose: ['stethoscope', 'Chẩn đoán'],
+    restartConnection: ['refresh-cw', 'Kết nối lại'],
+    saveConnect: ['check', 'Lưu & kết nối'],
+    stopConnection: ['square', 'Ngắt tunnel'],
+    copyMcp: ['copy', 'Sao chép URL MCP'],
+    copyDiagnostic: ['clipboard-copy', 'Sao chép báo cáo'],
+    clearActivity: ['trash-2', 'Xóa lịch sử'],
+    hideTray: ['panel-bottom-close', 'Ẩn xuống tray'],
     reindexProject: ['refresh-cw', 'Re-index'],
-    removeProject: ['trash-2', 'Gỡ dự án']
+    removeProject: ['trash-2', 'Gỡ dự án'],
+    refreshFiles: ['refresh-cw', 'Làm mới'],
+    searchButton: ['search', 'Tìm kiếm'],
+    taskButton: ['play', 'Chạy'],
+    gitStatusButton: ['git-branch', 'Git status'],
+    gitDiffButton: ['file-diff', 'Git diff'],
+    savePermissions: ['check', 'Lưu quyền']
   });
 
   function loadScript(src) {
@@ -94,8 +109,8 @@
     if (badge && version && /^v?\d/.test(version)) badge.textContent = version.startsWith('v') ? version : `v${version}`;
   }
 
-  function mountStage2Chrome() {
-    document.body.dataset.uiStage = '2';
+  function mountStage3Chrome() {
+    document.body.dataset.uiStage = '3';
     mountNavigationIcons();
     mountActionIcons();
     syncVersionBadge();
@@ -103,17 +118,15 @@
   }
 
   async function boot() {
-    // Load early to avoid a light-theme flash, then move it to the end again after
-    // compatibility modules have mounted any feature-specific stylesheets.
     ensureFoundationLast();
     for (const src of COMPATIBILITY_MODULES) await loadScript(src);
     ensureFoundationLast();
-    mountStage2Chrome();
-    setTimeout(mountStage2Chrome, 450);
+    mountStage3Chrome();
+    setTimeout(mountStage3Chrome, 450);
 
     window.__chatcodeRenderer = Object.freeze({
       entry: 'current-runtime.js',
-      stage: 2,
+      stage: 3,
       compatibility_modules: [...COMPATIBILITY_MODULES],
       foundation: 'ui-foundation.css',
       icon_system: 'lucide'
