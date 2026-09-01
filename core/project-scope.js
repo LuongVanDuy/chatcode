@@ -60,7 +60,7 @@ function createProjectScopeApi(api) {
   const methodNames = [
     'listProjects','listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext',
     'prepareTask','completeTask','inspectProject','applyAndVerify','operationStatus','startWork','applyPatch','workStatus','finishWork','rollbackWork',
-    'writeFile','deleteFile','renameFile','runTask','exec','jobStatus','jobStop','gitStatus','gitDiff','gitStage','gitCommit'
+    'writeFile','deleteFile','renameFile','runTask','exec','jobStatus','jobStop','gitStatus','gitDiff','gitStatusExplicit','gitDiffExplicit','gitStage','gitCommit'
   ];
   const original = {};
   for (const name of methodNames) if (typeof api[name] === 'function') original[name] = api[name].bind(api);
@@ -227,7 +227,7 @@ function createProjectScopeApi(api) {
     });
   };
 
-  const readMethods = ['listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext','gitStatus','gitDiff'];
+  const readMethods = ['listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext','gitStatus','gitDiff','gitStatusExplicit','gitDiffExplicit'];
   for (const name of readMethods) {
     if (!original[name]) continue;
     api[name] = async (ref, ...args) => {
