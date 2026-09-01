@@ -70,6 +70,7 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
 
 (async () => {
   const readPaths = [];
+  let searchCalls = 0;
   const fakeApi = {
     projectContext:async () => ({ files:candidates, relations:[] }),
     projectBrain:async () => ({
@@ -78,18 +79,34 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
       primary_language:'PHP',
       entrypoints:[], wordpress:profile, topSymbols:[]
     }),
+    search:async (_ref, query) => {
+      searchCalls++;
+      if (/bricks/i.test(query)) return [{ path:'wp-content/themes/bricks/includes/elements/container.php', score:120 }];
+      if (/wp-includes/i.test(query)) return [{ path:'wp-includes/class-wp-query.php', score:120 }];
+      return [];
+    },
     readFile:async (_ref, rel) => { readPaths.push(rel); return { content:`content:${rel}` }; },
     gitStatus:async () => ({ ok:false, stderr:'not a git repository' })
   };
   const store = { getProject:() => ({ id:'p1', name:'fixture', permissions:{ read:true } }) };
-  const inspected = await createScopedInspect(fakeApi, store)('p1', 'Fix the mobile header', 8);
+  const inspect = createScopedInspect(fakeApi, store);
+  const inspected = await inspect('p1', 'Fix the mobile header', 8);
   assert.deepEqual(readPaths, [
     'wp-content/themes/project-child/inc/header.php',
     'wp-content/plugins/project-tools/project-tools.php'
   ], 'inspectProject must not content-read broad/core candidates');
+  assert.equal(searchCalls, 0, 'ordinary WordPress inspect must not run a broad fallback search');
   assert.equal(inspected.relevant_files.length, 2);
   assert.equal(inspected.retrieval_scope.strategy, 'wordpress-scope-first');
+  assert.equal(inspected.retrieval_scope.explicit_expansion_search, false);
   assert.ok(inspected.retrieval_scope.omitted_count >= 5);
+
+  readPaths.length = 0;
+  const explicitParent = await inspect('p1', 'Verify the native Bricks control API in the Bricks parent theme', 8);
+  assert.equal(searchCalls, 1, 'explicit Bricks parent evidence should unlock one broad search pass');
+  assert.equal(explicitParent.retrieval_scope.explicit_expansion_search, true);
+  assert.ok(explicitParent.retrieval_scope.explicit_expansion_flags.includes('bricksParent'));
+  assert.ok(explicitParent.relevant_files.some(item => item.path.includes('wp-content/themes/bricks/')), 'explicit expansion must be able to read the parent reference');
 
   const hintReads = [];
   const hints = await verificationHints({
