@@ -75,7 +75,8 @@ const projects = {
   const top = bootstrap.files.slice(0, 6).map(x => x.path);
   assert.ok(top.includes('wp-content/themes/flatsome-child/functions.php'), `child functions not prioritized: ${top.join(', ')}`);
   assert.ok(top.some(x => /includes\/init\.php$/.test(x)), `includes/init.php not prioritized: ${top.join(', ')}`);
-  assert.ok(top.includes('index.php') || top.includes('wp-blog-header.php') || top.includes('wp-load.php'), `WordPress bootstrap chain missing: ${top.join(', ')}`);
+  assert.equal(top.some(x => ['index.php','wp-blog-header.php','wp-load.php','wp-settings.php'].includes(x)), false, `WordPress core bootstrap must remain metadata-only by default: ${top.join(', ')}`);
+  assert.ok(top.some(x => x.startsWith('wp-content/themes/flatsome-child/') || x.startsWith('wp-content/plugins/acme-custom/')), `project-owned bootstrap context missing: ${top.join(', ')}`);
   assert.ok(!top.some(x => x.startsWith('vendor/')), 'vendor incorrectly prioritized');
 
   const checkout = await brain.projectContext('wp', 'fix checkout address billing shipping', 8);
