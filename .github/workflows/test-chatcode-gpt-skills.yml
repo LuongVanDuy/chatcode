@@ -8,6 +8,7 @@ on:
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
+      - 'core/project-profile.js'
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
       - 'core/git-lazy.js'
@@ -25,6 +26,7 @@ on:
       - 'main.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
       - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-git-lazy.cjs'
@@ -43,6 +45,7 @@ on:
       - 'core/skill-runtime.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
+      - 'core/project-profile.js'
       - 'core/agent-runtime.js'
       - 'core/task-planner.js'
       - 'core/git-lazy.js'
@@ -60,6 +63,7 @@ on:
       - 'main.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
       - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-git-lazy.cjs'
@@ -84,11 +88,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 5 runtime
+      - name: Syntax check Stage 6 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
+          node --check core/project-profile.js
           node --check core/agent-runtime.js
           node --check core/task-planner.js
           node --check core/git-lazy.js
@@ -105,6 +110,7 @@ jobs:
           node --check main.js
           node --check mcp-server.mjs
           node --check scripts/smoke-agent.cjs
+          node --check scripts/smoke-project-profile.cjs
           node --check scripts/smoke-task-planner.cjs
           node --check scripts/smoke-fast-deep-routing.cjs
           node --check scripts/smoke-git-lazy.cjs
@@ -117,6 +123,8 @@ jobs:
           node --check scripts/smoke-project-scope.cjs
       - name: Git lazy explicit-only regression
         run: node scripts/smoke-git-lazy.cjs
+      - name: Project Profile facts and decisions
+        run: node scripts/smoke-project-profile.cjs
       - name: WordPress Brain metadata/content scope
         run: node scripts/smoke-wordpress-brain-scope.cjs
       - name: Task Planner scoped Task Card
