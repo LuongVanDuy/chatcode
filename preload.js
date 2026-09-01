@@ -89,13 +89,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   await load('vendor/lucide.js', 'lucide-vendor');
-  await load('v07-runtime.js', 'v07-runtime');
-  await load('v08-runtime.js', 'v08-runtime');
-  await load('v081-runtime.js', 'v081-runtime');
-  await load('v09-runtime.js', 'v09-runtime');
-  await load('v091-runtime.js', 'v091-runtime');
-  await load('v10-runtime.js', 'v10-runtime');
-  await load('v10-stage3.js', 'v10-stage3');
-  await load('v10-stage4.js', 'v10-stage4');
-  await load('v102-runtime.js', 'v102-runtime');
+  await load('current-runtime.js', 'current-runtime');
 });
