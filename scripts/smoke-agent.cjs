@@ -131,11 +131,12 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   });
   assert.equal(remembered.status, 'completed');
   assert.ok(remembered.verification.some(item => item.command === 'node --check "src/app.js"' && item.ok), 'changed JavaScript should receive an inferred syntax check');
-  assert.ok(remembered.project_rules.some(item => item.key === 'checkout-null-policy'));
-  assert.equal(remembered.project_rules.some(item => item.key === 'api-token' || item.key === 'live-url'), false, 'secrets and URLs must not enter durable project memory');
+  const persistedRules = store.getProject('agent').projectRules || [];
+  assert.ok(persistedRules.some(item => item.key === 'checkout-null-policy'), 'confirmed rule must persist even when completion response keeps context relevant-only');
+  assert.equal(persistedRules.some(item => item.key === 'api-token' || item.key === 'live-url'), false, 'secrets and URLs must not enter durable project memory');
 
   const recalled = await api.prepareTask('agent', 'Adjust the same checkout behavior', 6);
-  assert.ok(recalled.project_rules.some(item => item.key === 'checkout-null-policy'), 'confirmed project rules must be returned by later prepare_task calls');
+  assert.ok(recalled.project_rules.some(item => item.key === 'checkout-null-policy'), 'confirmed project rules must be returned by later relevant prepare_task calls');
   await api.rollbackWork(recalled.task_id);
   await api.rollbackWork(rememberedTask.task_id);
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
