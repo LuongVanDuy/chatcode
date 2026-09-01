@@ -14,6 +14,7 @@ const inspect = {
     parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }]
   },
   relevant_files:[
+    { path:'wp-content/plugins/duyanhwebpro/modules/multilingual/class-multilingual.php', score:200, symbols:[{ name:'Bricks_Multilingual_Element', kind:'class', line:5 }] },
     { path:'wp-content/themes/fixture-child/assets/css/home.css', score:100, symbols:[] },
     { path:'wp-content/themes/fixture-child/assets/css/main.css', score:98, symbols:[] },
     { path:'wp-content/themes/fixture-child/assets/css/header-footer.css', score:96, symbols:[] },
@@ -89,6 +90,35 @@ const dataOwner = ownershipMap({ request:'Sửa đăng ký CPT sản phẩm hi�
 assert.equal(dataOwner.primary.kind, 'data_model');
 assert.ok(dataOwner.primary.path.endsWith('/inc/product/post-type.php'));
 
+const explicitPath = 'wp-content/themes/bricks-child/.chatcode-v15-smoke.txt';
+const explicitRequest = `Tạo đúng file \`${explicitPath}\`, ghi một dòng data tạm rồi rollback thay đổi file.`;
+const explicitOwner = ownershipMap({ request:explicitRequest, inspect, projectProfile:profile, taskType:'FAST_UI' });
+assert.equal(explicitOwner.primary.kind, 'explicit_path');
+assert.equal(explicitOwner.primary.path, explicitPath);
+assert.equal(explicitOwner.primary.status, OWNER_STATUS.CONFIRMED);
+assert.equal(explicitOwner.primary.confidence, 1);
+assert.equal(explicitOwner.requires_owner_read, false);
+assert.equal(explicitOwner.owner_set_mode, 'explicit-user-path');
+assert.equal(explicitOwner.entries.some(item => /duyanhwebpro/.test(item.path || '')), false, 'explicit new file must not inherit unrelated plugin owner');
+
+const explicitCard = buildTaskCard({ request:explicitRequest, inspect, projectProfile:profile, projectRules:[] });
+assert.equal(explicitCard.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(explicitCard.owner.kind, 'explicit_path');
+assert.equal(explicitCard.owner.primary_path, explicitPath);
+assert.deepEqual(explicitCard.owner.candidates, []);
+assert.deepEqual(explicitCard.owner.enforce_paths, [explicitPath]);
+assert.equal(explicitCard.owner.requires_read, false);
+assert.equal(explicitCard.expected_files[0], explicitPath);
+
+const explicitPatch = [
+  '--- /dev/null',
+  `+++ b/${explicitPath}`,
+  '@@ -0,0 +1 @@',
+  '+chatcode-v15-smoke',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(explicitCard, explicitPatch).ok, true, 'explicit-path file creation must pass Fast scope gate');
+
 const homeCard = buildTaskCard({ request:'Sửa width container trang chủ', inspect, projectProfile:profile, projectRules:[] });
 assert.equal(homeCard.version, 3);
 assert.equal(homeCard.execution.path, EXECUTION_PATHS.FAST);
@@ -147,4 +177,4 @@ const unrelatedCheck = validatePatchAgainstTaskCard(homeCard, unrelatedPatch);
 assert.equal(unrelatedCheck.ok, false, 'Home task must still reject unrelated ownership');
 assert.ok(unrelatedCheck.violations.some(item => /bypasses resolved homepage_css/i.test(item)));
 
-console.log('Owner Resolver smoke test: PASS (primary preference + evidence-backed companion owner set + Fast scope gate)');
+console.log('Owner Resolver smoke test: PASS (explicit path > evidence owner > ranked fallback + Fast scope gate)');
