@@ -1,0 +1,114 @@
+/* ChatCode current UI foundation — dark neutral desktop-tool theme. */
+:root{
+  color-scheme:dark;
+  --ui-font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+  --ui-mono:"Cascadia Code","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --ui-bg:#1b1c1e;
+  --ui-sidebar:#202124;
+  --ui-surface:#232426;
+  --ui-surface-2:#28292c;
+  --ui-surface-3:#2d2f32;
+  --ui-hover:#303236;
+  --ui-active:#35373b;
+  --ui-text:#f1f1f1;
+  --ui-text-2:#c3c4c7;
+  --ui-muted:#8f9197;
+  --ui-border:rgba(255,255,255,.085);
+  --ui-border-soft:rgba(255,255,255,.055);
+  --ui-accent:#9aaeff;
+  --ui-accent-strong:#b2c0ff;
+  --ui-accent-bg:rgba(154,174,255,.12);
+  --ui-success:#76bd8d;
+  --ui-warning:#d4a861;
+  --ui-danger:#dc7b7b;
+  --ui-radius-xs:5px;
+  --ui-radius-sm:7px;
+  --ui-radius-md:9px;
+  --ui-radius-lg:12px;
+  --ui-shadow:none;
+
+  /* Legacy aliases: old renderer code consumes the new system without owning it. */
+  --bg:var(--ui-bg);--panel:var(--ui-surface);--panel2:var(--ui-surface-2);--text:var(--ui-text);--muted:var(--ui-muted);--line:var(--ui-border);--nav:var(--ui-sidebar);--nav2:var(--ui-hover);--blue:var(--ui-accent);--blue2:var(--ui-accent-strong);--green:var(--ui-success);--amber:var(--ui-warning);--red:var(--ui-danger);--shadow:var(--ui-shadow);
+  font-family:var(--ui-font);
+}
+*{scrollbar-color:#4a4c51 transparent;scrollbar-width:thin}
+html,body{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font);font-size:14px;line-height:1.45}
+body{letter-spacing:-.005em}
+button,input,textarea,select{font:inherit}button{letter-spacing:-.005em}
+code,pre,.code,.v103-detail,.v103-session-top>code{font-family:var(--ui-mono)!important}
+::selection{background:rgba(154,174,255,.28);color:var(--ui-text)}
+
+/* Shell surfaces. Layout dimensions are intentionally preserved for Stage 2. */
+.sidebar{background:var(--ui-sidebar);color:var(--ui-text);border-right:1px solid var(--ui-border-soft)}
+.main,.content{background:var(--ui-bg)}
+.topbar{background:var(--ui-bg);border-color:var(--ui-border-soft)}
+.topbar h1,.page-head h2,.project-title h2,.card-head h3,.hero h2{color:var(--ui-text);font-weight:600}
+.topbar p,.page-head p,.card-head p,.project-title p,.hero p{color:var(--ui-muted)}
+.eyebrow{color:var(--ui-muted);font-weight:600;letter-spacing:.075em}
+
+/* Navigation. */
+.brand strong{font-weight:600;color:var(--ui-text)}
+.brand span,.sidebar-health small{color:var(--ui-muted)}
+.brand .version-badge,.section-title b{background:var(--ui-surface-2);border-color:var(--ui-border);color:var(--ui-muted)}
+.section-title{color:var(--ui-muted);font-weight:600;letter-spacing:.06em}
+.nav-link,.project-item{color:var(--ui-text-2);font-weight:500}
+.nav-link:hover,.project-item:hover{background:var(--ui-hover);color:var(--ui-text)}
+.nav-link.active,.project-item.active{background:var(--ui-active);color:var(--ui-text)}
+.project-item small{color:var(--ui-muted)}
+.project-avatar{background:var(--ui-surface-3);color:var(--ui-text-2);font-weight:600}
+.add-project{border-color:var(--ui-border);color:var(--ui-muted);border-radius:var(--ui-radius-sm)}
+.add-project:hover{background:var(--ui-hover);border-color:var(--ui-border);color:var(--ui-text)}
+.sidebar-health{border-color:var(--ui-border-soft)}
+
+/* Core surfaces: flatter, quieter and less SaaS-card-like. */
+.card,.health-card,.kpi,.project-card,.project-stats>article,.v103-work-card,.v103-session,.v10-mode-card,.v104-agent-card{background:var(--ui-surface)!important;border-color:var(--ui-border)!important;box-shadow:none!important}
+.card{border-radius:var(--ui-radius-lg)}
+.health-card,.kpi,.project-card,.project-stats>article{border-radius:var(--ui-radius-md)}
+.hero{background:var(--ui-surface)!important}.hero-side{border-color:var(--ui-border)}
+.pulse,.connection-icon,.activity-icon{background:var(--ui-surface-3)!important}
+.health-card span,.kpi span,.watch-grid span{color:var(--ui-muted);font-weight:600;letter-spacing:.055em}
+.health-card strong,.kpi strong,.watch-grid strong,.detail-list strong,.activity-row strong,.project-card strong{color:var(--ui-text)}
+.health-card small,.kpi small,.legend,.detail-list span,.activity-row span,.activity-meta small{color:var(--ui-muted)}
+.project-card:hover{background:var(--ui-hover)!important;border-color:var(--ui-border)!important}
+
+/* Controls. */
+.btn,.status-button,.card-head select,select,.tabs button,.segments button{background:var(--ui-surface-2);color:var(--ui-text-2);border-color:var(--ui-border);border-radius:var(--ui-radius-sm);box-shadow:none;font-weight:500}
+.btn:hover,.status-button:hover,.tabs button:hover,.segments button:hover{background:var(--ui-hover);color:var(--ui-text)}
+.btn.primary{background:var(--ui-text);border-color:var(--ui-text);color:#1d1e20;font-weight:600}
+.btn.primary:hover{background:#fff;border-color:#fff;color:#151618}
+.btn.ghost{background:transparent;color:var(--ui-text-2)}
+.btn:disabled{opacity:.38}.link-btn{color:var(--ui-accent);font-weight:500}.link-btn:hover{color:var(--ui-accent-strong)}
+.status-button{border-radius:999px}.danger-outline{background:transparent!important;border-color:rgba(220,123,123,.36)!important;color:var(--ui-danger)!important}
+input,textarea,.url-box,.form-stack input,.search-row input{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;color:var(--ui-text)!important;border-radius:var(--ui-radius-sm)!important;outline:none}
+input::placeholder,textarea::placeholder{color:#6f7177}
+input:focus,textarea:focus,select:focus,.form-stack input:focus,.search-row input:focus{border-color:rgba(154,174,255,.55)!important;box-shadow:0 0 0 2px rgba(154,174,255,.13)!important}
+.prefix{background:var(--ui-surface-2);border-color:var(--ui-border);border-radius:var(--ui-radius-sm)}
+.prefix b{background:var(--ui-surface-3);border-color:var(--ui-border);color:var(--ui-muted)}
+.segments{background:var(--ui-surface-2);border-radius:var(--ui-radius-md)}
+.segments button.active,.tabs button.active{background:var(--ui-active);color:var(--ui-text);box-shadow:none}
+
+/* Secondary containers. */
+.note,.watch-grid>div,.url-box,.empty,.v103-metrics span,.v103-files code,.v104-flow>div,.v104-pills span{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;color:var(--ui-text-2)!important;box-shadow:none!important}
+.detail-list>div,.activity-row,.setting,.diag,.chart{border-color:var(--ui-border-soft)}
+.code,.v103-detail{background:#17181a!important;color:#d9dadd!important;border:1px solid var(--ui-border)!important}
+.activity-meta b{color:var(--ui-text-2)}
+.activity-row.failed .activity-icon{background:rgba(220,123,123,.12)!important;color:var(--ui-danger)}
+
+/* Status language uses color sparingly. */
+.dot{background:#777a80;box-shadow:0 0 0 3px rgba(255,255,255,.045)}
+.dot.success{background:var(--ui-success);box-shadow:0 0 0 3px rgba(118,189,141,.10)}
+.dot.warning{background:var(--ui-warning);box-shadow:0 0 0 3px rgba(212,168,97,.10)}
+.dot.error{background:var(--ui-danger);box-shadow:0 0 0 3px rgba(220,123,123,.10)}
+.dot.progress{background:var(--ui-accent);box-shadow:0 0 0 3px rgba(154,174,255,.10)}
+.success-text{color:var(--ui-success)}.link-btn.danger{color:var(--ui-danger)}
+
+/* Compatibility feature cards inherit the same language instead of creating sub-themes. */
+.v103-status,.v10-mode-badge{background:var(--ui-surface-3)!important;color:var(--ui-text-2)!important;border-color:var(--ui-border)!important}
+.v103-status.active,.v10-mode-badge.trusted{background:rgba(118,189,141,.10)!important;color:var(--ui-success)!important}
+.v103-status.completed{background:var(--ui-accent-bg)!important;color:var(--ui-accent-strong)!important}
+.v103-status.verification_failed,.v103-status.rollback_partial{background:rgba(212,168,97,.10)!important;color:var(--ui-warning)!important}
+.v103-status.rolled_back{background:rgba(185,154,255,.10)!important;color:#c4b0ff!important}
+
+.btn,.nav-link,.project-item,.project-card,.tabs button,.segments button,.link-btn{transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+:focus-visible{outline:2px solid rgba(154,174,255,.72);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
