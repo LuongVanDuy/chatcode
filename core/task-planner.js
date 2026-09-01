@@ -25,6 +25,8 @@ const PATH_LIMITS = Object.freeze({
   DEEP:Object.freeze({ context_files:6, patch_files:24, skill_chars:56000 })
 });
 
+const MICRO_FAST_LIMITS = Object.freeze({ context_files:3, patch_files:2, skill_chars:3600 });
+
 function unique(values) {
   return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))];
 }
@@ -82,16 +84,34 @@ function deepPathReasons(request, type = '') {
   return unique(reasons);
 }
 
+function isMicroFastRequest(request) {
+  const text = normalizeText(request);
+  if (!text || text.length > 170) return false;
+  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|refactor|redesign|migration|database|builder\s+data|template|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
+
+  const explicitSmallChange = /\b\d+(?:\.\d+)?\s*(?:px|rem|em|%)\b|\b(?:slightly|small|minor|a\s+bit)\b|\bnhẹ\b|một\s+chút|khoảng\s+\d/i.test(text);
+  if (!explicitSmallChange) return false;
+
+  const styleAxis = /font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)/i.test(text);
+  const scopedTarget = /card|section|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action/i.test(text);
+  return styleAxis && scopedTarget;
+}
+
+function executionLimits(request, executionPath) {
+  if (executionPath === EXECUTION_PATHS.FAST && isMicroFastRequest(request)) return MICRO_FAST_LIMITS;
+  return PATH_LIMITS[executionPath];
+}
+
 function preflightExecutionPath(request) {
   const reasons = deepPathReasons(request, '');
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, reasons, limits:PATH_LIMITS[executionPath] };
+  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
 }
 
 function classifyExecutionPath(request, type) {
   const reasons = deepPathReasons(request, type);
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, reasons, limits:PATH_LIMITS[executionPath] };
+  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
 }
 
 function targetLabel(request) {

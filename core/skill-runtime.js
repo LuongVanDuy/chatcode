@@ -12,6 +12,9 @@ const MAX_DOMAINS = 2;
 const CORE_RESOURCE = 'resources/core-checklist.md';
 const WORDPRESS_BRICKS_SKILL_ID = 'wordpress-bricks';
 const SUPPORT_RESOURCES = new Set(['resources/snippets.md', 'resources/patterns.md']);
+const FILE_CACHE_TTL_MS = 15000;
+const MAX_FILE_CACHE_ENTRIES = 48;
+const fileCache = new Map();
 
 const DOMAIN_FILES = Object.freeze({
   wordpress:'domains/wordpress.md',
@@ -31,15 +34,46 @@ const DOMAIN_COMPACT = Object.freeze({
   ui:'UI: reuse project tokens/components; separate global vs local ownership; apply only verified UI knowledge matches and validate responsive/interaction states.'
 });
 
+function trimFileCache() {
+  while (fileCache.size > MAX_FILE_CACHE_ENTRIES) fileCache.delete(fileCache.keys().next().value);
+}
+
+function readCachedText(file) {
+  const now = Date.now();
+  const cached = fileCache.get(file);
+  if (cached && now - cached.checked_at < FILE_CACHE_TTL_MS) return cached.content;
+
+  try {
+    const stat = fs.statSync(file);
+    if (cached && cached.mtime_ms === stat.mtimeMs && cached.size === stat.size) {
+      cached.checked_at = now;
+      fileCache.delete(file);
+      fileCache.set(file, cached);
+      return cached.content;
+    }
+
+    const content = String(fs.readFileSync(file, 'utf8') || '');
+    fileCache.delete(file);
+    fileCache.set(file, { checked_at:now, mtime_ms:stat.mtimeMs, size:stat.size, content });
+    trimFileCache();
+    return content;
+  } catch {
+    fileCache.delete(file);
+    return '';
+  }
+}
+
 function safeRead(file, maxChars) {
-  try { return String(fs.readFileSync(file, 'utf8') || '').slice(0, maxChars); }
-  catch { return ''; }
+  return readCachedText(file).slice(0, maxChars);
 }
 
 function readManifest(skillId) {
   const dir = path.join(SKILL_ROOT, skillId);
-  try { return { dir, manifest:JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) }; }
-  catch { return null; }
+  try {
+    const raw = safeRead(path.join(dir, 'manifest.json'), 128 * 1024);
+    if (!raw) return null;
+    return { dir, manifest:JSON.parse(raw) };
+  } catch { return null; }
 }
 
 function inspectionHaystack(inspect, request = '') {

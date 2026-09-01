@@ -90,6 +90,8 @@ async function verificationHints(api, projectId, inspect) {
 
 function compactInspection(inspect, maxFiles = MAX_CONTEXT_FILES) {
   const limit = Math.min(MAX_CONTEXT_FILES, Math.max(1, Number(maxFiles) || MAX_CONTEXT_FILES));
+  const relationLimit = limit <= 3 ? 18 : limit === 4 ? 32 : 80;
+  const symbolLimit = limit <= 3 ? 14 : limit === 4 ? 24 : 60;
   return {
     project:inspect.project,
     frameworks:inspect.frameworks,
@@ -99,8 +101,8 @@ function compactInspection(inspect, maxFiles = MAX_CONTEXT_FILES) {
     wordpress:inspect.wordpress,
     retrieval_scope:inspect.retrieval_scope || null,
     relevant_files:(inspect.relevant_files || []).slice(0, limit),
-    relevant_relations:(inspect.relevant_relations || []).slice(0, limit === 4 ? 32 : 80),
-    top_symbols:(inspect.top_symbols || []).slice(0, limit === 4 ? 24 : 60),
+    relevant_relations:(inspect.relevant_relations || []).slice(0, relationLimit),
+    top_symbols:(inspect.top_symbols || []).slice(0, symbolLimit),
     git:inspect.git
   };
 }
