@@ -23,11 +23,11 @@ function fakeApi() {
     async startWork(project, goal) { const id=`work-${++seq}`; sessions.set(id,{ project_id:project, status:'active' }); return { work_session_id:id, project_id:project, workspace_mode:'trusted', baseline:{} }; },
     async workStatus(id) { return sessions.get(id) || { project_id:'', status:'missing' }; },
     async prepareTask(project, request) { const id=`task-${++seq}`; sessions.set(id,{ project_id:project, status:'active' }); return { ok:true, task_id:id, work_session_id:id, request, context:{ project:{ id:project, name:projects.find(p => p.id === project)?.name || project } }, agent_contract:{ guidance:[] } }; },
-    async completeTask(id) { return { ok:true, task_id:id, status:'completed' }; },
+    async completeTask(id) { const session=sessions.get(id); if (session) session.status='completed'; return { ok:true, task_id:id, status:'completed' }; },
     async writeFile(project, file) { return { ok:true, project, file }; },
     async applyPatch(project) { return { ok:true, project }; },
-    async finishWork(id) { return { ok:true, id }; },
-    async rollbackWork(id) { return { ok:true, id }; },
+    async finishWork(id) { const session=sessions.get(id); if (session) session.status='completed'; return { ok:true, id, status:'completed' }; },
+    async rollbackWork(id) { const session=sessions.get(id); if (session) session.status='rolled_back'; return { ok:true, id, status:'rolled_back' }; },
     async gitStatus(project) { return { project, ok:true }; },
     async gitStage(project) { return { project, ok:true }; }
   };
@@ -66,7 +66,8 @@ function fakeApi() {
     await assert.rejects(() => api.projectBrain('vitas'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  // A new explicit prepare_task can switch the active target; silent hopping cannot.
+  // While a task is still active, an ambiguous prepare cannot silently switch target.
+  // A clear user intent naming the new project may switch it.
   {
     const api = createProjectScopeApi(fakeApi());
     await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
@@ -76,17 +77,50 @@ function fakeApi() {
     await assert.rejects(() => api.search('boncauinax', 'header'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  // Task/session mutations are also bound to the locked target.
+  // Acceptance A: rollback releases the old target. The next prepare_task may select a new project
+  // even when the request itself does not repeat that project name.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
+    await api.rollbackWork(first.task_id);
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('eupharma', 'check header');
+    assert.equal(next.project_scope.target.id, 'eupharma');
+  }
+
+  // Finish has the same lifecycle semantics as rollback.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần footer');
+    await api.finishWork(first.task_id);
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('vitas', 'check footer');
+    assert.equal(next.project_scope.target.id, 'vitas');
+  }
+
+  // Successful complete_task also releases the old target for a new prepare_task.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
+    await api.completeTask(first.task_id);
+    assert.equal(api.projectScope().locked, false);
+    const next = await api.prepareTask('eupharma', 'check home');
+    assert.equal(next.project_scope.target.id, 'eupharma');
+  }
+
+  // Session mutations remain strict: once the completed A scope is released, an old B session
+  // cannot self-pin B via complete_task. A new prepare_task must establish B first.
   {
     const base = fakeApi();
     const other = await base.prepareTask('vitas', 'internal pre-existing session');
     const api = createProjectScopeApi(base);
     const task = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
     await api.completeTask(task.task_id);
+    assert.equal(api.projectScope().locked, false);
     await assert.rejects(() => api.completeTask(other.task_id), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  console.log('Project scope lock PASS: single-target pinning + explicit read-only references + session binding');
+  console.log('Project scope lock PASS: active target guard + finished/rollback scope release + strict session mutation binding');
 })().catch(error => {
   console.error(error);
   process.exit(1);
