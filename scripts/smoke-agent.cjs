@@ -58,6 +58,9 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(prepared.status, 'ready');
   assert.ok(prepared.task_id);
   assert.equal(prepared.agent_contract.preferred_calls, 2);
+  assert.equal(prepared.baseline.git.diff_omitted, true, 'prepare_task should not duplicate a full Git diff in its baseline');
+  assert.equal(prepared.baseline.brain, null, 'prepare_task should reuse inspection Brain context instead of duplicating it in baseline');
+  assert.deepEqual(prepared.project_rules, []);
   assert.equal(prepared.context.primary_language, 'JavaScript');
   assert.ok(prepared.context.relevant_files.some(item => item.path === 'src/app.js' && /checkoutAddress/.test(item.content)), 'prepare_task must include relevant source content');
   assert.ok(prepared.verification_hints.some(item => item.command === 'npm run test'), 'prepare_task should expose package-script verification hint');
@@ -114,6 +117,27 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
 
   const secondRollback = await api.rollbackWork(repair.task_id);
   assert.equal(secondRollback.ok, true);
+  assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
+  assert.equal(git(root, ['status','--porcelain']).trim(), '');
+
+  // Omitted commands infer a real syntax check and explicit user decisions persist per project.
+  const rememberedTask = await api.prepareTask('agent', 'Keep checkout normalization and remember the project convention', 6);
+  const remembered = await api.completeTask(rememberedTask.task_id, firstAttemptPatch, [], {
+    rememberProjectRules:[
+      { key:'checkout-null-policy', value:'Normalize missing checkout values to an empty string.' },
+      { key:'api-token', value:'must-not-persist' },
+      { key:'live-url', value:'https://example.invalid/private' }
+    ]
+  });
+  assert.equal(remembered.status, 'completed');
+  assert.ok(remembered.verification.some(item => item.command === 'node --check "src/app.js"' && item.ok), 'changed JavaScript should receive an inferred syntax check');
+  assert.ok(remembered.project_rules.some(item => item.key === 'checkout-null-policy'));
+  assert.equal(remembered.project_rules.some(item => item.key === 'api-token' || item.key === 'live-url'), false, 'secrets and URLs must not enter durable project memory');
+
+  const recalled = await api.prepareTask('agent', 'Adjust the same checkout behavior', 6);
+  assert.ok(recalled.project_rules.some(item => item.key === 'checkout-null-policy'), 'confirmed project rules must be returned by later prepare_task calls');
+  await api.rollbackWork(recalled.task_id);
+  await api.rollbackWork(rememberedTask.task_id);
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
 

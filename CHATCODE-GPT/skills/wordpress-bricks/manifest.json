@@ -1,7 +1,7 @@
 {
   "id": "wordpress-bricks",
   "name": "WordPress + Bricks Native Delivery",
-  "version": 2,
+  "version": 3,
   "entry": "SKILL.md",
   "resources": [
     "resources/core-checklist.md",

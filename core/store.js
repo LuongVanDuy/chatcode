@@ -14,6 +14,19 @@ const DEFAULT_SAFETY = Object.freeze({
   gitCommit: 'ask'
 });
 const FULL_PERMISSIONS = Object.freeze({ write:true, manageFiles:true, tasks:true, gitWrite:true });
+const PROJECT_RULE_LIMIT = 12;
+const PROJECT_RULE_VALUE_LIMIT = 320;
+
+function normalizeProjectRules(raw = []) {
+  const byKey = new Map();
+  for (const item of Array.isArray(raw) ? raw.slice(-PROJECT_RULE_LIMIT * 2) : []) {
+    const key = String(item?.key || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0,64);
+    const value = String(item?.value || '').trim().slice(0, PROJECT_RULE_VALUE_LIMIT);
+    if (!key || !value || /password|secret|token|api[-_.\s]?key|credential|https?:\/\/|www\./i.test(`${key} ${value}`)) continue;
+    byKey.set(key, { key, value, updatedAt:String(item?.updatedAt || new Date().toISOString()) });
+  }
+  return [...byKey.values()].slice(-PROJECT_RULE_LIMIT);
+}
 
 function emptyCounters() {
   return { calls: 0, read: 0, write: 0, task: 0, git: 0, manage: 0, other: 0, errors: 0, bytesIn: 0, bytesOut: 0, durationMs: 0 };
@@ -128,6 +141,7 @@ function createStore(app, port) {
       const permissions = workspaceMode === 'trusted' ? { ...FULL_PERMISSIONS } : rawPermissions;
       return {
         ...project,
+        projectRules:normalizeProjectRules(project.projectRules),
         workspaceMode,
         trusted: { allowSecrets:workspaceMode === 'trusted' && !!safety._allowSecrets, allowGitPush:false },
         safePermissions,
@@ -212,7 +226,7 @@ function createStore(app, port) {
 
   return {
     read, write, ensure, normalizeDomain, connectionConfig, settings, getProject,
-    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions,
+    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions, normalizeProjectRules,
     safetyActions: SAFETY_ACTIONS, defaultSafety: DEFAULT_SAFETY, fullPermissions:FULL_PERMISSIONS
   };
 }

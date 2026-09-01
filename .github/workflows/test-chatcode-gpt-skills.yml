@@ -9,11 +9,18 @@ on:
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
@@ -28,11 +35,18 @@ on:
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
@@ -52,21 +66,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check skill loader
+      - name: Syntax check Stage 1 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
           node --check core/agent-runtime.js
+          node --check core/projects.js
+          node --check core/store.js
+          node --check core/support.js
+          node --check core/task-policy.js
+          node --check core/work-runtime.js
           node --check core/retrieval-scope.js
           node --check core/wordpress-retrieval.js
           node --check core/runtime-bootstrap.js
           node --check mcp-server.mjs
+          node --check scripts/smoke-agent.cjs
+          node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
+      - name: Fast Agent compact context, decisions and auto verify
+        run: npm run test:agent
+      - name: Safe task and PHP/Laragon regression
+        run: npm run test:regression
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
       - name: Builder editability and page asset ownership

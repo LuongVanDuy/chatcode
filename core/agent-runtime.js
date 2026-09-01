@@ -8,6 +8,38 @@ function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 
 function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
 
+function inferredSyntaxCommands(files) {
+  const commands = [];
+  for (const item of Array.isArray(files) ? files : []) {
+    if (String(item?.operation || '') === 'delete') continue;
+    const file = String(item?.path || item || '').replace(/\\/g, '/');
+    if (!file) continue;
+    if (/\.php$/i.test(file)) commands.push(`php -l "${file}"`);
+    else if (/\.(?:js|cjs|mjs)$/i.test(file)) commands.push(`node --check "${file}"`);
+  }
+  return unique(commands).slice(0, MAX_VERIFY);
+}
+
+function readProjectRules(store, projectId) {
+  if (!store || typeof store.getProject !== 'function') return [];
+  try { return (store.getProject(projectId).projectRules || []).map(item => ({ key:item.key, value:item.value })); }
+  catch { return []; }
+}
+
+function saveProjectRules(store, projectId, input) {
+  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return [];
+  const proposed = Array.isArray(input) ? input : [];
+  if (!proposed.length) return [];
+  const state = store.read();
+  const index = state.projects.findIndex(project => project.id === projectId);
+  if (index < 0) return [];
+  const now = new Date().toISOString();
+  const merged = [...(state.projects[index].projectRules || []), ...proposed.map(item => ({ key:item?.key, value:item?.value, updatedAt:now }))];
+  state.projects[index].projectRules = typeof store.normalizeProjectRules === 'function' ? store.normalizeProjectRules(merged) : merged;
+  store.write(state);
+  return readProjectRules(store, projectId);
+}
+
 async function verificationHints(api, projectId, inspect) {
   const hints = [];
   const isWordPress = !!inspect?.wordpress?.isWordPress;
@@ -54,7 +86,7 @@ function compactInspection(inspect) {
   };
 }
 
-function createAgentRuntime(api) {
+function createAgentRuntime(api, store = null) {
   async function prepareTask(ref, request, limit = 8) {
     const started = nowMs();
     const text = String(request || '').trim();
@@ -63,12 +95,14 @@ function createAgentRuntime(api) {
 
     const inspectStarted = nowMs();
     const [session, inspect] = await Promise.all([
-      api.startWork(ref, text),
+      api.startWork(ref, text, { compactBaseline:true }),
       api.inspectProject(ref, text, boundedLimit)
     ]);
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
     const skills = skillsForTask(inspect, text);
+
+    const projectRules = readProjectRules(store, session.project_id);
 
     return {
       ok:true,
@@ -79,6 +113,7 @@ function createAgentRuntime(api) {
       workspace_mode:session.workspace_mode,
       context:compactInspection(inspect),
       skills,
+      project_rules:projectRules,
       verification_hints:hints,
       agent_contract:{
         preferred_calls:2,
@@ -88,6 +123,7 @@ function createAgentRuntime(api) {
         guidance:[
           'Nếu response có skills, các rule/instructions/resource đính kèm là contract bắt buộc cho task hiện tại.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dữ kiện thật sự.',
+          'Tôn trọng project_rules như quyết định bền vững đã được người dùng xác nhận; không trộn quy ước từ dự án hoặc theme khác.',
           'Với WordPress, tôn trọng context.retrieval_scope: search/Brain trước, đọc active child theme và plugin liên quan trước; chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
@@ -99,13 +135,13 @@ function createAgentRuntime(api) {
     };
   }
 
-  async function runVerification(projectId, taskId, workspaceMode, commands) {
+  async function runVerification(projectId, taskId, workspaceMode, commands, { preferTaskRunner = false } = {}) {
     const results = [];
     for (const command of commands.slice(0, MAX_VERIFY)) {
       const started = nowMs();
       try {
         let raw;
-        if (workspaceMode === 'trusted' && typeof api.exec === 'function') {
+        if (!preferTaskRunner && workspaceMode === 'trusted' && typeof api.exec === 'function') {
           raw = await api.exec(projectId, command, { background:false, timeout_ms:120000, work_session_id:taskId });
           results.push({ command, ok:raw.status === 'completed' && Number(raw.exit_code) === 0, status:raw.status, exit_code:raw.exit_code, stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started });
         } else {
@@ -119,21 +155,22 @@ function createAgentRuntime(api) {
     return results;
   }
 
-  async function completeTask(taskId, patch, verifyCommands = [], { finalize = true, rollbackOnFailure = false } = {}) {
+  async function completeTask(taskId, patch, verifyCommands = [], { finalize = true, rollbackOnFailure = false, rememberProjectRules = [] } = {}) {
     const started = nowMs();
     const id = String(taskId || '').trim();
     if (!id) throw chatError('FILE_NOT_FOUND', 'task_id đang trống.');
-    const before = await api.workStatus(id);
+    const before = typeof api.workMeta === 'function' ? await api.workMeta(id) : await api.workStatus(id);
     if (before.status !== 'active') throw chatError('PERMISSION_DENIED', 'Fast Agent task không còn active.', { task_id:id, status:before.status });
     const projectId = before.project_id;
-    const commands = unique((Array.isArray(verifyCommands) ? verifyCommands : []).map(x => String(x || '').trim())).slice(0, MAX_VERIFY);
+    const requestedCommands = unique((Array.isArray(verifyCommands) ? verifyCommands : []).map(x => String(x || '').trim())).slice(0, MAX_VERIFY);
 
     const patchStarted = nowMs();
     const applied = await api.applyPatch(projectId, String(patch || ''), id);
     const patchMs = nowMs() - patchStarted;
+    const commands = requestedCommands.length ? requestedCommands : inferredSyntaxCommands(applied.files || applied.changed_files || []);
 
     const verifyStarted = nowMs();
-    const verification = await runVerification(projectId, id, before.workspace_mode, commands);
+    const verification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:requestedCommands.length === 0 });
     const verifyMs = nowMs() - verifyStarted;
     const verificationPassed = verification.every(item => item.ok);
 
@@ -173,8 +210,9 @@ function createAgentRuntime(api) {
     }
 
     const finalizeStarted = nowMs();
-    const finished = await api.finishWork(id, []);
+    const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
+    const projectRules = saveProjectRules(store, projectId, rememberProjectRules);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
       verification, verification_passed:true,
@@ -182,6 +220,7 @@ function createAgentRuntime(api) {
       recovery_points:finished.recovery_points || applied.recovery_points || [],
       git:finished.final?.git || applied.git || null,
       brain:finished.brain || applied.brain || null,
+      project_rules:projectRules,
       session:finished,
       agent_contract:{ preferred_calls:2, completed_in_call:2, result:'done' },
       telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:finalizeMs, brain_refresh_ms:Number(finished?.brain?.refresh_ms || applied?.brain?.refresh_ms)||0, git_ms:0 }
@@ -198,11 +237,11 @@ function installAgentRuntimePatches() {
   const previousCreate = safety.createSafeToolApi;
   safety.createSafeToolApi = function agentAwareSafeToolApi(projects, store, approvals, backups, options) {
     const api = previousCreate(projects, store, approvals, backups, options);
-    const runtime = createAgentRuntime(api);
+    const runtime = createAgentRuntime(api, store);
     api.prepareTask = (ref, request, limit) => runtime.prepareTask(ref, request, limit);
     api.completeTask = (taskId, patch, verifyCommands, options = {}) => runtime.completeTask(taskId, patch, verifyCommands, options);
     return api;
   };
 }
 
-module.exports = { installAgentRuntimePatches, createAgentRuntime, verificationHints };
+module.exports = { installAgentRuntimePatches, createAgentRuntime, verificationHints, inferredSyntaxCommands };
