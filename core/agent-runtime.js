@@ -1,6 +1,12 @@
 const { normalizeError, chatError } = require('./errors');
 const { skillsForTask } = require('./skill-runtime');
 const {
+  readProjectProfile,
+  refreshProjectProfile,
+  saveProjectDecisions,
+  projectProfileContext
+} = require('./project-profile');
+const {
   buildTaskCard,
   preflightExecutionPath,
   EXECUTION_PATHS,
@@ -38,23 +44,11 @@ function inferredSyntaxCommands(files) {
 }
 
 function readProjectRules(store, projectId) {
-  if (!store || typeof store.getProject !== 'function') return [];
-  try { return (store.getProject(projectId).projectRules || []).map(item => ({ key:item.key, value:item.value })); }
-  catch { return []; }
+  return (readProjectProfile(store, projectId).decisions || []).map(item => ({ key:item.key, value:item.value }));
 }
 
 function saveProjectRules(store, projectId, input) {
-  if (!store || typeof store.read !== 'function' || typeof store.write !== 'function') return [];
-  const proposed = Array.isArray(input) ? input : [];
-  if (!proposed.length) return [];
-  const state = store.read();
-  const index = state.projects.findIndex(project => project.id === projectId);
-  if (index < 0) return [];
-  const now = new Date().toISOString();
-  const merged = [...(state.projects[index].projectRules || []), ...proposed.map(item => ({ key:item?.key, value:item?.value, updatedAt:now }))];
-  state.projects[index].projectRules = typeof store.normalizeProjectRules === 'function' ? store.normalizeProjectRules(merged) : merged;
-  store.write(state);
-  return readProjectRules(store, projectId);
+  return saveProjectDecisions(store, projectId, input);
 }
 
 function relevantProjectRules(allRules, taskCard) {
@@ -151,7 +145,8 @@ function createAgentRuntime(api, store = null) {
     ]);
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
-    const allProjectRules = readProjectRules(store, session.project_id);
+    const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
+    const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
     const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, verificationHints:hints });
     rememberTaskCard(session.work_session_id, taskCard);
 
@@ -160,6 +155,7 @@ function createAgentRuntime(api, store = null) {
       ? compactSkillsForFastPath(rawSkills, taskCard.execution.skill_context_limit_chars)
       : rawSkills;
     const projectRules = relevantProjectRules(allProjectRules, taskCard);
+    const projectProfile = projectProfileContext(fullProjectProfile, text, taskCard.type, taskCard.decision_keys || []);
     const context = compactInspection(inspect, taskCard.execution.context_file_limit);
     const pathGuidance = taskCard.execution.path === EXECUTION_PATHS.FAST
       ? `FAST Path: tối đa ${taskCard.execution.context_file_limit} file context và ${taskCard.execution.patch_file_limit} file patch; không tự tạo/xóa file ngoài allowance của task_card.`
@@ -175,6 +171,8 @@ function createAgentRuntime(api, store = null) {
       execution_path:taskCard.execution.path,
       context,
       skills,
+      project_profile:projectProfile,
+      project_decisions:projectRules,
       project_rules:projectRules,
       task_card:taskCard,
       verification_hints:hints,
@@ -189,7 +187,7 @@ function createAgentRuntime(api, store = null) {
           'Bám task_card: giữ đúng target, ưu tiên owner candidate hiện có, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
           'FAST không được tự chuyển thành DEEP trong complete_task. Nếu evidence mới làm task hiện tại không an toàn, dừng và re-plan thay vì patch rộng.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dependency cụ thể.',
-          'Tôn trọng project_rules đã được lọc theo task hiện tại; không trộn quy ước từ dự án hoặc theme khác.',
+          'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
           'Với WordPress, tôn trọng context.retrieval_scope và chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
@@ -298,8 +296,10 @@ function createAgentRuntime(api, store = null) {
     const finalizeStarted = nowMs();
     const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
-    const savedRules = saveProjectRules(store, projectId, rememberProjectRules);
+    const savedProfile = saveProjectRules(store, projectId, rememberProjectRules);
+    const savedRules = (savedProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
     const projectRules = relevantProjectRules(savedRules, taskCard);
+    const profileContext = projectProfileContext(savedProfile, taskCard?.target || '', taskCard?.type || '', taskCard?.decision_keys || []);
     taskCards.delete(id);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
@@ -310,6 +310,8 @@ function createAgentRuntime(api, store = null) {
       recovery_points:finished.recovery_points || applied.recovery_points || [],
       git:finished.final?.git || applied.git || null,
       brain:finished.brain || applied.brain || null,
+      project_profile:profileContext,
+      project_decisions:projectRules,
       project_rules:projectRules,
       session:finished,
       agent_contract:{ preferred_calls:2, completed_in_call:2, result:'done' },
