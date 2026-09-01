@@ -151,7 +151,8 @@
     if (!ok) return;
     const savedPermissions = safePermissions(project), savedSafety = safeRules(project);
     await api.updateSafety(project.id, { write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow', _workspaceMode:'trusted', _allowSecrets:false, _safePermissions:savedPermissions, _safeSafety:savedSafety });
-    location.reload();
+    await render();
+    await refreshTerminalJobs();
   }
 
   async function enableSafe() {
@@ -160,7 +161,8 @@
     const permissions = safePermissions(project), rules = safeRules(project);
     await api.updateSafety(project.id, { ...rules, _workspaceMode:'safe', _allowSecrets:false, _safePermissions:permissions, _safeSafety:rules });
     await api.updateProject({ id:project.id, permissions });
-    location.reload();
+    await render();
+    await refreshTerminalJobs();
   }
 
   async function toggleSecrets(event) {
