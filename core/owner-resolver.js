@@ -1,5 +1,3 @@
-const path = require('path');
-
 const OWNER_STATUS = Object.freeze({
   CONFIRMED:'confirmed',
   DETECTED:'detected',
@@ -115,8 +113,26 @@ function componentOwner(rows, request) {
     if (/\/elements?\//.test(row.lower)) score += 3;
     return { row, score };
   }).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.row.index - b.row.index);
-  if (!ranked.length) return null;
-  return ranked[0].row;
+  return ranked[0]?.row || null;
+}
+
+function allowedKindsForTask(flags, primaryKind = '') {
+  if (flags.production) return ['deployment'];
+  if (flags.data) return ['data_model'];
+  if (flags.header && flags.template) return ['header_template'];
+  if (flags.footer && flags.template) return ['footer_template'];
+  if (flags.archive && flags.template) return ['archive_template'];
+  if (flags.single && flags.template) return ['single_template'];
+  if (flags.header && flags.style) return ['header_css','global_css'];
+  if (flags.footer && flags.style) return ['footer_css','global_css'];
+  if (flags.homepage && flags.style) return ['homepage_css','global_css'];
+  if (flags.productCard && flags.style) return ['product_css','product_renderer'];
+  if (flags.productCard) return ['product_renderer','product_css'];
+  if (flags.builder) return ['builder_component'];
+  if (flags.globalStyle && flags.style) return ['global_css'];
+  if (flags.product) return ['product_renderer','product_css'];
+  if (flags.style) return ['global_css'];
+  return primaryKind ? [primaryKind] : [];
 }
 
 function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbackCandidates = [] } = {}) {
@@ -129,7 +145,6 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     map.push(entry);
   };
 
-  // Durable project facts are strongest when the owner still exists in current task evidence.
   if (facts.global_css_owner) {
     const current = exactFile(rows, facts.global_css_owner);
     add(evidenceEntry('global_css', {
@@ -267,34 +282,27 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     }
   }
 
-  const relevantKinds = new Set();
-  if (flags.style) relevantKinds.add('global_css');
-  if (flags.homepage) relevantKinds.add('homepage_css');
-  if (flags.header) { relevantKinds.add('header_css'); relevantKinds.add('header_template'); }
-  if (flags.footer) { relevantKinds.add('footer_css'); relevantKinds.add('footer_template'); }
-  if (flags.archive) relevantKinds.add('archive_template');
-  if (flags.single) relevantKinds.add('single_template');
-  if (flags.product) { relevantKinds.add('product_renderer'); relevantKinds.add('product_css'); }
-  if (flags.builder) relevantKinds.add('builder_component');
-  if (flags.data) relevantKinds.add('data_model');
-  if (flags.production) relevantKinds.add('deployment');
-  if (primary) relevantKinds.add(primary.kind);
-
-  const scoped = map.filter(item => relevantKinds.has(item.kind)).sort((a,b) => {
+  const allowedKinds = new Set(allowedKindsForTask(flags, primary?.kind || ''));
+  if (primary) allowedKinds.add(primary.kind);
+  const scoped = map.filter(item => allowedKinds.has(item.kind)).sort((a,b) => {
     if (primary && a.kind === primary.kind && a.path === primary.path) return -1;
     if (primary && b.kind === primary.kind && b.path === primary.path) return 1;
     return b.confidence - a.confidence;
   }).slice(0,8);
 
   const companionPaths = unique(scoped.filter(item => item.path && (!primary || item.path !== primary.path)).map(item => item.path)).slice(0,3);
-  const enforcePaths = primary && primary.path && [OWNER_STATUS.CONFIRMED, OWNER_STATUS.DETECTED].includes(primary.status) ? [primary.path] : [];
+  const enforcePaths = unique(scoped
+    .filter(item => item.path && [OWNER_STATUS.CONFIRMED, OWNER_STATUS.DETECTED].includes(item.status))
+    .map(item => item.path)
+  ).slice(0,4);
 
   return {
-    version:1,
+    version:2,
     primary,
     entries:scoped,
     companion_paths:companionPaths,
     enforce_paths:enforcePaths,
+    owner_set_mode:enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
     fallback_used:primary?.status === OWNER_STATUS.CANDIDATE,
     requires_owner_read:!!(primary?.path && !exactFile(rows, primary.path))
   };
@@ -303,5 +311,6 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
 module.exports = {
   OWNER_STATUS,
   requestFlags,
+  allowedKindsForTask,
   ownershipMap
 };
