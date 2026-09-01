@@ -2,7 +2,7 @@
 
 ## Activation
 
-Use this skill for every ChatCode task on a project that project evidence identifies as **WordPress + Bricks**. It is mandatory even when the user's prompt does not mention Bricks, templates, frontend work, or this skill.
+Use this skill for every ChatCode task on a project that project evidence identifies as **WordPress + Bricks**. This skill is **mandatory** even when the user's prompt does not mention Bricks, templates, frontend work, or this skill.
 
 Activate from inspected project state, never from prompt wording alone. Keep Bricks, Flatsome, and other theme/project conventions isolated. The request and current source define scope. Treat saved `project_rules` as durable decisions already confirmed by the user; do not reinterpret a targeted fix as permission to redesign, reorganize files, replace architecture, seed data, or change an agreed layout.
 
