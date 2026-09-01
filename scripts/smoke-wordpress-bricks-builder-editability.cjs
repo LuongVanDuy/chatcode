@@ -26,6 +26,7 @@ function expectOneDomain(request, domain, inspect) {
   assert.equal(selected.includes('resources/patterns.md'), false);
 }
 
+// Legacy chooseResources stays stable for compatibility.
 assert.deepEqual(route('Change one phone number in a Bricks project'), ['resources/core-checklist.md']);
 expectOneDomain('Create a reusable custom Bricks Element with Builder controls and scoped AJAX behavior', 'resources/builder-editability.md');
 expectOneDomain('Refactor Featured Products into a custom Bricks Element with Automatic or Manual source and manual product multi-select', 'resources/builder-editability.md');
@@ -54,10 +55,12 @@ const bricksInspect = {
   relevant_files:[{ path:'wp-content/themes/builder-fixture-child/elements/home-featured-products.php' }]
 };
 
+// Modern prepare_task path loads the compact Bricks domain pack instead of the old deep resource.
 const loaded = loadWordPressBricksSkill(bricksInspect, 'Create a custom Bricks Element with Builder controls, repeater and manual product selection');
 assert.ok(loaded);
-assert.deepEqual(loaded.resources.map(item => item.name), ['resources/core-checklist.md', 'resources/builder-editability.md']);
+assert.deepEqual(loaded.domains, ['bricks']);
+assert.deepEqual(loaded.resources.map(item => item.name), ['resources/core-checklist.md', 'domains/bricks.md']);
 assert.ok(loaded.resource_context.used_chars <= MAX_SKILL_CONTEXT_CHARS);
 assert.ok(loaded.instructions.length + loaded.resources.reduce((sum,item) => sum + item.content.length, 0) <= 16000);
 
-console.log('WordPress + Bricks Builder editability PASS: native-gap threshold + one-domain progressive routing');
+console.log('WordPress + Bricks Builder editability PASS: legacy route compatibility + v5 Bricks domain pack');
