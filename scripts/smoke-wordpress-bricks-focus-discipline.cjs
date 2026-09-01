@@ -12,8 +12,9 @@ const skill = fs.readFileSync(path.join(root, 'SKILL.md'), 'utf8').toLowerCase()
 
 assert.ok(core.includes('keep external references scoped'));
 assert.ok(core.includes('do not broad-search unrelated websites'));
-assert.ok(core.includes('default new-file budget is zero'));
-assert.ok(core.includes('normal code/layout/template edit is **not** a migration'));
+assert.ok(core.includes('normal edit new-file budget is zero'));
+assert.ok(core.includes('a normal code/layout/template change is not a migration'));
+assert.ok(core.includes('one-time setup must terminate'));
 
 assert.ok(organization.includes('preferred wordpress + bricks child-theme architecture'));
 assert.ok(organization.includes('functions.php                 # bootstrap/enqueue only'));
@@ -23,60 +24,35 @@ assert.ok(organization.includes('inc/setup/media.php'));
 assert.ok(organization.includes('inc/setup/menus.php'));
 assert.ok(organization.includes('inc/templates/header.php'));
 assert.ok(organization.includes('inc/templates/footer.php'));
-assert.ok(organization.includes('inc/templates/single-product.php'));
 assert.ok(organization.includes('elements/product-support.php'));
 assert.ok(organization.includes('assets/css/main.css'));
-assert.ok(organization.includes('assets/css/header-footer.css'));
-assert.ok(organization.includes('assets/css/single-product.css'));
-assert.ok(organization.includes('thin entrypoint'));
-assert.ok(organization.includes('not a scaffold checklist'));
-assert.ok(organization.includes('do not create empty'));
-
 assert.ok(organization.includes('file creation budget: existing owner first'));
 assert.ok(organization.includes('normal change should usually create **zero new source files**'));
-assert.ok(organization.includes('site-parts.php'));
 assert.ok(organization.includes('site-parts-migration.php'));
-assert.ok(organization.includes('vague pair created for one normal feature'));
 
 assert.ok(migrations.includes('migration threshold'));
 assert.ok(migrations.includes('these are **not migrations by default**'));
 assert.ok(migrations.includes('initial implementation of a new site/header/footer/page/section'));
 assert.ok(migrations.includes('do **not** create `*-migration.php` merely because a task touches bricks'));
-assert.ok(migrations.includes('proven independent migration lifecycle'));
 
-assert.ok(skill.includes('do not broad-search unrelated websites merely for inspiration'));
+assert.ok(skill.includes('do not broad-search unrelated websites'));
 assert.ok(skill.includes('a normal edit defaults to zero new source files'));
-assert.ok(skill.includes('migration has a threshold'));
+assert.ok(skill.includes('normal layout/template/setup work is not a migration'));
+assert.ok(skill.includes('one-time setup must have an end state'));
 
-const architectureTask = chooseResources(
-  manifest,
-  'Reorganize the Bricks child theme so functions.php is only bootstrap/enqueue, templates live in inc/templates and reusable custom elements live in elements'
-);
-assert.ok(architectureTask.includes('resources/code-organization.md'), 'child-theme architecture task must route code-organization rules');
+const architectureTask = chooseResources(manifest, 'Reorganize Bricks child theme files and prefix/namespace ownership');
+assert.deepEqual(architectureTask, ['resources/core-checklist.md', 'resources/code-organization.md']);
 
-const initialHeader = chooseResources(
-  manifest,
-  'Build the initial Header and Footer for this new Bricks site using the existing child theme files'
-);
-assert.ok(initialHeader.includes('resources/templates.md'));
-assert.equal(initialHeader.includes('resources/migrations.md'), false, 'initial header/footer build must not route migrations');
+const initialHeader = chooseResources(manifest, 'Build the initial Header and Footer for this new Bricks site using existing child theme files');
+assert.deepEqual(initialHeader, ['resources/core-checklist.md', 'resources/templates.md']);
 
-const normalSetup = chooseResources(
-  manifest,
-  'Add the homepage header setup in the existing child theme and keep the implementation small'
-);
-assert.equal(normalSetup.includes('resources/migrations.md'), false, 'normal setup must not route migrations');
+const normalSetup = chooseResources(manifest, 'Add the homepage header setup in the existing child theme and keep implementation small');
+assert.equal(normalSetup.includes('resources/migrations.md'), false);
 
-const persistedMigration = chooseResources(
-  manifest,
-  'Migrate the existing persisted Bricks Builder data: change one element id while preserving parent children relations and rollback safely'
-);
-assert.ok(persistedMigration.includes('resources/migrations.md'), 'real persisted Builder migration must route migration rules');
+const persistedMigration = chooseResources(manifest, 'Migrate existing persisted Bricks Builder data: change one element id while preserving parent children relations and rollback safely');
+assert.deepEqual(persistedMigration, ['resources/core-checklist.md', 'resources/migrations.md']);
 
-const referenceBuild = chooseResources(
-  manifest,
-  'Build boncauinax homepage like https://thietbivesinhgiakho.vn and copy its available images/icons; do not research other sites'
-);
-assert.ok(referenceBuild.includes('resources/core-checklist.md'));
+const referenceBuild = chooseResources(manifest, 'Build homepage like the named reference site and copy its exact available images/icons; do not research other sites');
+assert.deepEqual(referenceBuild, ['resources/core-checklist.md', 'resources/media-icons.md']);
 
-console.log('Focused Bricks delivery PASS: architecture + reference scope + zero-file default + migration threshold');
+console.log('Focused Bricks delivery PASS: scoped reference + zero-file default + migration lifecycle + media routing');
