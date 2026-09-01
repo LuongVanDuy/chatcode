@@ -148,19 +148,26 @@ function createWorkRuntime(projects, store, backups, api) {
     };
   }
 
-  async function gitSnapshot(projectId) {
-    const [status, diff] = await Promise.all([api.gitStatus(projectId), api.gitDiff(projectId, false)]);
+  async function gitSnapshot(projectId, { includeDiff = true } = {}) {
+    const [status, diff] = await Promise.all([
+      api.gitStatus(projectId),
+      includeDiff ? api.gitDiff(projectId, false) : Promise.resolve(null)
+    ]);
     return {
       is_repository:!!status?.ok,
       status:status?.ok ? String(status.stdout || '') : '', diff:diff?.ok ? String(diff.stdout || '') : '',
+      diff_omitted:!includeDiff,
       error:status?.ok ? null : normalizeError(new Error(status?.stderr || diff?.stderr || 'Git unavailable'))
     };
   }
 
-  async function startWork(ref, goal = '') {
+  async function startWork(ref, goal = '', { compactBaseline = false } = {}) {
     prune();
     const p = store.getProject(ref), now = new Date().toISOString();
-    const [git, brain] = await Promise.all([gitSnapshot(p.id), typeof api.projectBrain === 'function' ? api.projectBrain(p.id).catch(() => null) : null]);
+    const [git, brain] = await Promise.all([
+      gitSnapshot(p.id, { includeDiff:!compactBaseline }),
+      !compactBaseline && typeof api.projectBrain === 'function' ? api.projectBrain(p.id).catch(() => null) : null
+    ]);
     const s = {
       id:crypto.randomUUID(), projectId:p.id, project:p.name, goal:String(goal || '').trim().slice(0,1200), status:'active',
       workspaceMode:p.workspaceMode || 'safe', startedAt:now, updatedAt:now, finishedAt:'', changedFiles:new Set(), createdFiles:new Set(),
@@ -172,6 +179,8 @@ function createWorkRuntime(projects, store, backups, api) {
   }
 
   function projectForSession(s) { return store.getProject(s.projectId); }
+
+  function peek(id) { return publicSession(get(id)); }
 
   async function readMaybe(ref, rel) {
     try { return { exists:true, ...(await api.readFile(ref, rel)) }; }
@@ -265,7 +274,7 @@ function createWorkRuntime(projects, store, backups, api) {
     return { ...publicSession(s), current:{ git:await gitSnapshot(p.id) } };
   }
 
-  async function finishWork(id, verifyCommands = []) {
+  async function finishWork(id, verifyCommands = [], options = {}) {
     const s = get(id), p = projectForSession(s);
     if (s.status !== 'active') return status(id);
     const verification = [];
@@ -277,12 +286,17 @@ function createWorkRuntime(projects, store, backups, api) {
       verification.push({ command, ok, status:r?.status || (r?.ok ? 'completed' : 'failed'), exit_code:r?.exit_code ?? r?.code ?? null, stdout:String(r?.stdout || '').slice(-16000), stderr:String(r?.stderr || '').slice(-16000) });
       if (!r?.status) recordCommand(s.id, p.id, command, r);
     }
+    const reused = options?.reuseFinal || null;
     const brainStart = Date.now();
-    await projects.reindex(p.id);
-    const brain = typeof api.rebuildBrain === 'function' ? await api.rebuildBrain(p.id) : null;
+    let brainResult = reused?.brain || null;
+    if (!reused) {
+      await projects.reindex(p.id);
+      const brain = typeof api.rebuildBrain === 'function' ? await api.rebuildBrain(p.id) : null;
+      brainResult = { refreshed:true, refresh_ms:Date.now() - brainStart, updated_at:brain?.updatedAt || null, stats:brain?.stats || null };
+    }
     s.status = verification.every(x => x.ok) ? 'completed' : 'verification_failed';
     s.updatedAt = s.finishedAt = new Date().toISOString();
-    return { ...publicSession(s), verification, verification_passed:verification.every(x => x.ok), brain:{ refreshed:true, refresh_ms:Date.now() - brainStart, updated_at:brain?.updatedAt || null, stats:brain?.stats || null }, final:{ git:await gitSnapshot(p.id) } };
+    return { ...publicSession(s), verification, verification_passed:verification.every(x => x.ok), brain:brainResult, final:{ git:reused?.git || await gitSnapshot(p.id) } };
   }
 
   async function rollbackWork(id) {
@@ -305,7 +319,7 @@ function createWorkRuntime(projects, store, backups, api) {
     return [...sessions.values()].filter(s => !projectId || s.projectId === projectId).sort((a,b) => b.startedAt.localeCompare(a.startedAt)).map(publicSession);
   }
 
-  return { startWork, applyPatch, status, finishWork, rollbackWork, list, recordCommand };
+  return { startWork, applyPatch, peek, status, finishWork, rollbackWork, list, recordCommand };
 }
 
 function electronApi() {
@@ -320,10 +334,11 @@ function installWorkRuntimePatches() {
   safety.createSafeToolApi = function workAwareSafeToolApi(projects, store, approvals, backups, options) {
     const api = previousCreate(projects, store, approvals, backups, options);
     const runtime = createWorkRuntime(projects, store, backups, api);
-    api.startWork = (ref, goal) => runtime.startWork(ref, goal);
+    api.startWork = (ref, goal, opts = {}) => runtime.startWork(ref, goal, opts);
     api.applyPatch = (ref, patch, id) => runtime.applyPatch(ref, patch, id || '');
     api.workStatus = id => runtime.status(id);
-    api.finishWork = (id, commands) => runtime.finishWork(id, commands || []);
+    api.workMeta = id => runtime.peek(id);
+    api.finishWork = (id, commands, opts = {}) => runtime.finishWork(id, commands || [], opts);
     api.rollbackWork = id => runtime.rollbackWork(id);
     api.listWorkSessions = ref => runtime.list(ref || '');
 

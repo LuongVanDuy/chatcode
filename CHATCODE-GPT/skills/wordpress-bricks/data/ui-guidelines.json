@@ -1,0 +1,128 @@
+[
+  {
+    "id":"layout-section-rhythm","category":"layout","title":"Section rhythm","priority":10,
+    "tags":["layout","section","spacing","padding","rhythm","homepage"],"targets":["home","homepage","section"],
+    "phrases":["section spacing","khoang cach section","khoảng cách section"],
+    "rule":"Use one project spacing scale and preserve a clear large-to-small hierarchy: section gap > component gap > inline gap. Do not invent a new spacing scale for one section.",
+    "check":"Compare desktop and mobile section rhythm against adjacent sections and existing global spacing tokens."
+  },
+  {
+    "id":"layout-container","category":"layout","title":"Container ownership","priority":10,
+    "tags":["container","width","max-width","overflow","layout","global"],"targets":["home","header","footer","archive"],
+    "phrases":["container width","max width","qua width","quá width"],
+    "rule":"If the same width problem appears across multiple areas, fix the established global container token/owner; keep page CSS for page-only exceptions.",
+    "check":"Verify no horizontal overflow and compare at least one unrelated page before changing a global container value."
+  },
+  {
+    "id":"responsive-mobile-first","category":"responsive","title":"Responsive reflow","priority":10,
+    "tags":["responsive","mobile","tablet","grid","wrap","overflow","breakpoint"],"targets":["section","grid","card","header"],
+    "phrases":["mobile layout","responsive"],
+    "rule":"Prefer reflow, wrapping and fluid sizing over fixed widths. Preserve content order and avoid hiding important content merely to make a breakpoint fit.",
+    "check":"Check narrow mobile, tablet and desktop widths for overflow, clipped text and broken alignment."
+  },
+  {
+    "id":"type-readable-base","category":"typography","title":"Readable type hierarchy","priority":9,
+    "tags":["font","typography","text","heading","line-height","body","title"],"targets":["section","card","product"],
+    "phrases":["font size","typography"],
+    "rule":"Reuse the project type scale. Body copy should remain comfortably readable; headings should differ by hierarchy, not by arbitrary boldness or many one-off sizes.",
+    "check":"Verify heading/body contrast, line length, wrapping and consistency with neighboring components."
+  },
+  {
+    "id":"color-semantic-tokens","category":"color","title":"Semantic color reuse","priority":9,
+    "tags":["color","mau","màu","primary","secondary","accent","background","border","token"],"targets":["button","card","section"],
+    "phrases":["primary color","mau chu dao","màu chủ đạo"],
+    "rule":"Use existing semantic color tokens before adding raw component colors. New tokens need a repeated semantic role, not a single visual occurrence.",
+    "check":"Compare hover/focus/disabled states and ensure the change does not create a second near-duplicate project color."
+  },
+  {
+    "id":"card-content-hierarchy","category":"component","title":"Card content hierarchy","priority":9,
+    "tags":["card","product","item","title","image","cta","price","meta"],"targets":["product card","post card","testimonial"],
+    "phrases":["product card","item card"],
+    "rule":"Keep one dominant visual, one primary text hierarchy and one clear action. Avoid equal visual weight for image, badges, metadata and CTA.",
+    "check":"Scan the card at thumbnail size: image, title and primary action should remain immediately distinguishable."
+  },
+  {
+    "id":"product-image-ratio","category":"ecommerce","title":"Stable product image area","priority":9,
+    "tags":["product","image","ratio","gallery","grid","card","woocommerce"],"targets":["product card","product grid","archive"],
+    "phrases":["product image","anh san pham","ảnh sản phẩm"],
+    "rule":"Use a stable media box and object-fit behavior so mixed source images do not change card height or distort products.",
+    "check":"Test portrait, square and landscape product images in the same grid row."
+  },
+  {
+    "id":"testimonial-trust","category":"content","title":"Testimonial trust hierarchy","priority":8,
+    "tags":["testimonial","review","customer","cam nhan","cảm nhận","avatar","quote","rating"],"targets":["testimonial","home"],
+    "phrases":["cam nhan khach hang","cảm nhận khách hàng","testimonial"],
+    "rule":"Prioritize quote readability and credible attribution. Decorative rating/avatar elements should support, not overpower, the customer statement.",
+    "check":"Verify long quotes do not create unstable card heights and attribution remains readable on mobile."
+  },
+  {
+    "id":"hero-focus","category":"layout","title":"Hero focal hierarchy","priority":8,
+    "tags":["hero","banner","slider","headline","cta","image"],"targets":["hero","home","slider"],
+    "phrases":["hero section","banner slider"],
+    "rule":"Give the hero one focal message and one primary action; visual media should reinforce the message without forcing text into unstable overlays.",
+    "check":"Verify the focal order still works when the image crops at mobile width and when slide content changes."
+  },
+  {
+    "id":"button-action-hierarchy","category":"interaction","title":"Button hierarchy","priority":9,
+    "tags":["button","cta","action","hover","focus","link"],"targets":["button","form","product"],
+    "phrases":["cta button","nut xem them","nút xem thêm"],
+    "rule":"Use one clear primary action style and quieter secondary actions. Keep sizing, radius and icon alignment consistent with the existing component system.",
+    "check":"Verify hover, focus and disabled states and ensure nearby secondary actions do not visually compete with the primary action."
+  },
+  {
+    "id":"form-label-feedback","category":"forms","title":"Form clarity","priority":9,
+    "tags":["form","input","label","error","validation","placeholder","submit"],"targets":["form","contact","checkout"],
+    "phrases":["input","contact form","checkout form"],
+    "rule":"Keep visible field meaning, clear focus state and error feedback near the affected field. Placeholder text should not be the only label for important inputs.",
+    "check":"Keyboard through the form, trigger an error and confirm the field remains identifiable after text is entered."
+  },
+  {
+    "id":"icon-semantic-consistency","category":"icons","title":"Icon consistency","priority":10,
+    "tags":["icon","svg","search","cart","menu","phone","location","check"],"targets":["header","button","feature","product"],
+    "phrases":["icon","bieu tuong","biểu tượng"],
+    "rule":"Use the icon system already loaded by the project/Builder for functional icons. Match stroke/fill style and size; reserve standalone SVG/media assets for brand marks or unique logos.",
+    "check":"Verify the icon source is actually loaded, alignment matches text, and icon-only controls have an accessible name."
+  },
+  {
+    "id":"focus-visible","category":"accessibility","title":"Visible keyboard focus","priority":10,
+    "tags":["focus","keyboard","accessibility","button","link","input","menu"],"targets":["header","form","button","navigation"],
+    "phrases":["keyboard focus","focus state"],
+    "rule":"Interactive controls need a visible focus treatment that is not removed merely for visual cleanliness.",
+    "check":"Navigate the touched UI using only the keyboard and confirm focus remains visible and ordered logically."
+  },
+  {
+    "id":"contrast-readable","category":"accessibility","title":"Readable contrast","priority":10,
+    "tags":["contrast","text","color","background","accessibility","muted"],"targets":["text","button","card"],
+    "phrases":["contrast","text too light"],
+    "rule":"Muted styling must remain readable. Do not solve hierarchy by pushing important text into low-contrast gray-on-gray combinations.",
+    "check":"Check normal, hover and disabled states against their actual backgrounds, not isolated color swatches."
+  },
+  {
+    "id":"motion-purpose","category":"motion","title":"Purposeful motion","priority":7,
+    "tags":["animation","transition","motion","slider","accordion","hover","scroll"],"targets":["slider","accordion","menu","card"],
+    "phrases":["animation","transition"],
+    "rule":"Use motion to explain state or continuity, not as decoration on every element. Prefer transform/opacity for simple transitions and preserve reduced-motion behavior when motion is substantial.",
+    "check":"Rapidly trigger the interaction twice and confirm the final visual and semantic state stays correct."
+  },
+  {
+    "id":"navigation-density","category":"navigation","title":"Navigation density","priority":8,
+    "tags":["header","menu","navigation","nav","dropdown","mobile menu"],"targets":["header","menu"],
+    "phrases":["header menu","mobile menu"],
+    "rule":"Keep primary navigation scannable and predictable. Secondary utilities should not visually compete with the main navigation or force cramped labels.",
+    "check":"Verify long labels, active state, dropdown alignment and mobile navigation without horizontal compression."
+  },
+  {
+    "id":"image-crop-intent","category":"media","title":"Intentional image crop","priority":8,
+    "tags":["image","crop","object-fit","aspect-ratio","banner","thumbnail","media"],"targets":["hero","card","gallery","section"],
+    "phrases":["image crop","anh bi meo","ảnh bị méo"],
+    "rule":"Do not stretch source media to satisfy layout. Define the display ratio separately and choose contain/cover according to whether preserving the whole subject or filling the frame matters more.",
+    "check":"Compare source dimensions with rendered dimensions and verify the important subject remains visible at mobile crop."
+  },
+  {
+    "id":"shared-component-consistency","category":"system","title":"Shared component consistency","priority":10,
+    "tags":["shared","component","renderer","reuse","consistent","product","card","global"],"targets":["product card","post card","button"],
+    "phrases":["shared renderer","dung chung","dùng chung"],
+    "rule":"When the same component appears in multiple places, update its established shared renderer/style owner instead of cloning a visually similar local version.",
+    "check":"Inspect at least one second usage of the shared component and confirm the change is intended there too."
+  }
+]

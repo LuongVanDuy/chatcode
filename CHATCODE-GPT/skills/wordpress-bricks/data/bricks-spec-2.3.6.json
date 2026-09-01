@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "bricks_version": "2.3.6",
+  "compatibility": { "major": 2, "minor": 3 },
+  "provenance": "ChatCode compact spec distilled from public Bricks 2.3.6 source-verified skill references; local project evidence always wins.",
+  "formats": {
+    "clipboard": {
+      "marker": { "source": "bricksCopiedElements" },
+      "required": ["content", "source", "version"],
+      "class_key": "globalClasses",
+      "component_key": "components"
+    },
+    "template": {
+      "required": ["type"],
+      "element_keys_by_type": { "header": "header", "footer": "footer", "default": "content" },
+      "class_key": "global_classes"
+    },
+    "postmeta": {
+      "content": "_bricks_page_content_2",
+      "header": "_bricks_page_header_2",
+      "footer": "_bricks_page_footer_2",
+      "editor_mode": "_bricks_editor_mode",
+      "template_type": "_bricks_template_type",
+      "template_settings": "_bricks_template_settings",
+      "page_settings": "_bricks_page_settings"
+    }
+  },
+  "site_options": {
+    "global_settings": "bricks_global_settings",
+    "global_classes": "bricks_global_classes",
+    "global_variables": "bricks_global_variables",
+    "color_palette": "bricks_color_palette",
+    "components": "bricks_components",
+    "theme_styles": "bricks_theme_styles",
+    "breakpoints": "bricks_breakpoints",
+    "pseudo_classes": "bricks_global_pseudo_classes"
+  },
+  "node": {
+    "required": ["id", "name", "parent", "children", "settings"],
+    "id_pattern": "^[A-Za-z0-9]{6}$",
+    "flat_tree": true,
+    "root_parent_values": [0, "0"]
+  },
+  "breakpoints": {
+    "defaults": ["tablet_portrait", "mobile_landscape", "mobile_portrait"],
+    "known_invalid_aliases": ["tablet", "mobile", "desktop"],
+    "grammar": "setting:breakpoint:pseudo",
+    "default_mode": "desktop-first"
+  },
+  "pseudo_classes": [":hover", ":active", ":focus"],
+  "elements": {
+    "layout": ["section", "container", "block", "div"],
+    "basic": ["heading", "text-basic", "text", "text-link", "button", "icon", "image", "video", "svg", "logo", "divider", "list", "alert", "html", "code", "shortcode", "template"],
+    "nestable": ["accordion-nested", "tabs-nested", "slider-nested", "nav-nested", "dropdown", "offcanvas", "toggle", "toggle-mode", "slot"],
+    "query": ["pagination", "query-results-summary", "filter-search", "filter-select", "filter-checkbox", "filter-radio", "filter-range", "filter-datepicker", "filter-submit", "filter-active-filters"],
+    "wordpress": ["wordpress", "posts", "nav-menu", "sidebar", "breadcrumbs", "post-title", "post-excerpt", "post-content", "post-meta", "post-author", "post-comments", "post-taxonomy", "post-navigation", "post-sharing", "post-toc", "post-reading-time", "post-reading-progress-bar", "related-posts"],
+    "legacy_avoid": ["accordion", "tabs", "slider"]
+  },
+  "nestable_contracts": {
+    "accordion-nested": {
+      "required_descendant_classes": ["accordion-title-wrapper", "accordion-content-wrapper"]
+    },
+    "tabs-nested": {
+      "required_descendant_classes": ["tab-menu", "tab-title", "tab-content", "tab-pane"]
+    }
+  },
+  "settings": {
+    "typography": { "key": "_typography", "type": "object", "keys_are_css_properties": true, "forbid_camel_case": true },
+    "box_shadow": { "key": "_boxShadow", "type": "object", "offset_container": "values" },
+    "gradient": { "key": "_gradient", "type": "object", "stops_key": "colors", "stop_shape": ["color", "stop"] },
+    "spacing": { "keys": ["_margin", "_padding"], "type": "object", "sides": ["top", "right", "bottom", "left"] },
+    "icon": { "type": "object", "required_one_of": ["icon", "svg"], "libraries": ["themify", "ionicons", "fontawesomeRegular", "fontawesomeSolid", "fontawesomeBrands", "svg"] },
+    "media": { "external_fields": ["url", "external", "useDynamicData"] }
+  },
+  "query": {
+    "loop_flag": "hasLoop",
+    "query_key": "query",
+    "object_type_key": "objectType",
+    "supported_core_object_types": ["post", "term", "user", "api", "array"],
+    "target_keys": ["queryId", "filterQueryId"]
+  },
+  "templates": {
+    "types": ["header", "footer", "content", "section", "popup", "single", "archive", "search", "error", "password_protection", "wc_archive", "wc_product", "wc_cart", "wc_cart_empty", "wc_form_checkout", "wc_form_pay", "wc_thankyou", "wc_order_receipt"],
+    "condition_key": "templateConditions"
+  },
+  "facts": [
+    { "id": "flat-tree", "keywords": ["json", "tree", "parent", "children", "id", "builder data"], "stability": "invariant", "text": "Bricks element content is a flat node array. Parent and children IDs must be reciprocal, unique and resolvable." },
+    { "id": "clipboard-format", "keywords": ["clipboard", "paste", "json", "section"], "stability": "2.3", "text": "Clipboard JSON uses source=bricksCopiedElements, a content array, version, and bundles referenced global classes/components." },
+    { "id": "postmeta-storage", "keywords": ["postmeta", "database", "migration", "page content", "header", "footer"], "stability": "2.3", "text": "Programmatic Builder storage uses _bricks_page_content_2, _bricks_page_header_2 or _bricks_page_footer_2 plus _bricks_editor_mode=bricks." },
+    { "id": "typography-shape", "keywords": ["typography", "font", "font-size", "style", "json"], "stability": "2.3", "text": "_typography uses CSS property names such as font-size and font-weight; camelCase keys are not the verified shape." },
+    { "id": "shadow-shape", "keywords": ["shadow", "box shadow", "style", "json"], "stability": "2.3", "text": "_boxShadow keeps offsets/blur/spread inside values and color beside values." },
+    { "id": "gradient-shape", "keywords": ["gradient", "background", "style", "json"], "stability": "2.3", "text": "_gradient uses colors entries shaped as {color, stop}; do not invent a stops array." },
+    { "id": "responsive-grammar", "keywords": ["responsive", "mobile", "tablet", "breakpoint", "hover", "style"], "stability": "2.3", "text": "Responsive/state setting suffixes follow key:breakpoint:pseudo. Default breakpoint keys are tablet_portrait, mobile_landscape and mobile_portrait unless the project defines custom breakpoints." },
+    { "id": "native-icon", "keywords": ["icon", "themify", "fontawesome", "ionicons", "svg"], "stability": "2.3", "text": "Bricks icon controls are structured objects with library plus icon, or library=svg plus an svg media object." },
+    { "id": "accordion-structure", "keywords": ["accordion", "faq", "nested"], "stability": "2.3", "text": "accordion-nested depends on its title/content structural wrappers; preserve the hidden structural classes instead of replacing them with arbitrary blocks." },
+    { "id": "tabs-structure", "keywords": ["tabs", "tab", "nested"], "stability": "2.3", "text": "tabs-nested relies on tab-menu, tab-title, tab-content and tab-pane structural classes with matching title/pane order." },
+    { "id": "query-loop", "keywords": ["query", "loop", "posts", "terms", "users", "dynamic"], "stability": "2.3", "text": "A native query loop sets hasLoop=true and a query object with objectType; children form the repeated item template." },
+    { "id": "query-target", "keywords": ["pagination", "filter", "ajax", "queryid", "load more"], "stability": "2.3", "text": "Pagination and query-filter controls must target an existing loop element ID through their query target setting." },
+    { "id": "archive-main-query", "keywords": ["archive", "query", "pagination", "seo"], "stability": "2.3", "text": "Archive templates should prefer the native archive main-query mode when the loop is intended to inherit WordPress archive pagination/context." },
+    { "id": "global-classes", "keywords": ["class", "global class", "shared style", "card", "button"], "stability": "2.3", "text": "Repeated visual patterns belong in existing global classes/variables where the project already uses them; element nodes reference global classes by ID." },
+    { "id": "theme-style-ownership", "keywords": ["theme style", "container", "design system", "global", "typography"], "stability": "2.3", "text": "Prefer project Theme Styles/global variables for site identity and keep generated element settings focused on local structure or real exceptions." },
+    { "id": "component-coupling", "keywords": ["component", "reusable", "instance"], "stability": "2.3", "text": "Bricks components are strongly coupled reusable structures. Prefer existing components; do not create a component when plain native elements plus global classes are sufficient." },
+    { "id": "external-media", "keywords": ["image", "media", "external", "reference", "url", "attachment"], "stability": "2.3", "text": "Cross-site attachment IDs are not portable. Reference/import flows need a real URL; production re-hosting should resolve to the target site's own attachment and URL." },
+    { "id": "section-root", "keywords": ["section", "nest", "structure"], "stability": "2.3", "text": "section is a root-level layout wrapper; do not nest a section beneath another Builder element." }
+  ]
+}

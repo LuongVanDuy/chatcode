@@ -53,11 +53,15 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(typeof api.prepareTask, 'function');
   assert.equal(typeof api.completeTask, 'function');
 
-  // Normal coding task: exactly prepare -> complete.
+  // Normal coding task: exactly prepare -> complete, with no Git context.
   const prepared = await api.prepareTask('agent', 'Fix checkout address so null values do not crash', 8);
   assert.equal(prepared.status, 'ready');
   assert.ok(prepared.task_id);
   assert.equal(prepared.agent_contract.preferred_calls, 2);
+  assert.equal(prepared.baseline.git, null, 'prepare_task must not inspect Git by default');
+  assert.equal(prepared.context.git, null, 'normal Agent context must omit Git state');
+  assert.equal(prepared.baseline.brain, null, 'prepare_task should reuse inspection Brain context instead of duplicating it in baseline');
+  assert.deepEqual(prepared.project_rules, []);
   assert.equal(prepared.context.primary_language, 'JavaScript');
   assert.ok(prepared.context.relevant_files.some(item => item.path === 'src/app.js' && /checkoutAddress/.test(item.content)), 'prepare_task must include relevant source content');
   assert.ok(prepared.verification_hints.some(item => item.command === 'npm run test'), 'prepare_task should expose package-script verification hint');
@@ -76,7 +80,7 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(completed.verification_passed, true);
   assert.equal(completed.agent_contract.completed_in_call, 2);
   assert.ok(completed.changed_files.includes('src/app.js'));
-  assert.match(completed.git.diff, /String\(value/);
+  assert.equal(completed.git, null, 'complete_task must not inspect Git by default');
   assert.equal((await api.workStatus(prepared.task_id)).status, 'completed');
 
   const firstRollback = await api.rollbackWork(prepared.task_id);
@@ -117,6 +121,28 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
 
+  // Omitted commands infer a real syntax check and explicit user decisions persist per project.
+  const rememberedTask = await api.prepareTask('agent', 'Keep checkout normalization and remember the project convention', 6);
+  const remembered = await api.completeTask(rememberedTask.task_id, firstAttemptPatch, [], {
+    rememberProjectRules:[
+      { key:'checkout-null-policy', value:'Normalize missing checkout values to an empty string.' },
+      { key:'api-token', value:'must-not-persist' },
+      { key:'live-url', value:'https://example.invalid/private' }
+    ]
+  });
+  assert.equal(remembered.status, 'completed');
+  assert.ok(remembered.verification.some(item => item.command === 'node --check "src/app.js"' && item.ok), 'changed JavaScript should receive an inferred syntax check');
+  const persistedRules = store.getProject('agent').projectRules || [];
+  assert.ok(persistedRules.some(item => item.key === 'checkout-null-policy'), 'confirmed rule must persist even when completion response keeps context relevant-only');
+  assert.equal(persistedRules.some(item => item.key === 'api-token' || item.key === 'live-url'), false, 'secrets and URLs must not enter durable project memory');
+
+  const recalled = await api.prepareTask('agent', 'Adjust the same checkout behavior', 6);
+  assert.ok(recalled.project_rules.some(item => item.key === 'checkout-null-policy'), 'confirmed project rules must be returned by later relevant prepare_task calls');
+  await api.rollbackWork(recalled.task_id);
+  await api.rollbackWork(rememberedTask.task_id);
+  assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
+  assert.equal(git(root, ['status','--porcelain']).trim(), '');
+
   // Optional rollback-on-failure should restore baseline immediately.
   const autoRollback = await api.prepareTask('agent', 'Try risky change with rollback on failed verification', 6);
   const rolled = await api.completeTask(autoRollback.task_id, firstAttemptPatch, [`node -e "process.exit(2)"`], { rollbackOnFailure:true });
@@ -129,5 +155,5 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   approvals.shutdown();
   projects.shutdown();
   await fsp.rm(temp, { recursive:true, force:true });
-  console.log('Fast Agent Path smoke test: PASS (2-call normal path + repair loop + rollback-on-failure)');
+  console.log('Fast Agent Path smoke test: PASS (2-call normal path + repair loop + rollback-on-failure + lazy Git)');
 })().catch(error => { console.error(error); process.exit(1); });

@@ -9,13 +9,17 @@ const { createSupportService, installChildProcessAudit } = require('../core/supp
 
 (async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'chatcode-regression-'));
-  const projectRoot = path.join(dir, 'project'); await fsp.mkdir(projectRoot);
+  const projectRoot = path.join(dir, 'laragon', 'www', 'project'); await fsp.mkdir(projectRoot, { recursive:true });
+  const fakePhp = path.join(dir, 'laragon', 'bin', 'php', 'php-8.4.4', 'php.exe');
+  await fsp.mkdir(path.dirname(fakePhp), { recursive:true });
+  await fsp.writeFile(fakePhp, 'fixture', 'utf8');
   const app = { getPath: () => dir };
 
   // Production installs this hook before core/projects captures child_process.execFile.
   // Do the same in regression so npm.cmd/.bat behavior matches the packaged app.
   installChildProcessAudit(createSupportService(app));
-  const { createProjectService, containsShellMeta } = require('../core/projects');
+  const { createProjectService, containsShellMeta, resolvePhpExe } = require('../core/projects');
+  assert.equal(resolvePhpExe(projectRoot), fakePhp, 'Laragon PHP should be discovered from a project under laragon/www');
 
   const store = createStore(app, 47820); const state = store.ensure();
   state.projects = [{ id:'p1', name:'demo', root:projectRoot, permissions:{ write:true, manageFiles:true, tasks:true, gitWrite:true }, safety:{ write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow' } }]; store.write(state);

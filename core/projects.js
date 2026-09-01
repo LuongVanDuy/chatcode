@@ -8,7 +8,7 @@ const IGNORE_DIRS = new Set(['.git','node_modules','dist','build','out','target'
 const SENSITIVE_NAMES = new Set(['.env','.env.local','.env.production','wp-config.php','id_rsa','id_ed25519','credentials.json']);
 const TEXT_EXTS = new Set(['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json','.md','.txt','.css','.scss','.html','.htm','.py','.go','.rs','.java','.kt','.kts','.c','.h','.cpp','.hpp','.cs','.php','.inc','.rb','.swift','.sql','.sh','.ps1','.yaml','.yml','.toml','.ini','.xml','.vue','.svelte','.csv']);
 const BINARY_EXTS = new Set(['.exe','.dll','.so','.dylib','.zip','.7z','.rar','.gz','.png','.jpg','.jpeg','.gif','.webp','.ico','.pdf','.woff','.woff2','.ttf','.otf','.mp3','.mp4','.mov','.avi','.bin','.class','.jar']);
-const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
+const TASK_COMMANDS = new Set(['npm','npm.cmd','pnpm','pnpm.cmd','yarn','yarn.cmd','bun','bun.exe','npx','npx.cmd','node','node.exe','python','python.exe','python3','pytest','pytest.exe','php','php.exe','cargo','cargo.exe','go','go.exe','dotnet','dotnet.exe','mvn','mvn.cmd','gradle','gradle.bat']);
 const INDEX_MAX_FILES = 6000;
 
 function sniffTextBuffer(buffer) {
@@ -39,6 +39,40 @@ function containsShellMeta(input) {
     if (ch === '&' && next === '&') return true;
   }
   return false;
+}
+
+function resolvePhpExe(cwd) {
+  const roots = [];
+  if (process.env.PHP_HOME) roots.push(process.env.PHP_HOME);
+  if (process.env.LARAGON_ROOT) roots.push(path.join(process.env.LARAGON_ROOT, 'bin', 'php'));
+  let cursor = path.resolve(cwd || '.');
+  while (true) {
+    if (path.basename(cursor).toLowerCase() === 'www') roots.push(path.join(path.dirname(cursor), 'bin', 'php'));
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  const drive = path.parse(path.resolve(cwd || '.')).root;
+  roots.push(path.join(drive, 'laragon', 'bin', 'php'), path.join(drive, 'xampp', 'php'));
+  for (const root of [...new Set(roots)]) {
+    const direct = path.join(root, 'php.exe');
+    if (fs.existsSync(direct)) return direct;
+    try {
+      const versions = fs.readdirSync(root, { withFileTypes:true }).filter(item => item.isDirectory()).map(item => item.name).sort((a,b) => b.localeCompare(a, undefined, { numeric:true }));
+      for (const version of versions) {
+        const candidate = path.join(root, version, 'php.exe');
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    } catch {}
+  }
+  return 'php';
+}
+
+function resolveExe(command, cwd = '') {
+  if (process.platform !== 'win32') return command;
+  const lower = String(command).toLowerCase();
+  if (lower === 'php' || lower === 'php.exe') return resolvePhpExe(cwd);
+  return ({ npm:'npm.cmd', npx:'npx.cmd', pnpm:'pnpm.cmd', yarn:'yarn.cmd', gradle:'gradle.bat' })[lower] || command;
 }
 
 function createProjectService(store, { onIndexChanged, recordActivity } = {}) {
@@ -149,7 +183,6 @@ function createProjectService(store, { onIndexChanged, recordActivity } = {}) {
   }
 
   function runExec(command, args, cwd, timeout = 120000) { return new Promise(resolve => execFile(command, args, { cwd, timeout, windowsHide:true, shell:false, maxBuffer:4 * 1024 * 1024 }, (error, stdout, stderr) => resolve({ ok:!error, code:error?.code ?? 0, stdout:String(stdout || ''), stderr:String(stderr || error?.message || '') }))); }
-  function resolveExe(command) { if (process.platform !== 'win32') return command; return ({ npm:'npm.cmd', npx:'npx.cmd', pnpm:'pnpm.cmd', yarn:'yarn.cmd', gradle:'gradle.bat' })[String(command).toLowerCase()] || command; }
   function parseCommand(input) { return (String(input || '').match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || []).map(value => value.replace(/^("|')|("|')$/g, '')); }
   function requirePermission(project, key, label) { if (!project.permissions?.[key]) throw chatError('PERMISSION_DENIED', `Quyền ${label} đang tắt cho dự án "${project.name}".`, { project:project.name, permission:key }); }
 
@@ -162,7 +195,7 @@ function createProjectService(store, { onIndexChanged, recordActivity } = {}) {
     async writeFile(ref, relPath, content) { const project = store.getProject(ref); requirePermission(project, 'write', 'ghi file'); const rel = normalizeRel(relPath); if (!rel) throw chatError('FILE_NOT_FOUND','Đường dẫn file đang trống.'); if (isSensitive(rel)) throw chatError('SENSITIVE_PATH_BLOCKED','File nhạy cảm đã bị chặn.',{ path:rel }); const target = await secureResolve(project, rel); await fsp.mkdir(path.dirname(target), { recursive:true }); const verified = await secureResolve(project, rel); await fsp.writeFile(verified, String(content), 'utf8'); invalidate(project.id, rel); return { ok:true, path:rel }; },
     async deleteFile(ref, relPath) { const project = store.getProject(ref); requirePermission(project, 'manageFiles', 'xóa/đổi tên file'); const rel = normalizeRel(relPath); if (isSensitive(rel)) throw chatError('SENSITIVE_PATH_BLOCKED','File nhạy cảm đã bị chặn.',{ path:rel }); const target = await secureResolve(project, rel, { mustExist:true }), stat = await fsp.stat(target); if (!stat.isFile()) throw chatError('FILE_NOT_FOUND','Chỉ cho phép xóa file.',{ path:rel }); await fsp.unlink(target); invalidate(project.id, rel); return { ok:true, path:rel }; },
     async renameFile(ref, fromPath, toPath) { const project = store.getProject(ref); requirePermission(project, 'manageFiles', 'xóa/đổi tên file'); const fromRel = normalizeRel(fromPath), toRel = normalizeRel(toPath); if (isSensitive(fromRel) || isSensitive(toRel)) throw chatError('SENSITIVE_PATH_BLOCKED','File nhạy cảm đã bị chặn.',{ from:fromRel, to:toRel }); const from = await secureResolve(project, fromRel, { mustExist:true }), to = await secureResolve(project, toRel); await fsp.mkdir(path.dirname(to), { recursive:true }); const verified = await secureResolve(project, toRel); await fsp.rename(from, verified); invalidate(project.id, fromRel); invalidate(project.id, toRel); return { ok:true, from:fromRel, to:toRel }; },
-    async runTask(ref, commandLine) { const project = store.getProject(ref); requirePermission(project, 'tasks', 'chạy tác vụ'); const raw = String(commandLine || '').trim(); if (containsShellMeta(raw)) throw chatError('TASK_NOT_ALLOWED','Shell chaining/toán tử shell không được phép. Hãy chạy một command duy nhất.',{ command:raw.slice(0,220) }); const parts = parseCommand(raw); if (!parts.length || !TASK_COMMANDS.has(parts[0].toLowerCase())) throw chatError('TASK_NOT_ALLOWED','Lệnh này không nằm trong danh sách tác vụ an toàn.',{ command:parts[0] || '' }); return runExec(resolveExe(parts[0]), parts.slice(1), (await canonicalRoot(project)).real); },
+    async runTask(ref, commandLine) { const project = store.getProject(ref); requirePermission(project, 'tasks', 'chạy tác vụ'); const raw = String(commandLine || '').trim(); if (containsShellMeta(raw)) throw chatError('TASK_NOT_ALLOWED','Shell chaining/toán tử shell không được phép. Hãy chạy một command duy nhất.',{ command:raw.slice(0,220) }); const parts = parseCommand(raw); if (!parts.length || !TASK_COMMANDS.has(parts[0].toLowerCase())) throw chatError('TASK_NOT_ALLOWED','Lệnh này không nằm trong danh sách tác vụ an toàn.',{ command:parts[0] || '' }); const cwd = (await canonicalRoot(project)).real; return runExec(resolveExe(parts[0], cwd), parts.slice(1), cwd); },
     async gitStatus(ref) { const project = store.getProject(ref); return runExec('git', ['status','--short','--branch'], (await canonicalRoot(project)).real, 30000); },
     async gitDiff(ref, staged = false) { const project = store.getProject(ref); return runExec('git', staged ? ['diff','--cached','--','.'] : ['diff','--','.'], (await canonicalRoot(project)).real, 30000); },
     async gitStage(ref, paths) { const project = store.getProject(ref); requirePermission(project, 'gitWrite', 'ghi Git'); const list = (Array.isArray(paths) ? paths : []).slice(0, 100).map(normalizeRel).filter(Boolean); if (!list.length) throw chatError('FILE_NOT_FOUND','Hãy chỉ định file cần stage.'); for (const rel of list) { if (isSensitive(rel)) throw chatError('SENSITIVE_PATH_BLOCKED',`Đường dẫn nhạy cảm đã bị chặn: ${rel}`,{ path:rel }); await secureResolve(project, rel, { mustExist:true }); } return runExec('git', ['add','--',...list], (await canonicalRoot(project)).real, 30000); },
@@ -173,4 +206,4 @@ function createProjectService(store, { onIndexChanged, recordActivity } = {}) {
   return { toolApi, watch, initialize, cleanup, shutdown, status, reindex, secureResolve, canonicalRoot, invalidate, readText, containsShellMeta };
 }
 
-module.exports = { createProjectService, sniffTextBuffer, containsShellMeta };
+module.exports = { createProjectService, sniffTextBuffer, containsShellMeta, resolvePhpExe };

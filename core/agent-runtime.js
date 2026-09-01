@@ -1,19 +1,69 @@
 const { normalizeError, chatError } = require('./errors');
 const { skillsForTask } = require('./skill-runtime');
+const { validateBricksJson } = require('./bricks-validator');
+const {
+  readProjectProfile,
+  refreshProjectProfile,
+  saveProjectDecisions,
+  projectProfileContext
+} = require('./project-profile');
+const {
+  buildTaskCard,
+  preflightExecutionPath,
+  EXECUTION_PATHS,
+  validatePatchAgainstTaskCard
+} = require('./task-planner');
 
 const MAX_VERIFY = 6;
 const MAX_CONTEXT_FILES = 6;
+const MAX_TASK_CARDS = 200;
+const FAST_SKILL_CONTRACT = [
+  'WordPress + Bricks Fast Path contract:',
+  '- Keep the request targeted. Do not redesign, refactor broadly, seed/migrate data, or create parallel owners.',
+  '- Prefer native Bricks structure and the existing shared owner/renderer; normal container/grid/image/icon/text/query sections do not justify a custom element.',
+  '- Normal editor-owned content must remain editable in Builder; preserve current Builder/user-edited data and unrelated element settings.',
+  '- Prefix only collision/storage boundaries (global PHP symbols, hooks/actions, handles, option/meta keys, custom element names, optional component root); do not prefix every local/descendant identifier.',
+  '- Reference media is slot-specific and distinct by default; never silently reuse one attachment across unrelated slots. Functional icons use Bricks/native verified icon infrastructure.',
+  '- One-time seed/setup must terminate and become a no-op; do not leave media/template/data setup doing work on normal frontend init/wp requests.',
+  '- Global tokens stay in the established global CSS owner; page/component CSS owns only its scope.',
+  '- Generic product wording does not imply WooCommerce when project evidence says CPT/non-Woo.',
+  '- Use named external references only as scoped sources; do not broad-search unrelated sites.',
+  '- Validate only the touched scope, run syntax checks for changed executable source, then stop.'
+].join('\n');
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
-
 function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
+
+function inferredSyntaxCommands(files) {
+  const commands = [];
+  for (const item of Array.isArray(files) ? files : []) {
+    if (String(item?.operation || '') === 'delete') continue;
+    const file = String(item?.path || item || '').replace(/\\/g, '/');
+    if (!file) continue;
+    if (/\.php$/i.test(file)) commands.push(`php -l "${file}"`);
+    else if (/\.(?:js|cjs|mjs)$/i.test(file)) commands.push(`node --check "${file}"`);
+  }
+  return unique(commands).slice(0, MAX_VERIFY);
+}
+
+function readProjectRules(store, projectId) {
+  return (readProjectProfile(store, projectId).decisions || []).map(item => ({ key:item.key, value:item.value }));
+}
+
+function saveProjectRules(store, projectId, input) {
+  return saveProjectDecisions(store, projectId, input);
+}
+
+function relevantProjectRules(allRules, taskCard) {
+  const wanted = new Set((taskCard?.decision_keys || []).map(String));
+  if (!wanted.size) return [];
+  return (Array.isArray(allRules) ? allRules : []).filter(rule => wanted.has(String(rule?.key || ''))).slice(0,6);
+}
 
 async function verificationHints(api, projectId, inspect) {
   const hints = [];
   const isWordPress = !!inspect?.wordpress?.isWordPress;
   const packageWasRetrieved = (inspect?.relevant_files || []).some(item => String(item?.path || '').toLowerCase() === 'package.json');
-  // Do not probe project-root package.json on ordinary WordPress work. Use it only when
-  // the scoped inspection already established that package.json is relevant.
   if (!isWordPress || packageWasRetrieved) {
     try {
       const pkg = await api.readFile(projectId, 'package.json');
@@ -38,7 +88,8 @@ async function verificationHints(api, projectId, inspect) {
   return hints.slice(0,5);
 }
 
-function compactInspection(inspect) {
+function compactInspection(inspect, maxFiles = MAX_CONTEXT_FILES) {
+  const limit = Math.min(MAX_CONTEXT_FILES, Math.max(1, Number(maxFiles) || MAX_CONTEXT_FILES));
   return {
     project:inspect.project,
     frameworks:inspect.frameworks,
@@ -47,28 +98,127 @@ function compactInspection(inspect) {
     entrypoints:inspect.entrypoints,
     wordpress:inspect.wordpress,
     retrieval_scope:inspect.retrieval_scope || null,
-    relevant_files:(inspect.relevant_files || []).slice(0, MAX_CONTEXT_FILES),
-    relevant_relations:(inspect.relevant_relations || []).slice(0,80),
-    top_symbols:(inspect.top_symbols || []).slice(0,60),
+    relevant_files:(inspect.relevant_files || []).slice(0, limit),
+    relevant_relations:(inspect.relevant_relations || []).slice(0, limit === 4 ? 32 : 80),
+    top_symbols:(inspect.top_symbols || []).slice(0, limit === 4 ? 24 : 60),
     git:inspect.git
   };
 }
 
-function createAgentRuntime(api) {
+function compactSkillsForFastPath(skills, charLimit = 6000) {
+  const limit = Math.max(1000, Number(charLimit) || 6000);
+  return (Array.isArray(skills) ? skills : []).map(skill => {
+    const compactDomain = String(skill?.compact_context || '').trim();
+    const instructions = [
+      FAST_SKILL_CONTRACT,
+      compactDomain ? `Task-domain guidance:\n${compactDomain}` : ''
+    ].filter(Boolean).join('\n').slice(0, limit);
+    return {
+      id:skill.id,
+      name:skill.name,
+      version:skill.version,
+      activation:skill.activation,
+      mandatory:skill.mandatory !== false,
+      domains:(skill?.domains || []).slice(0,2),
+      ui_guidance:(skill?.ui_guidance || []).slice(0,3),
+      bricks_guidance:(skill?.bricks_guidance || []).slice(0,3),
+      bricks_spec:skill?.bricks_spec || null,
+      instructions,
+      resources:[],
+      resource_context:{
+        selected:(skill?.resource_context?.selected || []).slice(0,5),
+        selected_domains:(skill?.resource_context?.selected_domains || skill?.domains || []).slice(0,2),
+        ui_guidance_count:Number(skill?.resource_context?.ui_guidance_count || skill?.ui_guidance?.length || 0),
+        bricks_guidance_count:Number(skill?.resource_context?.bricks_guidance_count || skill?.bricks_guidance?.length || 0),
+        bricks_spec_status:skill?.resource_context?.bricks_spec_status || skill?.bricks_spec?.status || null,
+        fast_compact:true,
+        soft_limit_chars:limit,
+        used_chars:instructions.length,
+        omitted_support_resources:(skill?.resource_context?.selected || []).slice(5)
+      }
+    };
+  });
+}
+
+async function runBricksJsonVerification(api, projectId, files, inspect) {
+  const results = [];
+  for (const item of Array.isArray(files) ? files : []) {
+    if (results.length >= 4 || String(item?.operation || '') === 'delete') continue;
+    const file = String(item?.path || item || '').replace(/\\/g,'/');
+    if (!/\.json$/i.test(file)) continue;
+    const started = nowMs();
+    try {
+      const raw = await api.readFile(projectId, file);
+      const validation = validateBricksJson(String(raw?.content || ''), inspect || {});
+      if (!validation.recognized) continue;
+      results.push({
+        kind:'bricks-json',
+        command:`bricks-validate "${file}"`,
+        file,
+        ok:validation.ok,
+        status:validation.ok ? 'completed' : 'failed',
+        errors:validation.errors,
+        warnings:validation.warnings,
+        format:validation.format,
+        node_count:validation.node_count,
+        spec:validation.spec,
+        duration_ms:nowMs() - started
+      });
+    } catch (error) {
+      results.push({ kind:'bricks-json', command:`bricks-validate "${file}"`, file, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started });
+    }
+  }
+  return results;
+}
+
+function createAgentRuntime(api, store = null) {
+  const taskCards = new Map();
+  const taskContexts = new Map();
+
+  function rememberTaskCard(taskId, taskCard, context = null) {
+    taskCards.set(String(taskId), taskCard);
+    if (context) taskContexts.set(String(taskId), context);
+    while (taskCards.size > MAX_TASK_CARDS) {
+      const oldest = taskCards.keys().next().value;
+      taskCards.delete(oldest);
+      taskContexts.delete(oldest);
+    }
+  }
+
   async function prepareTask(ref, request, limit = 8) {
     const started = nowMs();
     const text = String(request || '').trim();
     if (!text) throw chatError('INTERNAL_ERROR', 'Yêu cầu coding task đang trống.');
-    const boundedLimit = Math.min(12, Math.max(4, Number(limit) || 8));
+    const requestedLimit = Math.min(12, Math.max(4, Number(limit) || 8));
+    const preflight = preflightExecutionPath(text);
+    const inspectLimit = Math.min(requestedLimit, Number(preflight?.limits?.context_files) || MAX_CONTEXT_FILES);
 
     const inspectStarted = nowMs();
     const [session, inspect] = await Promise.all([
-      api.startWork(ref, text),
-      api.inspectProject(ref, text, boundedLimit)
+      api.startWork(ref, text, { compactBaseline:true }),
+      api.inspectProject(ref, text, inspectLimit)
     ]);
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
-    const skills = skillsForTask(inspect, text);
+    const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
+    const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
+    const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
+    const skillInspect = { ...inspect, project_profile:fullProjectProfile };
+
+    const rawSkills = skillsForTask(skillInspect, text, taskCard);
+    rememberTaskCard(session.work_session_id, taskCard, { inspect:skillInspect, rawSkills });
+    const skills = taskCard.execution.path === EXECUTION_PATHS.FAST
+      ? compactSkillsForFastPath(rawSkills, taskCard.execution.skill_context_limit_chars)
+      : rawSkills;
+    const projectRules = relevantProjectRules(allProjectRules, taskCard);
+    const projectProfile = projectProfileContext(fullProjectProfile, text, taskCard.type, taskCard.decision_keys || []);
+    const context = compactInspection(inspect, taskCard.execution.context_file_limit);
+    const pathGuidance = taskCard.execution.path === EXECUTION_PATHS.FAST
+      ? `FAST Path: tối đa ${taskCard.execution.context_file_limit} file context và ${taskCard.execution.patch_file_limit} file patch; không tự tạo/xóa file ngoài allowance của task_card.`
+      : `DEEP Path chỉ bật vì: ${(taskCard.execution.reasons || []).join(', ') || 'explicit high-risk task'}. Vẫn phải giữ scope theo target và owner.`;
+    const ownerGuidance = taskCard.owner?.primary_path
+      ? `Owner Resolver: ${taskCard.owner.status} ${taskCard.owner.kind || 'owner'} tại ${taskCard.owner.primary_path}${taskCard.owner.primary_symbol ? ` (${taskCard.owner.primary_symbol})` : ''}. Sửa owner này trước; không tạo owner song song.`
+      : 'Owner Resolver chưa có owner đủ evidence; chỉ dùng ranked candidates và không tạo owner mới nếu chưa xác nhận owner hiện tại không tồn tại.';
 
     return {
       ok:true,
@@ -77,8 +227,13 @@ function createAgentRuntime(api) {
       work_session_id:session.work_session_id,
       request:text,
       workspace_mode:session.workspace_mode,
-      context:compactInspection(inspect),
+      execution_path:taskCard.execution.path,
+      context,
       skills,
+      project_profile:projectProfile,
+      project_decisions:projectRules,
+      project_rules:projectRules,
+      task_card:taskCard,
       verification_hints:hints,
       agent_contract:{
         preferred_calls:2,
@@ -86,9 +241,15 @@ function createAgentRuntime(api) {
         next_tool:'complete_task',
         patch_format:'standard unified diff',
         guidance:[
-          'Nếu response có skills, các rule/instructions/resource đính kèm là contract bắt buộc cho task hiện tại.',
-          'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dữ kiện thật sự.',
-          'Với WordPress, tôn trọng context.retrieval_scope: search/Brain trước, đọc active child theme và plugin liên quan trước; chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
+          'Nếu response có skills, các rule/instructions đính kèm là contract bắt buộc cho task hiện tại.',
+          pathGuidance,
+          ownerGuidance,
+          'Bám task_card: giữ đúng target, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
+          'FAST không được tự chuyển thành DEEP trong complete_task. Nếu evidence mới làm task hiện tại không an toàn, dừng và re-plan thay vì patch rộng.',
+          'Dùng context trong response này để lập patch; chỉ đọc thêm khi owner.requires_read hoặc thiếu dependency cụ thể.',
+          'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
+          'Với WordPress, tôn trọng context.retrieval_scope và chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
+          'Bricks JSON mới/thay đổi sẽ được complete_task kiểm cấu trúc deterministic; không bỏ qua lỗi parent/children/settings/query chỉ vì JSON parse được.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
           'Nếu cần hủy toàn bộ thay đổi của task, dùng rollback_work với cùng task_id.'
@@ -99,13 +260,13 @@ function createAgentRuntime(api) {
     };
   }
 
-  async function runVerification(projectId, taskId, workspaceMode, commands) {
+  async function runVerification(projectId, taskId, workspaceMode, commands, { preferTaskRunner = false } = {}) {
     const results = [];
     for (const command of commands.slice(0, MAX_VERIFY)) {
       const started = nowMs();
       try {
         let raw;
-        if (workspaceMode === 'trusted' && typeof api.exec === 'function') {
+        if (!preferTaskRunner && workspaceMode === 'trusted' && typeof api.exec === 'function') {
           raw = await api.exec(projectId, command, { background:false, timeout_ms:120000, work_session_id:taskId });
           results.push({ command, ok:raw.status === 'completed' && Number(raw.exit_code) === 0, status:raw.status, exit_code:raw.exit_code, stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started });
         } else {
@@ -119,29 +280,51 @@ function createAgentRuntime(api) {
     return results;
   }
 
-  async function completeTask(taskId, patch, verifyCommands = [], { finalize = true, rollbackOnFailure = false } = {}) {
+  async function completeTask(taskId, patch, verifyCommands = [], { finalize = true, rollbackOnFailure = false, rememberProjectRules = [] } = {}) {
     const started = nowMs();
     const id = String(taskId || '').trim();
     if (!id) throw chatError('FILE_NOT_FOUND', 'task_id đang trống.');
-    const before = await api.workStatus(id);
+    const taskCard = taskCards.get(id) || null;
+    const taskContext = taskContexts.get(id) || null;
+    const before = typeof api.workMeta === 'function' ? await api.workMeta(id) : await api.workStatus(id);
     if (before.status !== 'active') throw chatError('PERMISSION_DENIED', 'Fast Agent task không còn active.', { task_id:id, status:before.status });
     const projectId = before.project_id;
-    const commands = unique((Array.isArray(verifyCommands) ? verifyCommands : []).map(x => String(x || '').trim())).slice(0, MAX_VERIFY);
+    const requestedCommands = unique((Array.isArray(verifyCommands) ? verifyCommands : []).map(x => String(x || '').trim())).slice(0, MAX_VERIFY);
+    const scopeCheck = validatePatchAgainstTaskCard(taskCard, String(patch || ''));
+    if (!scopeCheck.ok) {
+      throw chatError('TASK_SCOPE_VIOLATION', 'Patch vượt contract của FAST Path. Không có file nào được thay đổi.', {
+        task_id:id,
+        execution_path:taskCard?.execution?.path || null,
+        target:taskCard?.target || null,
+        violations:scopeCheck.violations,
+        patch_files:scopeCheck.files,
+        unexpected_files:scopeCheck.unexpected_files,
+        next_action:'Giữ task hiện tại nếu có thể thu nhỏ patch. Nếu dependency mới thật sự yêu cầu scope rộng hơn, re-plan bằng prepare_task thay vì tự chuyển FAST thành DEEP.'
+      });
+    }
 
     const patchStarted = nowMs();
     const applied = await api.applyPatch(projectId, String(patch || ''), id);
     const patchMs = nowMs() - patchStarted;
+    const changed = applied.files || applied.changed_files || [];
+    const commands = requestedCommands.length ? requestedCommands : inferredSyntaxCommands(changed);
 
     const verifyStarted = nowMs();
-    const verification = await runVerification(projectId, id, before.workspace_mode, commands);
+    const structuralVerification = await runBricksJsonVerification(api, projectId, changed, taskContext?.inspect || {});
+    const commandVerification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:requestedCommands.length === 0 });
+    const verification = [...structuralVerification, ...commandVerification];
     const verifyMs = nowMs() - verifyStarted;
     const verificationPassed = verification.every(item => item.ok);
 
     if (!verificationPassed) {
       if (rollbackOnFailure) {
         const rolled = await api.rollbackWork(id);
+        taskCards.delete(id);
+        taskContexts.delete(id);
         return {
           ok:false, status:'rolled_back', task_id:id, work_session_id:id,
+          execution_path:taskCard?.execution?.path || null,
+          task_card:taskCard, scope_check:scopeCheck,
           verification, verification_passed:false, changed_files:applied.changed_files || [], patch:applied,
           rollback:rolled,
           next_action:'Task đã rollback vì verification fail. Gọi prepare_task nếu muốn thử lại từ baseline.',
@@ -151,11 +334,13 @@ function createAgentRuntime(api) {
       const current = await api.workStatus(id);
       return {
         ok:false, status:'needs_fix', task_id:id, work_session_id:id,
+        execution_path:taskCard?.execution?.path || null,
+        task_card:taskCard, scope_check:scopeCheck,
         verification, verification_passed:false,
         changed_files:current.changed_files || applied.changed_files || [],
         git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
-        next_action:'Giữ nguyên task_id và trạng thái hiện tại. Tạo corrective unified diff rồi gọi complete_task lại; chỉ rollback_work nếu muốn hủy toàn bộ task.',
+        next_action:'Giữ nguyên task_id và execution path. Tạo corrective unified diff nhỏ trong cùng scope rồi gọi complete_task lại; chỉ rollback_work nếu muốn hủy toàn bộ task.',
         telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
       };
     }
@@ -164,24 +349,37 @@ function createAgentRuntime(api) {
       const current = await api.workStatus(id);
       return {
         ok:true, status:'ready_for_more', task_id:id, work_session_id:id,
+        execution_path:taskCard?.execution?.path || null,
+        task_card:taskCard, scope_check:scopeCheck,
         verification, verification_passed:true,
         changed_files:current.changed_files || applied.changed_files || [], git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
-        next_action:'Task vẫn active. Có thể gọi complete_task thêm hoặc finish_work.',
+        next_action:'Task vẫn active và giữ nguyên execution path. Có thể gọi complete_task thêm hoặc finish_work.',
         telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
       };
     }
 
     const finalizeStarted = nowMs();
-    const finished = await api.finishWork(id, []);
+    const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
+    const savedProfile = saveProjectRules(store, projectId, rememberProjectRules);
+    const savedRules = (savedProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
+    const projectRules = relevantProjectRules(savedRules, taskCard);
+    const profileContext = projectProfileContext(savedProfile, taskCard?.target || '', taskCard?.type || '', taskCard?.decision_keys || []);
+    taskCards.delete(id);
+    taskContexts.delete(id);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
+      execution_path:taskCard?.execution?.path || null,
+      task_card:taskCard, scope_check:scopeCheck,
       verification, verification_passed:true,
       changed_files:finished.changed_files || applied.changed_files || [],
       recovery_points:finished.recovery_points || applied.recovery_points || [],
       git:finished.final?.git || applied.git || null,
       brain:finished.brain || applied.brain || null,
+      project_profile:profileContext,
+      project_decisions:projectRules,
+      project_rules:projectRules,
       session:finished,
       agent_contract:{ preferred_calls:2, completed_in_call:2, result:'done' },
       telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:finalizeMs, brain_refresh_ms:Number(finished?.brain?.refresh_ms || applied?.brain?.refresh_ms)||0, git_ms:0 }
@@ -198,11 +396,18 @@ function installAgentRuntimePatches() {
   const previousCreate = safety.createSafeToolApi;
   safety.createSafeToolApi = function agentAwareSafeToolApi(projects, store, approvals, backups, options) {
     const api = previousCreate(projects, store, approvals, backups, options);
-    const runtime = createAgentRuntime(api);
+    const runtime = createAgentRuntime(api, store);
     api.prepareTask = (ref, request, limit) => runtime.prepareTask(ref, request, limit);
     api.completeTask = (taskId, patch, verifyCommands, options = {}) => runtime.completeTask(taskId, patch, verifyCommands, options);
     return api;
   };
 }
 
-module.exports = { installAgentRuntimePatches, createAgentRuntime, verificationHints };
+module.exports = {
+  installAgentRuntimePatches,
+  createAgentRuntime,
+  verificationHints,
+  inferredSyntaxCommands,
+  compactSkillsForFastPath,
+  runBricksJsonVerification
+};

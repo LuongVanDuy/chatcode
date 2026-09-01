@@ -1,5 +1,6 @@
 const path = require('path');
 const wp = require('./wordpress');
+const { wordpressBootstrapFiles, planWordPressBrainContent } = require('./brain-scope');
 
 const MAX_FILES = 1400;
 const MAX_TOTAL_BYTES = 28 * 1024 * 1024;
@@ -144,21 +145,39 @@ function createBrainService(store, projects, { onChanged } = {}) {
     const job = (async () => {
       const started = Date.now(); const all = await base.listFiles(project.id, 5000); const indexStatus = projects.status(project.id); const isWpPre = preliminaryWordPress(all);
       const candidates = all.filter(file => SOURCE_EXTS.has(path.posix.extname(norm(file)).toLowerCase()) || isManifest(file)).sort((a, b) => filePriority(b, isWpPre) - filePriority(a, isWpPre));
-      const mustHave = isWpPre ? all.filter(file => /(^|\/)(style\.css|functions\.php)$|^(index|wp-blog-header|wp-load|wp-settings)\.php$/i.test(norm(file))) : [];
-      const selected = [...new Set([...mustHave, ...candidates])].slice(0, MAX_FILES), texts = new Map(), analyses = [], languages = new Map(); let bytes = 0, truncated = candidates.length > selected.length;
+      const profileTexts = new Map(), physicalReads = new Set(); let bootstrapBytes = 0, contentBytes = 0, readAttempts = 0;
+      if (isWpPre) {
+        for (const rel of wordpressBootstrapFiles(all)) {
+          try {
+            readAttempts++;
+            const read = await base.readFile(project.id, rel), text = String(read.content || ''), key = norm(rel);
+            physicalReads.add(key); profileTexts.set(key, text); bootstrapBytes += Buffer.byteLength(text, 'utf8');
+          } catch {}
+        }
+      }
+      let profile = wp.detectWordPressProfile(all, profileTexts);
+      const scopePlan = isWpPre
+        ? planWordPressBrainContent(candidates, profile, file => filePriority(file, true) + wp.wordpressPriority(file, profile))
+        : { selected:candidates.slice(0, MAX_FILES), max_files:MAX_FILES, max_bytes:MAX_TOTAL_BYTES, scope:'project-wide', primary_roots:[], candidate_count:candidates.length, scoped_candidate_count:candidates.length, excluded_by_scope:0, truncated:candidates.length > MAX_FILES };
+      const selected = scopePlan.selected, texts = new Map(profileTexts), analysisTexts = new Map(), analyses = [], languages = new Map(); let truncated = !!scopePlan.truncated;
       for (const rel of selected) {
         try {
-          const read = await base.readFile(project.id, rel), text = String(read.content || ''), size = Buffer.byteLength(text, 'utf8'); if (bytes + size > MAX_TOTAL_BYTES) { truncated = true; break; }
-          bytes += size; texts.set(norm(rel), text); const lang = languageFor(rel); if (lang) languages.set(lang, (languages.get(lang) || 0) + 1);
-          if (SOURCE_EXTS.has(path.posix.extname(norm(rel)).toLowerCase())) {
+          const key = norm(rel); let text = texts.get(key);
+          if (text == null) {
+            readAttempts++;
+            const read = await base.readFile(project.id, rel); text = String(read.content || ''); physicalReads.add(key); texts.set(key, text);
+          }
+          const size = Buffer.byteLength(text, 'utf8'); if (contentBytes + size > scopePlan.max_bytes) { truncated = true; break; }
+          contentBytes += size; analysisTexts.set(key, text); const lang = languageFor(rel); if (lang) languages.set(lang, (languages.get(lang) || 0) + 1);
+          if (SOURCE_EXTS.has(path.posix.extname(key).toLowerCase())) {
             const wordpress = lang === 'PHP' ? wp.analyzePhp(rel, text) : null;
             const selectors = wordpress?.selectors || (/JavaScript|TypeScript/.test(lang) ? wp.analyzeJsSelectors(text) : ['CSS','SCSS'].includes(lang) ? wp.analyzeCssSelectors(text) : []);
-            analyses.push({ path: norm(rel), language: lang, symbols: wordpress?.symbols || analyzeSymbols(rel, text), imports: analyzeImports(rel, text), wordpress, selectors });
+            analyses.push({ path:key, language:lang, symbols:wordpress?.symbols || analyzeSymbols(rel, text), imports:analyzeImports(rel, text), wordpress, selectors });
           }
         } catch {}
       }
 
-      const profile = wp.detectWordPressProfile(all, texts); const fileSet = new Set(all.map(norm)), byPath = new Map(analyses.map(x => [x.path, x])), reverse = new Map(); let edges = 0, externalImports = 0;
+      profile = wp.detectWordPressProfile(all, texts); const fileSet = new Set(all.map(norm)), byPath = new Map(analyses.map(x => [x.path, x])), reverse = new Map(); let edges = 0, externalImports = 0;
       const addEdge = (from, to) => { const analysis = byPath.get(from); if (!analysis || !to || from === to) return; if (!analysis.localImports.includes(to)) { analysis.localImports.push(to); edges++; } if (!reverse.has(to)) reverse.set(to, new Set()); reverse.get(to).add(from); };
       for (const analysis of analyses) {
         analysis.localImports = []; analysis.externalImports = [];
@@ -170,7 +189,7 @@ function createBrainService(store, projects, { onChanged } = {}) {
       const symbols = [], defsByName = new Map();
       for (const analysis of analyses) for (const symbol of analysis.symbols) { const item = { ...symbol, path: analysis.path, language: analysis.language }; symbols.push(item); const key = symbol.name.toLowerCase(); if (!defsByName.has(key)) defsByName.set(key, []); defsByName.get(key).push(item); }
       const references = new Map(), symbolKeys = new Set(defsByName.keys()); let refCount = 0;
-      for (const [file, text] of texts) {
+      for (const [file, text] of analysisTexts) {
         if (!SOURCE_EXTS.has(path.posix.extname(file).toLowerCase())) continue; const lines = text.split(/\r?\n/);
         for (let i = 0; i < lines.length; i++) { const tokens = lines[i].match(/[A-Za-z_$][\w$]{1,80}/g) || []; const unique = new Set(tokens.map(x => x.toLowerCase()).filter(x => symbolKeys.has(x))); for (const key of unique) { if (refCount > 30000) break; const arr = references.get(key) || []; if (arr.length >= MAX_REFERENCES_PER_SYMBOL) continue; const definition = (defsByName.get(key) || []).some(d => d.path === file && d.line === i + 1); arr.push({ path: file, line: i + 1, snippet: lines[i].trim().slice(0, 260), definition }); references.set(key, arr); refCount++; } }
       }
@@ -180,7 +199,7 @@ function createBrainService(store, projects, { onChanged } = {}) {
       const primaryLanguage = profile.isWordPress && languages.has('PHP') ? 'PHP' : (languageList[0]?.name || 'Unknown');
       const hooks = analyses.flatMap(a => (a.wordpress?.hooks || []).map(item => ({ ...item, path: a.path }))).slice(0, 1200);
       const restRoutes = analyses.flatMap(a => (a.wordpress?.restRoutes || []).map(item => ({ ...item, path: a.path }))).slice(0, 500);
-      const record = { projectId: project.id, project: project.name, indexUpdatedAt: indexStatus.updatedAt || '', indexFileCount: indexStatus.fileCount || all.length, updatedAt: new Date().toISOString(), dirty: false, files: analyses, byPath, reverse, symbols, defsByName, references, frameworks, languages: languageList, primaryLanguage, entrypoints: likelyEntrypoints(all, profile), hotspots, profile, relations, hooks, restRoutes, stats: { projectFiles: all.length, candidateFiles: candidates.length, analyzedFiles: analyses.length, symbols: symbols.length, dependencyEdges: edges, crossLanguageEdges: relations.filter(r => /enqueue|localize|selector/.test(r.type)).length, wordpressHooks: hooks.length, restRoutes: restRoutes.length, externalImports, referenceHits: refCount, bytesAnalyzed: bytes, buildMs: Date.now() - started, truncated } };
+      const record = { projectId: project.id, project: project.name, indexUpdatedAt: indexStatus.updatedAt || '', indexFileCount: indexStatus.fileCount || all.length, updatedAt: new Date().toISOString(), dirty: false, files: analyses, byPath, reverse, symbols, defsByName, references, frameworks, languages: languageList, primaryLanguage, entrypoints: likelyEntrypoints(all, profile), hotspots, profile, relations, hooks, restRoutes, stats: { projectFiles: all.length, metadataFiles:all.length, candidateFiles: candidates.length, scopedCandidateFiles:scopePlan.scoped_candidate_count, excludedByScope:scopePlan.excluded_by_scope, contentScope:scopePlan.scope, primaryContentRoots:scopePlan.primary_roots, bootstrapFiles:profileTexts.size, contentReadAttempts:readAttempts, contentReadFiles:physicalReads.size, metadataOnlyFiles:Math.max(0, all.length - physicalReads.size), analyzedFiles: analyses.length, symbols: symbols.length, dependencyEdges: edges, crossLanguageEdges: relations.filter(r => /enqueue|localize|selector/.test(r.type)).length, wordpressHooks: hooks.length, restRoutes: restRoutes.length, externalImports, referenceHits: refCount, bytesAnalyzed:contentBytes, bootstrapBytes, buildMs: Date.now() - started, truncated } };
       cache.set(project.id, record); emit(project.id); return record;
     })();
     builds.set(project.id, job); try { return await job; } finally { builds.delete(project.id); }

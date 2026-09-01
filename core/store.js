@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { normalizeDecisions, normalizeProjectProfile } = require('./project-profile');
 
 const RECENT_ACTIVITY_LIMIT = 400;
 const DAILY_USAGE_LIMIT = 120;
@@ -14,6 +15,10 @@ const DEFAULT_SAFETY = Object.freeze({
   gitCommit: 'ask'
 });
 const FULL_PERMISSIONS = Object.freeze({ write:true, manageFiles:true, tasks:true, gitWrite:true });
+
+function normalizeProjectRules(raw = []) {
+  return normalizeDecisions(raw);
+}
 
 function emptyCounters() {
   return { calls: 0, read: 0, write: 0, task: 0, git: 0, manage: 0, other: 0, errors: 0, bytesIn: 0, bytesOut: 0, durationMs: 0 };
@@ -123,11 +128,14 @@ function createStore(app, port) {
       const safePermissions = hasSavedPermissions ? normalizePermissions(safety._safePermissions) : rawPermissions;
       const hasSavedSafety = project.safety?._safeSafety && typeof project.safety._safeSafety === 'object';
       const safeSafety = hasSavedSafety ? normalizeSafetyRules(safety._safeSafety) : normalizeSafetyRules(project.safety);
+      const projectProfile = normalizeProjectProfile(project.projectProfile, project.projectRules);
       safety._safePermissions = safePermissions;
       safety._safeSafety = safeSafety;
       const permissions = workspaceMode === 'trusted' ? { ...FULL_PERMISSIONS } : rawPermissions;
       return {
         ...project,
+        projectProfile,
+        projectRules:projectProfile.decisions,
         workspaceMode,
         trusted: { allowSecrets:workspaceMode === 'trusted' && !!safety._allowSecrets, allowGitPush:false },
         safePermissions,
@@ -212,7 +220,7 @@ function createStore(app, port) {
 
   return {
     read, write, ensure, normalizeDomain, connectionConfig, settings, getProject,
-    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions,
+    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions, normalizeProjectRules, normalizeProjectProfile,
     safetyActions: SAFETY_ACTIONS, defaultSafety: DEFAULT_SAFETY, fullPermissions:FULL_PERMISSIONS
   };
 }

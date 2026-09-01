@@ -6,32 +6,94 @@ on:
     paths:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
+      - 'core/project-scope.js'
+      - 'core/project-profile.js'
+      - 'core/owner-resolver.js'
       - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
+      - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
+      - 'main.js'
+      - 'preload.js'
+      - 'renderer/**'
       - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
+      - 'scripts/smoke-owner-resolver.cjs'
+      - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
     paths:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
+      - 'core/project-scope.js'
+      - 'core/project-profile.js'
+      - 'core/owner-resolver.js'
       - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
+      - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
       - 'core/retrieval-scope.js'
       - 'core/wordpress-retrieval.js'
       - 'core/runtime-bootstrap.js'
       - 'core/builtin-skills-project.js'
+      - 'main.js'
+      - 'preload.js'
+      - 'renderer/**'
       - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
+      - 'scripts/smoke-owner-resolver.cjs'
+      - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
@@ -46,24 +108,90 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check skill loader
+      - name: Syntax check Stage 8 + Skill v5 + Bricks Spec + current renderer
         run: |
           node --check core/skill-runtime.js
+          node --check core/ui-knowledge.js
+          node --check core/bricks-spec.js
+          node --check core/bricks-validator.js
           node --check core/skill-policy.js
+          node --check core/project-scope.js
+          node --check core/project-profile.js
+          node --check core/owner-resolver.js
           node --check core/agent-runtime.js
+          node --check core/task-planner.js
+          node --check core/git-lazy.js
+          node --check core/brain.js
+          node --check core/brain-scope.js
+          node --check core/projects.js
+          node --check core/store.js
+          node --check core/support.js
+          node --check core/task-policy.js
+          node --check core/work-runtime.js
           node --check core/retrieval-scope.js
           node --check core/wordpress-retrieval.js
           node --check core/runtime-bootstrap.js
+          node --check main.js
+          node --check preload.js
+          node --check renderer/current-runtime.js
           node --check mcp-server.mjs
+          node --check scripts/smoke-agent.cjs
+          node --check scripts/smoke-project-profile.cjs
+          node --check scripts/smoke-owner-resolver.cjs
+          node --check scripts/smoke-task-planner.cjs
+          node --check scripts/smoke-fast-deep-routing.cjs
+          node --check scripts/smoke-git-lazy.cjs
+          node --check scripts/smoke-regression.cjs
+          node --check scripts/smoke-wordpress-brain-scope.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
+          node --check scripts/smoke-bricks-spec.cjs
+          node --check scripts/smoke-renderer-foundation.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
+          node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
+          node --check scripts/smoke-project-scope.cjs
+          node --check scripts/benchmark-v109.cjs
+      - name: Renderer single-entry foundation regression
+        run: npm run test:renderer-foundation
+      - name: Git lazy explicit-only regression
+        run: node scripts/smoke-git-lazy.cjs
+      - name: Project Profile facts and decisions
+        run: node scripts/smoke-project-profile.cjs
+      - name: Owner Resolver evidence and owner-set scope
+        run: node scripts/smoke-owner-resolver.cjs
+      - name: WordPress Brain metadata/content scope
+        run: node scripts/smoke-wordpress-brain-scope.cjs
+      - name: Task Planner scoped Task Card
+        run: node scripts/smoke-task-planner.cjs
+      - name: Fast/Deep execution routing and scope gate
+        run: node scripts/smoke-fast-deep-routing.cjs
+      - name: Fast Agent compact context, decisions and auto verify
+        run: npm run test:agent
+      - name: Safe task and PHP/Laragon regression
+        run: npm run test:regression
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
+      - name: Bricks Spec Engine and deterministic validator
+        run: npm run test:bricks-spec
       - name: Builder editability and page asset ownership
         run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
+      - name: Focused external reference and file discipline
+        run: node scripts/smoke-wordpress-bricks-focus-discipline.cjs
       - name: Scope-first WordPress retrieval
         run: node scripts/smoke-wordpress-retrieval-scope.cjs
+      - name: Project scope lock
+        run: node scripts/smoke-project-scope.cjs
+      - name: Stage 8 historical workflow benchmark
+        env:
+          BENCHMARK_OUTPUT: benchmark-v109.json
+        run: npm run benchmark:v109
+      - name: Upload Stage 8 benchmark metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-v109-benchmark
+          path: benchmark-v109.json
+          if-no-files-found: error
 
   release-windows:
     if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
@@ -84,9 +212,9 @@ jobs:
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $installer) { throw "Không tìm thấy installer v$version." }
-          if (-not (Test-Path "dist\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
+          if (-not (Test-Path "dist\\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
       - uses: actions/upload-artifact@v4
         with:
           name: chatcode-gpt-skill-windows
@@ -101,10 +229,10 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
-          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
-          $latest = Get-Item "dist\latest.yml"
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
+          $latest = Get-Item "dist\\latest.yml"
           $assets = @($installer.FullName, $latest.FullName)
-          $blockmaps = Get-ChildItem "dist\*.blockmap" -ErrorAction SilentlyContinue
+          $blockmaps = Get-ChildItem "dist\\*.blockmap" -ErrorAction SilentlyContinue
           foreach ($item in $blockmaps) { $assets += $item.FullName }
 
           gh release view $tag *> $null

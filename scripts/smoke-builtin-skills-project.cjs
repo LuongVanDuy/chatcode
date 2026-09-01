@@ -45,7 +45,7 @@ const backups = {
   assert.equal(virtual.root, 'builtin://CHATCODE-GPT');
   assert.deepEqual(virtual.permissions, { write:false, manageFiles:false, tasks:false, gitWrite:false });
 
-  const listed = api.listProjects();
+  const listed = await api.listProjects();
   const safeVirtual = listed.find(item => item.name === 'CHATCODE-GPT');
   assert.ok(safeVirtual, 'Final Safe/Trusted API must preserve CHATCODE-GPT');
   assert.equal(safeVirtual.safety_mode, 'builtin_read_only');

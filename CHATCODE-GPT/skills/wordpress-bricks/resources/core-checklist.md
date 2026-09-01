@@ -1,37 +1,49 @@
 # Compact core checklist
 
-This is the only resource that should be loaded for every activated WordPress + Bricks task. Keep it short. Domain resources provide the detailed rules only when relevant.
+Loaded for every WordPress + Bricks task. Keep it short; one domain resource supplies task-specific detail.
 
 ## Before editing
 
-- Inspect the real current project state; do not guess template IDs, Builder trees, page assignments, menus, Woo pages, prefixes, paths, or data ownership.
-- **Search/Project Brain before source reads.** Brain may index broadly, but fetch content from the relevant child theme and directly related project-owned plugin first. Do not fill context with WordPress core, Bricks parent, Woo core, unrelated plugins, uploads, vendor/cache, or root files; widen scope only on concrete dependency/API evidence.
-- Work only in the active child theme/custom plugin/Builder data intended for the task. Never edit WordPress core, Bricks parent theme, WooCommerce core, or vendor code.
-- Prefer the smallest native solution: Bricks native element/control/template -> Bricks dynamic data / Query Loop / conditions -> WordPress/WooCommerce public API -> custom Bricks Element only for a proven native gap.
-- Reuse existing clean project conventions, shared components, data sources, and global design tokens before creating parallel implementations.
-- Preserve Builder/user edits. Existing Builder data is the source of truth after initial seed.
+- Lock to the user-named target. Another project is read-only only when explicitly named as reference/copy/migration source.
+- Inspect real current state; do not guess owners, template IDs, Builder trees, media assignments, menus, Woo pages, prefixes or paths.
+- Search/Brain before reads. Read child-theme/project-owned code first; widen to Bricks/Woo/WP core only on concrete evidence.
+- Keep external references scoped: when the user names a reference site/domain, use it first and do not broad-search unrelated websites for substitutes/inspiration unless that source is unavailable or the user asks for wider research.
+- Existing owner before new file. Normal edit new-file budget is zero.
+- Prefer Bricks native structure/dynamic data/API before a custom Bricks element. Normal container/grid/image/icon/text/button/slider/query-loop composition is not a custom-element gap.
+- Preserve Builder/user edits and shared renderers/data sources.
+
+## Naming and prefix
+
+Use the discovered project prefix only where collision/storage/security identity matters: global PHP symbols, hooks/AJAX/nonces/asset handles, option/meta keys, custom element names and optionally one component root CSS class. Do not prefix private/local identifiers, labels, repeater keys, filenames or every descendant class.
+
+## Media and icons
+
+- Reference media must resolve by semantic slot and reference component: `slot -> selector/context -> source URL -> attachment ID -> allow_reuse`.
+- Default `allow_reuse=false`; unresolved media remains unresolved. Do not silently reuse the first/closest image.
+- Verify repeated items for accidental duplicate attachment IDs.
+- Functional icons use Bricks Icon/icon controls or verified already-loaded icon classes. Brand marks/logos/certifications use real media/SVG assets.
+- Do not inject `<i>` markup into ordinary text or keep large SVG data URIs in PHP.
 
 ## During editing
 
-- Make the smallest targeted patch and keep unrelated code/data untouched.
-- Follow includes/imports/hooks/symbol references when more source is needed; expand retrieval one tier at a time instead of broad-scanning neighboring directories.
-- For Bricks DB/tree changes, preserve unique IDs, reciprocal parent/children relations, sibling order, and unrelated settings.
-- For generated/seeded data, make creation idempotent and concurrency-safe; never rely on a race-prone check-then-insert flow.
-- For repeated product/post items, reuse the shared normal item renderer/layout unless the user explicitly requests a special variant.
-- For frontend UI, reuse the site's shell, typography, colors, spacing, radius, controls, shadows, and transitions from the global design system.
-- Do not hard-code project data that WordPress/Bricks/WooCommerce can discover.
+- Make the smallest targeted patch; owner sets may include a page/component owner plus a legitimate global companion such as `main.css`.
+- Follow symbols/includes/hooks only when more source is needed; expand retrieval one tier at a time.
+- Do not split a small feature into setup/helper/migration file families.
+- A normal code/layout/template change is not a migration.
+- Real persisted-data changes preserve Bricks IDs/relations/order and use recovery when material.
+- One-time setup must terminate: explicit setup/admin/WP-CLI or guarded versioned migration, then no-op. It must not keep doing seed/import/template/media work on normal frontend `init`/`wp` requests.
+- Reuse site-wide tokens only in the global CSS owner; page/component CSS owns its scope.
 
 ## Before reporting done
 
-Validate only the task-relevant scope:
+Validate touched scope only:
 
-- changed PHP/JS syntax when execution is available;
-- correct Bricks template/tree/conditions when touched;
-- CSS/cache regeneration after Bricks DB mutation when required;
-- desktop/tablet/mobile for UI work;
-- no duplicate template/data/component introduced;
-- no unrelated Builder edits lost;
-- no stale override file/enqueue left behind after a refactor;
-- no claim about live database state unless a live DB-capable tool actually verified it.
+- PHP/JS syntax when executable;
+- Bricks tree/template/conditions and Builder controls when touched;
+- responsive UI when touched;
+- no duplicate template/data/component/media assignment introduced;
+- no unnecessary new source owner/custom element/migration;
+- no one-time setup still performing work on frontend requests;
+- no live DB/FTP/frontend claim unless a capable connected tool verified it.
 
-If a required validation command/tool is unavailable, state that limitation precisely instead of implying it passed.
+If a required check cannot run, state the limitation instead of implying PASS.
