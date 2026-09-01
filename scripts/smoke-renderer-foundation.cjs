@@ -7,6 +7,8 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const preload = read('preload.js');
 const runtime = read('renderer/current-runtime.js');
 const v08 = read('renderer/v08-runtime.js');
+const v10 = read('renderer/v10-runtime.js');
+const v10css = read('renderer/v10.css');
 const css = read('renderer/ui-foundation.css');
 
 assert.ok(preload.includes("await load('current-runtime.js', 'current-runtime')"), 'preload must load the current renderer entrypoint');
@@ -66,4 +68,10 @@ assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!im
 assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17181a!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
 assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must not introduce legacy white gradients');
 
-console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish contract');
+// 1.0.13 hotfix: permissions must obey the project tab state and mode changes must stay in place.
+assert.ok(v10css.includes('.project-tab#project-tab-permissions:not(.active){display:none!important}'), 'inactive Permissions tab must stay hidden');
+assert.ok(v10css.includes('.project-tab#project-tab-permissions.active{display:flex!important}'), 'active Permissions tab must use its polished flex layout');
+assert.equal(v10.includes('location.reload()'), false, 'Safe/Trusted mode changes must not reload the renderer');
+assert.ok(v10.includes('await render();\n    await refreshTerminalJobs();'), 'workspace mode changes must refresh in place');
+
+console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + tab-state hotfix');
