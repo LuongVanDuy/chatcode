@@ -12,9 +12,19 @@ Use for Bricks templates, Builder controls, editable sections, Query Loop/dynami
 6. Preserve existing Builder IDs, parent/children relationships, conditions and unrelated user-edited settings.
 7. Reuse shared renderers/components before creating another implementation.
 
+## Bricks Spec Engine
+
+- Exact JSON/value-shape knowledge is attached by runtime from a compact version-aware spec, not duplicated in this document.
+- Project/local Bricks evidence has priority over the bundled baseline.
+- If the detected Bricks version does not match the verified baseline, use only invariant facts until local source confirms the exact shape; do not guess setting keys.
+- Generated/changed Bricks JSON must satisfy deterministic tree integrity and supported shape checks before completion.
+- Existing project Theme Styles, global variables/classes and native components are ownership candidates before new CSS/PHP abstractions.
+
 ## Verification
 
 - Builder can still edit expected ordinary content/settings.
 - Template type/conditions and parent-child structure remain valid.
 - Existing reusable renderer/element is not duplicated.
+- Query/filter targets point to real loop element IDs when relevant.
+- Bricks JSON structural/spec validation passes when JSON content is touched.
 - CSS/cache regeneration is performed only when the touched Bricks path requires it.
