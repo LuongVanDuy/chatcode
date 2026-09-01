@@ -99,8 +99,11 @@ function testNewProjectDefaultsTrusted() {
 
 function testUiWiring() {
   const preload = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  const currentRuntime = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'current-runtime.js'), 'utf8');
   const runtime = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'v102-runtime.js'), 'utf8');
-  assert.match(preload, /v102-runtime\.js/);
+  assert.match(preload, /current-runtime\.js/, 'preload must load the single current renderer entrypoint');
+  assert.doesNotMatch(preload, /v102-runtime\.js/, 'preload must not directly own compatibility runtimes');
+  assert.match(currentRuntime, /v102-runtime\.js/, 'current renderer compatibility boundary must retain v102 behavior');
   assert.match(runtime, /Mỗi yêu cầu ChatGPT tối đa một thông báo/);
   assert.match(runtime, /Trusted Workspace/);
 }
