@@ -19,8 +19,11 @@ const MAX_TASK_CARDS = 200;
 const FAST_SKILL_CONTRACT = [
   'WordPress + Bricks Fast Path contract:',
   '- Keep the request targeted. Do not redesign, refactor broadly, seed/migrate data, or create parallel owners.',
-  '- Prefer the existing Bricks-native owner and existing shared renderer/component before custom PHP/HTML or shortcode wrappers.',
+  '- Prefer native Bricks structure and the existing shared owner/renderer; normal container/grid/image/icon/text/query sections do not justify a custom element.',
   '- Normal editor-owned content must remain editable in Builder; preserve current Builder/user-edited data and unrelated element settings.',
+  '- Prefix only collision/storage boundaries (global PHP symbols, hooks/actions, handles, option/meta keys, custom element names, optional component root); do not prefix every local/descendant identifier.',
+  '- Reference media is slot-specific and distinct by default; never silently reuse one attachment across unrelated slots. Functional icons use Bricks/native verified icon infrastructure.',
+  '- One-time seed/setup must terminate and become a no-op; do not leave media/template/data setup doing work on normal frontend init/wp requests.',
   '- Global tokens stay in the established global CSS owner; page/component CSS owns only its scope.',
   '- Generic product wording does not imply WooCommerce when project evidence says CPT/non-Woo.',
   '- Use named external references only as scoped sources; do not broad-search unrelated sites.',
@@ -28,7 +31,6 @@ const FAST_SKILL_CONTRACT = [
 ].join('\n');
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
-
 function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
 
 function inferredSyntaxCommands(files) {
