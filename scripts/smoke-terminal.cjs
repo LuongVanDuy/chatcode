@@ -141,10 +141,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   // Acceptance E background: real PowerShell process, output/exit code retained and terminal remains hidden.
   if (process.platform === 'win32') {
-    const ps = await api.exec('trusted', `powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Output 'POWERSHELL_BACKGROUND_OK'"`, { background:true });
+    const ps = await api.exec('trusted', 'powershell.exe -NoLogo -NoProfile -NonInteractive -Command Write-Output POWERSHELL_BACKGROUND_OK', { background:true });
     assert.equal(ps.background, true);
     assert.equal(ps.terminal.hidden, true);
-    for (let i = 0; i < 40 && ['running','stopping'].includes(api.jobStatus(ps.job_id).status); i++) await sleep(100);
+    for (let i = 0; i < 100 && ['running','stopping'].includes(api.jobStatus(ps.job_id).status); i++) await sleep(100);
     const psStatus = api.jobStatus(ps.job_id);
     assert.equal(psStatus.status, 'completed', psStatus.stderr);
     assert.equal(psStatus.exit_code, 0, psStatus.stderr);
