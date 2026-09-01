@@ -377,15 +377,18 @@ function createProjectScopeApi(api) {
   }
 
   if (original.jobStatus) {
-    api.jobStatus = async (jobId, ...args) => {
-      const result = await original.jobStatus(jobId, ...args);
-      const id = String(jobId || '');
-      const project = activeTerminalJobs.get(id);
-      if (project && TERMINAL_FINAL_RE.test(String(result?.status || ''))) {
-        activeTerminalJobs.delete(id);
-        maybeReleaseScopeForProject(project);
-      }
-      return result;
+    api.jobStatus = (jobId, ...args) => {
+      const settle = result => {
+        const id = String(jobId || '');
+        const project = activeTerminalJobs.get(id);
+        if (project && TERMINAL_FINAL_RE.test(String(result?.status || ''))) {
+          activeTerminalJobs.delete(id);
+          maybeReleaseScopeForProject(project);
+        }
+        return result;
+      };
+      const result = original.jobStatus(jobId, ...args);
+      return result && typeof result.then === 'function' ? result.then(settle) : settle(result);
     };
   }
 
