@@ -1,0 +1,48 @@
+name: UI Preview Windows
+
+on:
+  push:
+    branches:
+      - optimize/v1.0.9
+    paths:
+      - 'package.json'
+      - 'preload.js'
+      - 'renderer/**'
+      - '.github/workflows/ui-preview-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-preview:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ui-preview]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Renderer foundation regression
+        run: npm run test:renderer-foundation
+      - name: Build Windows preview
+        run: npm run dist:win
+      - name: Verify preview installer
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $installer) { throw "Không tìm thấy installer preview $version." }
+          Write-Host "Preview installer: $($installer.Name)"
+      - name: Upload Windows preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-ui-preview-windows
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
