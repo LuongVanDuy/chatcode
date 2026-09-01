@@ -155,7 +155,9 @@ function routeSkillDomains(request, inspect = null, taskCard = null) {
   const media = /reference\s+(?:image|media)|ảnh\s+(?:mẫu|tham\s+khảo)|hình\s+ảnh\s+(?:mẫu|tham\s+khảo)|upload\s+(?:image|media)|media\s+library|attachment\s+id|source\s+url|duplicate\s+(?:image|media)|\bicon\b|svg|zalo|logo|chứng\s+nhận|bộ\s+công\s+thương/.test(text);
   const explicitWoo = /woocommerce|\bwoo\b|cart|checkout|order|variation|mini\s*cart|thank\s*you|giỏ\s+hàng|thanh\s+toán/.test(requestText) || /checkout|cart|order/.test(target);
   const woo = explicitWoo && hasWooCommerceProjectEvidence(inspect);
-  const bricks = taskType === 'BRICKS_BUILDER' || /bricks|builder[-\s]?editable|builder\s+controls?|set_controls|custom\s+(?:bricks\s+)?element|query\s+loop|dynamic\s+data|template|header|footer|archive|taxonomy|single\s+(?:post|product)|repeater|shortcode\s+element/.test(text);
+  const bricks = taskType === 'BRICKS_BUILDER'
+    || /bricks|builder[-\s]?editable|builder\s+controls?|builder\s+data|element\s+id|set_controls|custom\s+(?:bricks\s+)?element|query\s+loop|dynamic\s+data|template|archive|taxonomy|single\s+(?:post|product)|repeater|shortcode\s+element/.test(text)
+    || /(?:header|footer)[^\n]{0,60}(?:bricks|builder|template|condition)|(?:bricks|builder|template)[^\n]{0,60}(?:header|footer)/.test(text);
   const ui = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|\.scss\b|style|font|typography|color|màu|spacing|padding|margin|radius|shadow|container|hero|breadcrumb|card|button|input|width|slider|testimonial|cảm\s+nhận|animation|transition/.test(text);
   const wordpress = /\bphp\b|functions\.php|enqueue|hook|action|filter|nonce|capability|sanitize|escape|ajax|rest\s+api|child\s*theme|plugin|prefix|namespace|register_post_type|register_taxonomy/.test(text);
 
