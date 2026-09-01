@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { searchUiKnowledge, formatUiKnowledge } = require('./ui-knowledge');
 const { resolveBricksSpec, searchBricksKnowledge, formatBricksKnowledge } = require('./bricks-spec');
+const { stripNegatedStoredStateEvidence } = require('./task-planner');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
 const MAX_ENTRY_CHARS = 4200;
@@ -179,20 +180,26 @@ function chooseResources(manifest, request, inspect = null) {
   return [CORE_RESOURCE, primary].filter((file,index,array) => file && available.has(file) && array.indexOf(file) === index);
 }
 
+function stripNegatedRoutingTerms(value) {
+  const text = stripNegatedStoredStateEvidence(value);
+  return text.replace(/(?:\b(?:do\s+not|don't|dont|without|no|not)\b|\b(?:không|khong)\b)[^.!?\n]{0,180}/gi, clause => clause.replace(/\b(?:php|css|javascript|js|plugin|template|bricks|builder|woocommerce|woo|database|db)\b/gi, ' '));
+}
+
 function routeSkillDomains(request, inspect = null, taskCard = null) {
-  const requestText = String(request || '').toLowerCase();
+  const requestText = stripNegatedRoutingTerms(String(request || '').toLowerCase());
   const evidenceText = shouldUseProjectEvidence(request) ? routingEvidenceText(inspect) : '';
   const text = `${requestText}\n${evidenceText}`;
   const taskType = String(taskCard?.type || '').toUpperCase();
   const target = String(taskCard?.target || '').toLowerCase();
+  const explicitFileTask = taskType === 'FAST_UI' && String(taskCard?.owner?.kind || '') === 'explicit_path';
 
-  const data = taskType === 'DATA' || /migration|migrate|database|\bdb\b|builder\s+data|element\s+id|seed|reseed|bulk\s+import|import\s+(?:products?|posts?|media)|wp_insert_post|compare-and-set|rollback|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
+  const data = taskType === 'DATA' || /\b(?:migration|migrate|database|db|wpdb|sql|seed|reseed)\b|\$wpdb|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|bulk\s+(?:import|update|delete)|import\s+(?:products?|posts?|media|records?)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|compare-and-set|sửa\s+dữ\s+liệu|dọn\s+dữ\s+liệu/.test(text);
   const media = /reference\s+(?:image|media)|ảnh\s+(?:mẫu|tham\s+khảo)|hình\s+ảnh\s+(?:mẫu|tham\s+khảo)|upload\s+(?:image|media)|media\s+library|attachment\s+id|source\s+url|duplicate\s+(?:image|media)|\bicon\b|svg|zalo|logo|chứng\s+nhận|bộ\s+công\s+thương/.test(text);
   const explicitWoo = /woocommerce|\bwoo\b|cart|checkout|order|variation|mini\s*cart|thank\s*you|giỏ\s+hàng|thanh\s+toán/.test(requestText) || /checkout|cart|order/.test(target);
   const woo = explicitWoo && hasWooCommerceProjectEvidence(inspect);
   const bricks = taskType === 'BRICKS_BUILDER'
-    || /bricks|builder[-\s]?editable|builder\s+controls?|builder\s+data|element\s+id|set_controls|custom\s+(?:bricks\s+)?element|query\s+loop|dynamic\s+data|template|archive|taxonomy|single\s+(?:post|product)|repeater|shortcode\s+element/.test(text)
-    || /(?:header|footer)[^\n]{0,60}(?:bricks|builder|template|condition)|(?:bricks|builder|template)[^\n]{0,60}(?:header|footer)/.test(text);
+    || (!explicitFileTask && (/builder[-\s]?editable|builder\s+controls?|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree|template|page|section|element)|element\s+id|set_controls|custom\s+(?:bricks\s+)?element|query\s+loop|dynamic\s+data|template|archive|taxonomy|single\s+(?:post|product)|repeater|shortcode\s+element/.test(text)
+      || /(?:header|footer)[^\n]{0,60}(?:bricks|builder|template|condition)|(?:bricks|builder|template)[^\n]{0,60}(?:header|footer)/.test(text)));
   const ui = /frontend|giao\s+diện|layout|responsive|mobile|tablet|desktop|\bcss\b|\.scss\b|style|font|typography|color|màu|spacing|padding|margin|radius|shadow|container|hero|breadcrumb|card|button|input|width|slider|testimonial|cảm\s+nhận|animation|transition/.test(text);
   const wordpress = /\bphp\b|functions\.php|enqueue|hook|action|filter|nonce|capability|sanitize|escape|ajax|rest\s+api|child\s*theme|plugin|prefix|namespace|register_post_type|register_taxonomy/.test(text);
 
