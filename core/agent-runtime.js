@@ -106,22 +106,33 @@ function compactInspection(inspect, maxFiles = MAX_CONTEXT_FILES) {
 
 function compactSkillsForFastPath(skills, charLimit = 6000) {
   const limit = Math.max(1000, Number(charLimit) || 6000);
-  return (Array.isArray(skills) ? skills : []).map(skill => ({
-    id:skill.id,
-    name:skill.name,
-    version:skill.version,
-    activation:skill.activation,
-    mandatory:skill.mandatory !== false,
-    instructions:FAST_SKILL_CONTRACT.slice(0, limit),
-    resources:[],
-    resource_context:{
-      selected:(skill?.resource_context?.selected || []).slice(0,4),
-      fast_compact:true,
-      soft_limit_chars:limit,
-      used_chars:Math.min(limit, FAST_SKILL_CONTRACT.length),
-      omitted_support_resources:(skill?.resource_context?.selected || []).slice(4)
-    }
-  }));
+  return (Array.isArray(skills) ? skills : []).map(skill => {
+    const compactDomain = String(skill?.compact_context || '').trim();
+    const instructions = [
+      FAST_SKILL_CONTRACT,
+      compactDomain ? `Task-domain guidance:\n${compactDomain}` : ''
+    ].filter(Boolean).join('\n').slice(0, limit);
+    return {
+      id:skill.id,
+      name:skill.name,
+      version:skill.version,
+      activation:skill.activation,
+      mandatory:skill.mandatory !== false,
+      domains:(skill?.domains || []).slice(0,2),
+      ui_guidance:(skill?.ui_guidance || []).slice(0,3),
+      instructions,
+      resources:[],
+      resource_context:{
+        selected:(skill?.resource_context?.selected || []).slice(0,4),
+        selected_domains:(skill?.resource_context?.selected_domains || skill?.domains || []).slice(0,2),
+        ui_guidance_count:Number(skill?.resource_context?.ui_guidance_count || skill?.ui_guidance?.length || 0),
+        fast_compact:true,
+        soft_limit_chars:limit,
+        used_chars:instructions.length,
+        omitted_support_resources:(skill?.resource_context?.selected || []).slice(4)
+      }
+    };
+  });
 }
 
 function createAgentRuntime(api, store = null) {
@@ -152,7 +163,7 @@ function createAgentRuntime(api, store = null) {
     const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
     rememberTaskCard(session.work_session_id, taskCard);
 
-    const rawSkills = skillsForTask(inspect, text);
+    const rawSkills = skillsForTask(inspect, text, taskCard);
     const skills = taskCard.execution.path === EXECUTION_PATHS.FAST
       ? compactSkillsForFastPath(rawSkills, taskCard.execution.skill_context_limit_chars)
       : rawSkills;
