@@ -1,21 +1,22 @@
 {
   "id": "wordpress-bricks",
   "name": "WordPress + Bricks Native Delivery",
-  "version": 3,
+  "version": 4,
   "entry": "SKILL.md",
   "resources": [
     "resources/core-checklist.md",
     "resources/retrieval-scope.md",
-    "resources/patterns.md",
     "resources/code-organization.md",
     "resources/design-system.md",
     "resources/builder-editability.md",
+    "resources/media-icons.md",
     "resources/data-seeding.md",
     "resources/templates.md",
     "resources/woocommerce.md",
     "resources/migrations.md",
+    "resources/validation.md",
     "resources/snippets.md",
-    "resources/validation.md"
+    "resources/patterns.md"
   ],
   "activation": {
     "frameworks": ["WordPress", "WooCommerce", "Bricks"],
