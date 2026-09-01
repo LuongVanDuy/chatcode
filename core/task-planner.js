@@ -51,11 +51,14 @@ function classifyTask(request, inspect = {}) {
   const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
   if (production) return TASK_TYPES.PRODUCTION;
 
-  const data = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|(?:modify|update|change|migrate|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,50}(?:builder\s+data|dữ\s+liệu|du\s+lieu)|(?:builder\s+data|dữ\s+liệu|du\s+lieu)[^\n]{0,50}(?:migration|migrate|import|seed|database|\bdb\b)|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
-  if (data) return TASK_TYPES.DATA;
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
+  if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
   if (hasBricks(inspect) && builderIntent) return TASK_TYPES.BRICKS_BUILDER;
+
+  const dataMutation = /(?:modify|update|change|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,24}(?:builder\s+data|dữ\s+liệu|du\s+lieu)|(?:builder\s+data|dữ\s+liệu|du\s+lieu)[^\n]{0,30}(?:repair|update|change|delete|remove|xóa|xoá|xoa|dọn|don)/i.test(text);
+  if (dataMutation) return TASK_TYPES.DATA;
 
   return TASK_TYPES.FAST_UI;
 }
