@@ -53,12 +53,13 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(typeof api.prepareTask, 'function');
   assert.equal(typeof api.completeTask, 'function');
 
-  // Normal coding task: exactly prepare -> complete.
+  // Normal coding task: exactly prepare -> complete, with no Git context.
   const prepared = await api.prepareTask('agent', 'Fix checkout address so null values do not crash', 8);
   assert.equal(prepared.status, 'ready');
   assert.ok(prepared.task_id);
   assert.equal(prepared.agent_contract.preferred_calls, 2);
-  assert.equal(prepared.baseline.git.diff_omitted, true, 'prepare_task should not duplicate a full Git diff in its baseline');
+  assert.equal(prepared.baseline.git, null, 'prepare_task must not inspect Git by default');
+  assert.equal(prepared.context.git, null, 'normal Agent context must omit Git state');
   assert.equal(prepared.baseline.brain, null, 'prepare_task should reuse inspection Brain context instead of duplicating it in baseline');
   assert.deepEqual(prepared.project_rules, []);
   assert.equal(prepared.context.primary_language, 'JavaScript');
@@ -79,7 +80,7 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(completed.verification_passed, true);
   assert.equal(completed.agent_contract.completed_in_call, 2);
   assert.ok(completed.changed_files.includes('src/app.js'));
-  assert.match(completed.git.diff, /String\(value/);
+  assert.equal(completed.git, null, 'complete_task must not inspect Git by default');
   assert.equal((await api.workStatus(prepared.task_id)).status, 'completed');
 
   const firstRollback = await api.rollbackWork(prepared.task_id);
@@ -154,5 +155,5 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   approvals.shutdown();
   projects.shutdown();
   await fsp.rm(temp, { recursive:true, force:true });
-  console.log('Fast Agent Path smoke test: PASS (2-call normal path + repair loop + rollback-on-failure)');
+  console.log('Fast Agent Path smoke test: PASS (2-call normal path + repair loop + rollback-on-failure + lazy Git)');
 })().catch(error => { console.error(error); process.exit(1); });
