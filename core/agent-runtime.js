@@ -1,5 +1,6 @@
 const { normalizeError, chatError } = require('./errors');
 const { skillsForTask } = require('./skill-runtime');
+const { validateBricksJson } = require('./bricks-validator');
 const {
   readProjectProfile,
   refreshProjectProfile,
@@ -120,27 +121,68 @@ function compactSkillsForFastPath(skills, charLimit = 6000) {
       mandatory:skill.mandatory !== false,
       domains:(skill?.domains || []).slice(0,2),
       ui_guidance:(skill?.ui_guidance || []).slice(0,3),
+      bricks_guidance:(skill?.bricks_guidance || []).slice(0,3),
+      bricks_spec:skill?.bricks_spec || null,
       instructions,
       resources:[],
       resource_context:{
-        selected:(skill?.resource_context?.selected || []).slice(0,4),
+        selected:(skill?.resource_context?.selected || []).slice(0,5),
         selected_domains:(skill?.resource_context?.selected_domains || skill?.domains || []).slice(0,2),
         ui_guidance_count:Number(skill?.resource_context?.ui_guidance_count || skill?.ui_guidance?.length || 0),
+        bricks_guidance_count:Number(skill?.resource_context?.bricks_guidance_count || skill?.bricks_guidance?.length || 0),
+        bricks_spec_status:skill?.resource_context?.bricks_spec_status || skill?.bricks_spec?.status || null,
         fast_compact:true,
         soft_limit_chars:limit,
         used_chars:instructions.length,
-        omitted_support_resources:(skill?.resource_context?.selected || []).slice(4)
+        omitted_support_resources:(skill?.resource_context?.selected || []).slice(5)
       }
     };
   });
 }
 
+async function runBricksJsonVerification(api, projectId, files, inspect) {
+  const results = [];
+  for (const item of Array.isArray(files) ? files : []) {
+    if (results.length >= 4 || String(item?.operation || '') === 'delete') continue;
+    const file = String(item?.path || item || '').replace(/\\/g,'/');
+    if (!/\.json$/i.test(file)) continue;
+    const started = nowMs();
+    try {
+      const raw = await api.readFile(projectId, file);
+      const validation = validateBricksJson(String(raw?.content || ''), inspect || {});
+      if (!validation.recognized) continue;
+      results.push({
+        kind:'bricks-json',
+        command:`bricks-validate "${file}"`,
+        file,
+        ok:validation.ok,
+        status:validation.ok ? 'completed' : 'failed',
+        errors:validation.errors,
+        warnings:validation.warnings,
+        format:validation.format,
+        node_count:validation.node_count,
+        spec:validation.spec,
+        duration_ms:nowMs() - started
+      });
+    } catch (error) {
+      results.push({ kind:'bricks-json', command:`bricks-validate "${file}"`, file, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started });
+    }
+  }
+  return results;
+}
+
 function createAgentRuntime(api, store = null) {
   const taskCards = new Map();
+  const taskContexts = new Map();
 
-  function rememberTaskCard(taskId, taskCard) {
+  function rememberTaskCard(taskId, taskCard, context = null) {
     taskCards.set(String(taskId), taskCard);
-    while (taskCards.size > MAX_TASK_CARDS) taskCards.delete(taskCards.keys().next().value);
+    if (context) taskContexts.set(String(taskId), context);
+    while (taskCards.size > MAX_TASK_CARDS) {
+      const oldest = taskCards.keys().next().value;
+      taskCards.delete(oldest);
+      taskContexts.delete(oldest);
+    }
   }
 
   async function prepareTask(ref, request, limit = 8) {
@@ -161,9 +203,10 @@ function createAgentRuntime(api, store = null) {
     const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
     const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
     const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
-    rememberTaskCard(session.work_session_id, taskCard);
+    const skillInspect = { ...inspect, project_profile:fullProjectProfile };
 
-    const rawSkills = skillsForTask(inspect, text, taskCard);
+    const rawSkills = skillsForTask(skillInspect, text, taskCard);
+    rememberTaskCard(session.work_session_id, taskCard, { inspect:skillInspect, rawSkills });
     const skills = taskCard.execution.path === EXECUTION_PATHS.FAST
       ? compactSkillsForFastPath(rawSkills, taskCard.execution.skill_context_limit_chars)
       : rawSkills;
@@ -206,6 +249,7 @@ function createAgentRuntime(api, store = null) {
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi owner.requires_read hoặc thiếu dependency cụ thể.',
           'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
           'Với WordPress, tôn trọng context.retrieval_scope và chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
+          'Bricks JSON mới/thay đổi sẽ được complete_task kiểm cấu trúc deterministic; không bỏ qua lỗi parent/children/settings/query chỉ vì JSON parse được.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
           'Nếu cần hủy toàn bộ thay đổi của task, dùng rollback_work với cùng task_id.'
@@ -241,6 +285,7 @@ function createAgentRuntime(api, store = null) {
     const id = String(taskId || '').trim();
     if (!id) throw chatError('FILE_NOT_FOUND', 'task_id đang trống.');
     const taskCard = taskCards.get(id) || null;
+    const taskContext = taskContexts.get(id) || null;
     const before = typeof api.workMeta === 'function' ? await api.workMeta(id) : await api.workStatus(id);
     if (before.status !== 'active') throw chatError('PERMISSION_DENIED', 'Fast Agent task không còn active.', { task_id:id, status:before.status });
     const projectId = before.project_id;
@@ -261,10 +306,13 @@ function createAgentRuntime(api, store = null) {
     const patchStarted = nowMs();
     const applied = await api.applyPatch(projectId, String(patch || ''), id);
     const patchMs = nowMs() - patchStarted;
-    const commands = requestedCommands.length ? requestedCommands : inferredSyntaxCommands(applied.files || applied.changed_files || []);
+    const changed = applied.files || applied.changed_files || [];
+    const commands = requestedCommands.length ? requestedCommands : inferredSyntaxCommands(changed);
 
     const verifyStarted = nowMs();
-    const verification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:requestedCommands.length === 0 });
+    const structuralVerification = await runBricksJsonVerification(api, projectId, changed, taskContext?.inspect || {});
+    const commandVerification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:requestedCommands.length === 0 });
+    const verification = [...structuralVerification, ...commandVerification];
     const verifyMs = nowMs() - verifyStarted;
     const verificationPassed = verification.every(item => item.ok);
 
@@ -272,6 +320,7 @@ function createAgentRuntime(api, store = null) {
       if (rollbackOnFailure) {
         const rolled = await api.rollbackWork(id);
         taskCards.delete(id);
+        taskContexts.delete(id);
         return {
           ok:false, status:'rolled_back', task_id:id, work_session_id:id,
           execution_path:taskCard?.execution?.path || null,
@@ -318,6 +367,7 @@ function createAgentRuntime(api, store = null) {
     const projectRules = relevantProjectRules(savedRules, taskCard);
     const profileContext = projectProfileContext(savedProfile, taskCard?.target || '', taskCard?.type || '', taskCard?.decision_keys || []);
     taskCards.delete(id);
+    taskContexts.delete(id);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
       execution_path:taskCard?.execution?.path || null,
@@ -358,5 +408,6 @@ module.exports = {
   createAgentRuntime,
   verificationHints,
   inferredSyntaxCommands,
-  compactSkillsForFastPath
+  compactSkillsForFastPath,
+  runBricksJsonVerification
 };
