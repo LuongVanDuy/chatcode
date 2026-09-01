@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { normalizeDecisions, normalizeProjectProfile } = require('./project-profile');
 
 const RECENT_ACTIVITY_LIMIT = 400;
 const DAILY_USAGE_LIMIT = 120;
@@ -14,18 +15,9 @@ const DEFAULT_SAFETY = Object.freeze({
   gitCommit: 'ask'
 });
 const FULL_PERMISSIONS = Object.freeze({ write:true, manageFiles:true, tasks:true, gitWrite:true });
-const PROJECT_RULE_LIMIT = 12;
-const PROJECT_RULE_VALUE_LIMIT = 320;
 
 function normalizeProjectRules(raw = []) {
-  const byKey = new Map();
-  for (const item of Array.isArray(raw) ? raw.slice(-PROJECT_RULE_LIMIT * 2) : []) {
-    const key = String(item?.key || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0,64);
-    const value = String(item?.value || '').trim().slice(0, PROJECT_RULE_VALUE_LIMIT);
-    if (!key || !value || /password|secret|token|api[-_.\s]?key|credential|https?:\/\/|www\./i.test(`${key} ${value}`)) continue;
-    byKey.set(key, { key, value, updatedAt:String(item?.updatedAt || new Date().toISOString()) });
-  }
-  return [...byKey.values()].slice(-PROJECT_RULE_LIMIT);
+  return normalizeDecisions(raw);
 }
 
 function emptyCounters() {
@@ -136,12 +128,14 @@ function createStore(app, port) {
       const safePermissions = hasSavedPermissions ? normalizePermissions(safety._safePermissions) : rawPermissions;
       const hasSavedSafety = project.safety?._safeSafety && typeof project.safety._safeSafety === 'object';
       const safeSafety = hasSavedSafety ? normalizeSafetyRules(safety._safeSafety) : normalizeSafetyRules(project.safety);
+      const projectProfile = normalizeProjectProfile(project.projectProfile, project.projectRules);
       safety._safePermissions = safePermissions;
       safety._safeSafety = safeSafety;
       const permissions = workspaceMode === 'trusted' ? { ...FULL_PERMISSIONS } : rawPermissions;
       return {
         ...project,
-        projectRules:normalizeProjectRules(project.projectRules),
+        projectProfile,
+        projectRules:projectProfile.decisions,
         workspaceMode,
         trusted: { allowSecrets:workspaceMode === 'trusted' && !!safety._allowSecrets, allowGitPush:false },
         safePermissions,
@@ -226,7 +220,7 @@ function createStore(app, port) {
 
   return {
     read, write, ensure, normalizeDomain, connectionConfig, settings, getProject,
-    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions, normalizeProjectRules,
+    emptyCounters, normalizeUsage, normalizeCounters, normalizeSafety, normalizePermissions, normalizeProjectRules, normalizeProjectProfile,
     safetyActions: SAFETY_ACTIONS, defaultSafety: DEFAULT_SAFETY, fullPermissions:FULL_PERMISSIONS
   };
 }
