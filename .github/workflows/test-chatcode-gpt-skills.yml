@@ -22,6 +22,7 @@ on:
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -50,6 +51,7 @@ on:
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
       - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -70,7 +72,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 2 runtime
+      - name: Syntax check Stage 3 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
@@ -88,6 +90,7 @@ jobs:
           node --check mcp-server.mjs
           node --check scripts/smoke-agent.cjs
           node --check scripts/smoke-task-planner.cjs
+          node --check scripts/smoke-fast-deep-routing.cjs
           node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
@@ -96,6 +99,8 @@ jobs:
           node --check scripts/smoke-project-scope.cjs
       - name: Task Planner scoped Task Card
         run: node scripts/smoke-task-planner.cjs
+      - name: Fast/Deep execution routing and scope gate
+        run: node scripts/smoke-fast-deep-routing.cjs
       - name: Fast Agent compact context, decisions and auto verify
         run: npm run test:agent
       - name: Safe task and PHP/Laragon regression
