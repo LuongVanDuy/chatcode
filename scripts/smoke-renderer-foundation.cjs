@@ -6,6 +6,7 @@ const root = path.join(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const preload = read('preload.js');
 const runtime = read('renderer/current-runtime.js');
+const v08 = read('renderer/v08-runtime.js');
 const css = read('renderer/ui-foundation.css');
 
 assert.ok(preload.includes("await load('current-runtime.js', 'current-runtime')"), 'preload must load the current renderer entrypoint');
@@ -32,8 +33,8 @@ assert.ok(css.includes('.topbar{height:62px'), 'Stage 3 must use a compact 62px 
 assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'topbar must not repeat eyebrow labels');
 assert.ok(css.includes('/* Dashboard: system overview, not KPI-card wall. */'));
 assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must be a flat strip');
-assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity must render as a flat log surface');
-assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'settings must use compact native-like toggles');
+assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity foundation must remain flat');
+assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'foundation must retain compact toggle baseline');
 assert.ok(css.includes('/* Project workspace: editor-like hierarchy. */'));
 assert.ok(css.includes('.project-page>.tabs{position:sticky'), 'project tabs must stay available while scrolling');
 assert.ok(css.includes('@media(max-width:820px){.sidebar{width:64px'), 'narrow windows must collapse sidebar to an icon rail');
@@ -42,4 +43,16 @@ assert.ok(css.includes(':focus-visible'));
 assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'));
 assert.equal(/https?:\/\//i.test(css), false, 'UI foundation must not depend on remote fonts/assets');
 
-console.log('Renderer foundation PASS: single entrypoint + Stage 3 screen redesign + Lucide actions + responsive icon rail');
+// 1.0.11 cleanup contract: keep backend capabilities, remove redundant desktop surfaces.
+assert.ok(runtime.includes("revision: '1.0.11-cleanup'"));
+assert.ok(runtime.includes("document.getElementById('v07SafetyNav')?.remove()"), 'Safety Center must not remain a sidebar route');
+assert.ok(runtime.includes("panel.id = 'settingsSafetyPanel'"), 'Safety controls must live inside Settings');
+assert.ok(runtime.includes('#route-dashboard .two-col>article:has(#dashboardActivity)'), 'dashboard recent activity card must be hidden');
+assert.ok(runtime.includes('#route-dashboard article:has(#dashboardProjects)'), 'dashboard shared project card must be hidden');
+assert.ok(runtime.includes('[data-project-tab="files"],[data-project-tab="search"]'), 'Files/Search tabs must be removed from desktop navigation');
+assert.ok(runtime.includes('#project-tab-overview .two-col>article:has(#indexDetails)'), 'duplicate Project Index card must be hidden');
+assert.ok(runtime.includes('radial-gradient(circle at 28px 50%'), 'settings switches must use stable gradient thumb rendering');
+assert.ok(runtime.includes('.settings-safety-panel .safety-summary'), 'Safety cards must inherit dark desktop surfaces');
+assert.equal(v08.includes('insertAdjacentHTML'), false, 'Project Brain must stay headless and not remount a card');
+
+console.log('Renderer foundation PASS: Stage 3 workspace + 1.0.11 cleanup contract');
