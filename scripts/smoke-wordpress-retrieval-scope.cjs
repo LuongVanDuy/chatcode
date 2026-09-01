@@ -2,7 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { planWordPressRetrieval, classifyWordPressPath } = require('../core/wordpress-retrieval');
-const { createScopedInspect } = require('../core/retrieval-scope');
+const { createScopedInspect, readRelevantFiles } = require('../core/retrieval-scope');
 const { createAgentRuntime, verificationHints } = require('../core/agent-runtime');
 const { chooseResources } = require('../core/skill-runtime');
 
@@ -69,10 +69,25 @@ assert.deepEqual(nonWp.files.map(item => item.path), ['src/a.js', 'src/b.js']);
 assert.equal(nonWp.scope.strategy, 'project-ranked');
 
 (async () => {
+  let activeReads = 0;
+  let maxActiveReads = 0;
+  const concurrent = await readRelevantFiles({
+    readFile:async (_ref, rel) => {
+      activeReads++;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeReads--;
+      return { content:`parallel:${rel}` };
+    }
+  }, 'p1', [{ path:'a.php' }, { path:'b.php' }, { path:'c.php' }]);
+  assert.equal(maxActiveReads, 3, 'scoped context files should be read concurrently');
+  assert.deepEqual(concurrent.map(item => item.path), ['a.php','b.php','c.php'], 'concurrent reads must preserve ranked order');
+
   const readPaths = [];
+  const contextLimits = [];
   let searchCalls = 0;
   const fakeApi = {
-    projectContext:async () => ({ files:candidates, relations:[] }),
+    projectContext:async (_ref, _query, limit) => { contextLimits.push(limit); return { files:candidates, relations:[] }; },
     projectBrain:async () => ({
       frameworks:[{ name:'WordPress' }, { name:'Bricks' }],
       framework_names:['WordPress', 'Bricks'],
@@ -91,6 +106,7 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
   const store = { getProject:() => ({ id:'p1', name:'fixture', permissions:{ read:true } }) };
   const inspect = createScopedInspect(fakeApi, store);
   const inspected = await inspect('p1', 'Fix the mobile header', 8);
+  assert.equal(contextLimits[0], 8);
   assert.deepEqual(readPaths, [
     'wp-content/themes/project-child/inc/header.php',
     'wp-content/plugins/project-tools/project-tools.php'
@@ -100,6 +116,12 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
   assert.equal(inspected.retrieval_scope.strategy, 'wordpress-scope-first');
   assert.equal(inspected.retrieval_scope.explicit_expansion_search, false);
   assert.ok(inspected.retrieval_scope.omitted_count >= 5);
+
+  readPaths.length = 0;
+  const micro = await inspect('p1', 'Giảm spacing product card trên mobile 8px', 3);
+  assert.equal(contextLimits[1], 3, 'micro inspect budget must reach Project Brain retrieval unchanged');
+  assert.ok(micro.relevant_files.length <= 3, 'micro inspect must not content-read above its three-file budget');
+  assert.ok(readPaths.length <= 3);
 
   readPaths.length = 0;
   const explicitParent = await inspect('p1', 'Verify the native Bricks control API in the Bricks parent theme', 8);
