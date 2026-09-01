@@ -49,14 +49,17 @@ assert.equal(microPreflight.limits.skill_chars, 3600);
 assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Migrate Bricks Builder JSON tree and keep stable element IDs').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Update WordPress option wp_options records with rollback').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Run SQL with $wpdb against a database table').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Bulk import toàn bộ sản phẩm').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Fix WooCommerce checkout flow').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Upload file qua FTP và verify production').path, EXECUTION_PATHS.DEEP);
 
-const explicitPath = 'wp-content/themes/bricks-child/.chatcode-v15-smoke.txt';
-const explicitRequest = `Tạo đúng file \`${explicitPath}\`, ghi một dòng data tạm rồi rollback thay đổi file.`;
+const explicitPath = 'wp-content/themes/bricks-child/.chatcodex-1.0.16-smoke.txt';
+const explicitRequest = `Tạo đúng một file tạm tại \`${explicitPath}\`, ghi một dòng \`CHATCODEX_1_0_16_OK\`, verify rồi rollback. Không sửa database, Builder data, PHP, CSS, JavaScript, plugin hoặc file khác.`;
 const explicitPreflight = preflightExecutionPath(explicitRequest);
-assert.equal(explicitPreflight.path, EXECUTION_PATHS.FAST, 'plain explicit file work must not become persisted-data migration');
+assert.equal(explicitPreflight.path, EXECUTION_PATHS.FAST, 'negated database/Builder data must not turn explicit filesystem work into DEEP');
 assert.equal(explicitPreflight.reasons.includes('persisted-data-migration'), false);
 const explicitCard = buildTaskCard({ request:explicitRequest, inspect, projectRules:rules });
 assert.equal(explicitCard.type, TASK_TYPES.FAST_UI);
@@ -65,8 +68,31 @@ assert.equal(explicitCard.execution.reasons.length, 0);
 assert.equal(explicitCard.execution.allow_new_source_files, 1);
 assert.equal(explicitCard.owner.kind, 'explicit_path');
 assert.equal(explicitCard.owner.primary_path, explicitPath);
+assert.equal(explicitCard.owner.confidence, 1);
 assert.deepEqual(explicitCard.owner.candidates, []);
 assert.equal(explicitCard.owner.requires_read, false);
+assert.deepEqual(explicitCard.expected_files, [explicitPath]);
+
+for (const prompt of [
+  `Create \`${explicitPath}\` then rollback; do not modify database.`,
+  `Create \`${explicitPath}\`; do not modify Builder data.`,
+  `Tạo \`${explicitPath}\`; không sửa database.`,
+  `Tạo \`${explicitPath}\`; không đụng Builder data.`
+]) {
+  const card = buildTaskCard({ request:prompt, inspect, projectRules:rules });
+  assert.equal(card.type, TASK_TYPES.FAST_UI, prompt);
+  assert.equal(card.execution.path, EXECUTION_PATHS.FAST, prompt);
+  assert.equal(card.execution.reasons.includes('persisted-data-migration'), false, prompt);
+}
+
+const realBuilderMigration = buildTaskCard({ request:'Migrate Bricks Builder JSON tree, preserve element IDs and rollback persisted state safely', inspect, projectRules:rules });
+assert.equal(realBuilderMigration.type, TASK_TYPES.DATA);
+assert.equal(realBuilderMigration.execution.path, EXECUTION_PATHS.DEEP);
+assert.ok(realBuilderMigration.execution.reasons.includes('persisted-data-migration'));
+const realOptionMigration = buildTaskCard({ request:'Update WordPress option records in wp_options and verify stored values', inspect, projectRules:rules });
+assert.equal(realOptionMigration.type, TASK_TYPES.DATA);
+assert.equal(realOptionMigration.execution.path, EXECUTION_PATHS.DEEP);
+assert.ok(realOptionMigration.execution.reasons.includes('persisted-data-migration'));
 
 const fast = buildTaskCard({ request:'Sửa font và width container trang chủ', inspect, projectRules:rules });
 assert.equal(fast.type, TASK_TYPES.FAST_UI);
@@ -112,7 +138,7 @@ const explicitFilePatch = [
   '--- /dev/null',
   `+++ b/${explicitPath}`,
   '@@ -0,0 +1 @@',
-  '+chatcode-v15-smoke',
+  '+CHATCODEX_1_0_16_OK',
   ''
 ].join('\n');
 assert.equal(validatePatchAgainstTaskCard(explicitCard, explicitFilePatch).ok, true, 'explicit requested file create must pass FAST scope gate');
@@ -181,13 +207,23 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 3600);
   assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
 
+  const preparedExplicit = await runtime.prepareTask('p1', explicitRequest, 8);
+  assert.equal(preparedExplicit.execution_path, EXECUTION_PATHS.FAST);
+  assert.equal(preparedExplicit.task_card.type, TASK_TYPES.FAST_UI);
+  assert.equal(preparedExplicit.task_card.owner.kind, 'explicit_path');
+  assert.equal(preparedExplicit.task_card.owner.primary_path, explicitPath);
+  assert.equal(preparedExplicit.task_card.owner.confidence, 1);
+  assert.deepEqual(preparedExplicit.task_card.expected_files, [explicitPath]);
+  assert.equal(preparedExplicit.task_card.execution.reasons.includes('persisted-data-migration'), false);
+  assert.ok(preparedExplicit.skills.every(skill => !skill.domains.includes('data') && !skill.domains.includes('bricks')));
+
   const preparedDeep = await runtime.prepareTask('p1', 'Thêm Builder controls và repeater cho Featured Products', 8);
   assert.equal(preparedDeep.execution_path, EXECUTION_PATHS.DEEP);
-  assert.equal(seenLimits[2], 6, 'Deep prepare may use the six-file WordPress context cap');
+  assert.equal(seenLimits[3], 6, 'Deep prepare may use the six-file WordPress context cap');
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (explicit file FAST + 3-file micro + compact graph + 4-file fast + deep triggers + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (negation-aware explicit file FAST + real migration DEEP + compact graph + scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
