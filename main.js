@@ -298,8 +298,8 @@ ipcMain.handle('files:list', (_, id) => projects.toolApi.listFiles(id));
 ipcMain.handle('files:read', async (_, id, rel) => (await projects.toolApi.readFile(id, rel)).content);
 ipcMain.handle('files:search', (_, id, query) => projects.toolApi.search(id, query));
 ipcMain.handle('tasks:run', (_, id, command) => projects.toolApi.runTask(id, command));
-ipcMain.handle('git:status', (_, id) => projects.toolApi.gitStatus(id));
-ipcMain.handle('git:diff', (_, id) => projects.toolApi.gitDiff(id, false));
+ipcMain.handle('git:status', (_, id) => projects.toolApi.gitStatusExplicit ? projects.toolApi.gitStatusExplicit(id) : projects.toolApi.gitStatus(id));
+ipcMain.handle('git:diff', (_, id) => projects.toolApi.gitDiffExplicit ? projects.toolApi.gitDiffExplicit(id, false) : projects.toolApi.gitDiff(id, false));
 
 ipcMain.handle('approval:list', () => approvals.list());
 ipcMain.handle('approval:respond', (_, id, decision) => approvals.respond(id, decision));
