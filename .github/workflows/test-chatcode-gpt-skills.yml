@@ -7,6 +7,8 @@ on:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
       - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
@@ -36,6 +38,7 @@ on:
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
@@ -48,6 +51,8 @@ on:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
       - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
@@ -77,6 +82,7 @@ on:
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
@@ -96,10 +102,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 8 + Skill v5 runtime
+      - name: Syntax check Stage 8 + Skill v5 + Bricks Spec runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/ui-knowledge.js
+          node --check core/bricks-spec.js
+          node --check core/bricks-validator.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
           node --check core/project-profile.js
@@ -128,6 +136,7 @@ jobs:
           node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-brain-scope.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
+          node --check scripts/smoke-bricks-spec.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
@@ -151,6 +160,8 @@ jobs:
         run: npm run test:regression
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
+      - name: Bricks Spec Engine and deterministic validator
+        run: npm run test:bricks-spec
       - name: Builder editability and page asset ownership
         run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
       - name: Focused external reference and file discipline
