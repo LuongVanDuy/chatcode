@@ -13,7 +13,8 @@
     "ui": "domains/ui.md"
   },
   "data": {
-    "ui_guidelines": "data/ui-guidelines.json"
+    "ui_guidelines": "data/ui-guidelines.json",
+    "bricks_spec": "data/bricks-spec-2.3.6.json"
   },
   "resources": [
     "resources/core-checklist.md",
