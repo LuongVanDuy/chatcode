@@ -6,6 +6,7 @@ on:
     paths:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
@@ -46,6 +47,7 @@ on:
     paths:
       - 'CHATCODE-GPT/**'
       - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
@@ -94,9 +96,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 8 runtime
+      - name: Syntax check Stage 8 + Skill v5 runtime
         run: |
           node --check core/skill-runtime.js
+          node --check core/ui-knowledge.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
           node --check core/project-profile.js
