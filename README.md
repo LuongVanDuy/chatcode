@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.7**
+> Phiên bản hiện tại: **v1.0.15**
 
 ## Kiến trúc
 
@@ -467,6 +467,17 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.7** tập trung nâng cấp sâu WordPress + Bricks skill: skill trở thành mandatory project policy cho project Bricks, progressive resource routing theo task/Project Brain, context budget không làm mất rule bắt buộc, Builder-editable custom elements, reusable product/post layouts, design-system/CSS ownership, concurrency-safe seeding và regression tests cho multi-project/legacy workflow.
+**v1.0.15** là bản phát hành hiện tại, tập trung giảm I/O trên Fast Agent Path: scoped context files được đọc song song nhưng vẫn giữ nguyên ranked order; micro/FAST retrieval budget được truyền xuyên xuống Project Brain/retrieval thay vì chỉ cắt payload ở lớp cuối. Bản này không thêm dependency, service, skill package hoặc runtime mode mới.
 
-Xem bản phát hành mới nhất tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases/latest)**.
+### Các bản gần đây
+
+| Version | Trọng tâm |
+| --- | --- |
+| **v1.0.15** | Lean I/O optimization: parallel scoped context reads và honor micro/FAST retrieval budget end-to-end. |
+| **v1.0.14** | Lean fast-path: bounded built-in skill cache và context/patch budget nhỏ hơn cho micro task. |
+| **v1.0.13** | Project tab state hotfix, sửa leakage/state behavior ở tab dự án. |
+| **v1.0.12** | Permissions, switches và log/UI polish. |
+
+`package.json`, GitHub Release và README hiện cùng version **1.0.15**.
+
+Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
