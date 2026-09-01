@@ -39,6 +39,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
@@ -78,6 +79,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
       - 'scripts/smoke-wordpress-retrieval-scope.cjs'
       - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
@@ -92,7 +94,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 7 runtime
+      - name: Syntax check Stage 8 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
@@ -127,11 +129,12 @@ jobs:
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
+          node --check scripts/benchmark-v109.cjs
       - name: Git lazy explicit-only regression
         run: node scripts/smoke-git-lazy.cjs
       - name: Project Profile facts and decisions
         run: node scripts/smoke-project-profile.cjs
-      - name: Owner Resolver evidence and owner-first scope
+      - name: Owner Resolver evidence and owner-set scope
         run: node scripts/smoke-owner-resolver.cjs
       - name: WordPress Brain metadata/content scope
         run: node scripts/smoke-wordpress-brain-scope.cjs
@@ -153,6 +156,17 @@ jobs:
         run: node scripts/smoke-wordpress-retrieval-scope.cjs
       - name: Project scope lock
         run: node scripts/smoke-project-scope.cjs
+      - name: Stage 8 historical workflow benchmark
+        env:
+          BENCHMARK_OUTPUT: benchmark-v109.json
+        run: npm run benchmark:v109
+      - name: Upload Stage 8 benchmark metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-v109-benchmark
+          path: benchmark-v109.json
+          if-no-files-found: error
 
   release-windows:
     if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
