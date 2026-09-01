@@ -9,6 +9,7 @@ on:
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -20,6 +21,7 @@ on:
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -35,6 +37,7 @@ on:
       - 'core/skill-policy.js'
       - 'core/project-scope.js'
       - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
       - 'core/projects.js'
       - 'core/store.js'
       - 'core/support.js'
@@ -46,6 +49,7 @@ on:
       - 'core/builtin-skills-project.js'
       - 'mcp-server.mjs'
       - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-task-planner.cjs'
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -66,12 +70,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check Stage 1 runtime
+      - name: Syntax check Stage 2 runtime
         run: |
           node --check core/skill-runtime.js
           node --check core/skill-policy.js
           node --check core/project-scope.js
           node --check core/agent-runtime.js
+          node --check core/task-planner.js
           node --check core/projects.js
           node --check core/store.js
           node --check core/support.js
@@ -82,12 +87,15 @@ jobs:
           node --check core/runtime-bootstrap.js
           node --check mcp-server.mjs
           node --check scripts/smoke-agent.cjs
+          node --check scripts/smoke-task-planner.cjs
           node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
           node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
           node --check scripts/smoke-wordpress-retrieval-scope.cjs
           node --check scripts/smoke-project-scope.cjs
+      - name: Task Planner scoped Task Card
+        run: node scripts/smoke-task-planner.cjs
       - name: Fast Agent compact context, decisions and auto verify
         run: npm run test:agent
       - name: Safe task and PHP/Laragon regression
