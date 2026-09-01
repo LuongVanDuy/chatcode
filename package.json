@@ -15,6 +15,7 @@
     "test:brain": "node scripts/smoke-brain.cjs",
     "test:wordpress": "node scripts/smoke-wordpress.cjs",
     "test:wordpress-bricks-skill": "node scripts/smoke-wordpress-bricks-skill.cjs",
+    "test:bricks-spec": "node scripts/smoke-bricks-spec.cjs",
     "test:builtin-skills-project": "node scripts/smoke-builtin-skills-project.cjs",
     "test:fastpath": "node scripts/smoke-fastpath.cjs",
     "test:agent": "node scripts/smoke-agent.cjs",
