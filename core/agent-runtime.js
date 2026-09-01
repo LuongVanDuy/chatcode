@@ -147,7 +147,7 @@ function createAgentRuntime(api, store = null) {
     const hints = await verificationHints(api, session.project_id, inspect);
     const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
     const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
-    const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, verificationHints:hints });
+    const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
     rememberTaskCard(session.work_session_id, taskCard);
 
     const rawSkills = skillsForTask(inspect, text);
@@ -160,6 +160,9 @@ function createAgentRuntime(api, store = null) {
     const pathGuidance = taskCard.execution.path === EXECUTION_PATHS.FAST
       ? `FAST Path: tối đa ${taskCard.execution.context_file_limit} file context và ${taskCard.execution.patch_file_limit} file patch; không tự tạo/xóa file ngoài allowance của task_card.`
       : `DEEP Path chỉ bật vì: ${(taskCard.execution.reasons || []).join(', ') || 'explicit high-risk task'}. Vẫn phải giữ scope theo target và owner.`;
+    const ownerGuidance = taskCard.owner?.primary_path
+      ? `Owner Resolver: ${taskCard.owner.status} ${taskCard.owner.kind || 'owner'} tại ${taskCard.owner.primary_path}${taskCard.owner.primary_symbol ? ` (${taskCard.owner.primary_symbol})` : ''}. Sửa owner này trước; không tạo owner song song.`
+      : 'Owner Resolver chưa có owner đủ evidence; chỉ dùng ranked candidates và không tạo owner mới nếu chưa xác nhận owner hiện tại không tồn tại.';
 
     return {
       ok:true,
@@ -184,9 +187,10 @@ function createAgentRuntime(api, store = null) {
         guidance:[
           'Nếu response có skills, các rule/instructions đính kèm là contract bắt buộc cho task hiện tại.',
           pathGuidance,
-          'Bám task_card: giữ đúng target, ưu tiên owner candidate hiện có, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
+          ownerGuidance,
+          'Bám task_card: giữ đúng target, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
           'FAST không được tự chuyển thành DEEP trong complete_task. Nếu evidence mới làm task hiện tại không an toàn, dừng và re-plan thay vì patch rộng.',
-          'Dùng context trong response này để lập patch; chỉ đọc thêm khi thiếu dependency cụ thể.',
+          'Dùng context trong response này để lập patch; chỉ đọc thêm khi owner.requires_read hoặc thiếu dependency cụ thể.',
           'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
           'Với WordPress, tôn trọng context.retrieval_scope và chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
