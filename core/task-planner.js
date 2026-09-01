@@ -7,11 +7,21 @@ const TASK_TYPES = Object.freeze({
   PRODUCTION:'PRODUCTION'
 });
 
+const EXECUTION_PATHS = Object.freeze({
+  FAST:'FAST',
+  DEEP:'DEEP'
+});
+
 const TYPE_READ_LIMIT = Object.freeze({
   FAST_UI:4,
   BRICKS_BUILDER:6,
   DATA:6,
   PRODUCTION:6
+});
+
+const PATH_LIMITS = Object.freeze({
+  FAST:Object.freeze({ context_files:4, patch_files:4, skill_chars:6000 }),
+  DEEP:Object.freeze({ context_files:6, patch_files:24, skill_chars:56000 })
 });
 
 function unique(values) {
@@ -47,6 +57,37 @@ function classifyTask(request, inspect = {}) {
   if (hasBricks(inspect) && builderIntent) return TASK_TYPES.BRICKS_BUILDER;
 
   return TASK_TYPES.FAST_UI;
+}
+
+function deepPathReasons(request, type = '') {
+  const text = normalizeText(request);
+  const reasons = [];
+  const add = (reason, re) => { if (re.test(text)) reasons.push(reason); };
+
+  if (type === TASK_TYPES.PRODUCTION) reasons.push('production-operation');
+  add('production-operation', /\b(?:ftp|sftp|production|deploy|deployment|hosting|server)\b|website\s+live|live\s+(?:site|website|frontend)/i);
+  add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
+  add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
+  add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,70}(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)/i);
+  add('persisted-data-migration', /\b(?:migration|migrate)\b|builder\s+data|element\s+id|parent\s*\/\s*children|compare-and-set|rollback[^\n]{0,50}(?:db|database|builder|data)/i);
+  add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm)/i);
+  add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
+  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|data|database|record|post|template|builder)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i);
+  add('explicit-broad-scope', /full\s+(?:audit|refactor|review)|(?:audit|refactor|review)[^\n]{0,50}(?:entire|whole|all)\s+(?:project|site|code)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|tái\s+cấu\s+trúc\s+toàn\s+bộ/i);
+
+  return unique(reasons);
+}
+
+function preflightExecutionPath(request) {
+  const reasons = deepPathReasons(request, '');
+  const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
+  return { path:executionPath, reasons, limits:PATH_LIMITS[executionPath] };
+}
+
+function classifyExecutionPath(request, type) {
+  const reasons = deepPathReasons(request, type);
+  const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
+  return { path:executionPath, reasons, limits:PATH_LIMITS[executionPath] };
 }
 
 function targetLabel(request) {
@@ -93,10 +134,10 @@ function scoreFile(item, index, request, type) {
   return { path:rel, score, role:String(item?.role || ''), reasons:Array.isArray(item?.reasons) ? item.reasons.slice(0,3).map(String) : [] };
 }
 
-function selectOwnerCandidates(inspect, request, type) {
+function selectOwnerCandidates(inspect, request, type, limit = TYPE_READ_LIMIT[type] || 6) {
   const files = (inspect?.relevant_files || []).map((item,index) => scoreFile(item,index,request,type)).filter(item => item.path);
   files.sort((a,b) => b.score - a.score || a.path.localeCompare(b.path));
-  return files.slice(0, TYPE_READ_LIMIT[type] || 6);
+  return files.slice(0, Math.max(1, Number(limit) || 6));
 }
 
 function selectRelevantRules(projectRules, request, type) {
@@ -149,18 +190,35 @@ function verificationFromHints(hints) {
   return unique((Array.isArray(hints) ? hints : []).map(item => item?.command || item?.command_template || '').filter(Boolean));
 }
 
+function explicitNewFileRequest(request) {
+  return /(?:create|add|tạo|tao|thêm|them)[^\n]{0,60}(?:new\s+)?(?:file|stylesheet|css\s+file|php\s+file)|(?:file|stylesheet)[^\n]{0,60}(?:create|add|tạo|tao|thêm|them)/i.test(String(request || ''));
+}
+
 function buildTaskCard({ request, inspect = {}, projectRules = [], verificationHints = [] } = {}) {
   const type = classifyTask(request, inspect);
-  const ownerCandidates = selectOwnerCandidates(inspect, request, type);
+  const execution = classifyExecutionPath(request, type);
+  const typeLimit = TYPE_READ_LIMIT[type] || 6;
+  const limit = Math.min(typeLimit, execution.limits.context_files);
+  const ownerCandidates = selectOwnerCandidates(inspect, request, type, limit);
   const relevantRules = selectRelevantRules(projectRules, request, type);
   const policy = typePolicy(type);
-  const limit = TYPE_READ_LIMIT[type] || 6;
   const primary = ownerCandidates[0] || null;
   const verification = unique([...verificationFromHints(verificationHints), ...policy.verify]).slice(0,8);
+  const allowNewFile = execution.path === EXECUTION_PATHS.FAST && explicitNewFileRequest(request);
 
   return {
-    version:1,
+    version:2,
     type,
+    execution:{
+      path:execution.path,
+      reasons:execution.reasons,
+      context_file_limit:execution.limits.context_files,
+      patch_file_limit:execution.limits.patch_files,
+      skill_context_limit_chars:execution.limits.skill_chars,
+      allow_new_source_files:execution.path === EXECUTION_PATHS.DEEP ? 'existing owner first' : allowNewFile ? 1 : 0,
+      allow_delete:execution.path === EXECUTION_PATHS.DEEP,
+      escalation:'fixed for this task; do not self-promote FAST to DEEP. Re-plan only when concrete evidence makes the current path unsafe.'
+    },
     target:targetLabel(request),
     owner:{
       status:primary ? 'candidate' : 'unknown',
@@ -175,18 +233,81 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], verificationH
     decision_keys:relevantRules.map(rule => rule.key),
     constraints:{
       expected_read_limit:limit,
-      new_source_files:type === TASK_TYPES.FAST_UI ? 0 : 'existing owner first',
-      scope_expansion:'only when a concrete missing dependency/evidence blocks a safe patch'
+      new_source_files:execution.path === EXECUTION_PATHS.FAST ? (allowNewFile ? 1 : 0) : 'existing owner first',
+      scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only'
     }
   };
 }
 
+function normalizePatchPath(value) {
+  let text = String(value || '').trim();
+  if (text.startsWith('"') && text.endsWith('"')) text = text.slice(1,-1);
+  text = text.replace(/^\.?\/?[ab]\//, '').replace(/\\/g, '/');
+  return text === '/dev/null' ? '' : text;
+}
+
+function patchScopeFromUnifiedDiff(patch) {
+  const lines = String(patch || '').split(/\r?\n/);
+  const files = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('--- ')) continue;
+    const before = normalizePatchPath(lines[i].slice(4).split('\t')[0]);
+    let j = i + 1;
+    while (j < lines.length && !lines[j].startsWith('+++ ') && !lines[j].startsWith('--- ')) j++;
+    if (j >= lines.length || !lines[j].startsWith('+++ ')) continue;
+    const after = normalizePatchPath(lines[j].slice(4).split('\t')[0]);
+    const file = after || before;
+    if (!file) continue;
+    files.push({ path:file, operation:!before ? 'create' : !after ? 'delete' : 'modify' });
+    i = j;
+  }
+  const byPath = new Map();
+  for (const item of files) byPath.set(item.path, item);
+  return [...byPath.values()];
+}
+
+function validatePatchAgainstTaskCard(taskCard, patch) {
+  const files = patchScopeFromUnifiedDiff(patch);
+  const execution = taskCard?.execution || {};
+  if (!taskCard || execution.path !== EXECUTION_PATHS.FAST) return { ok:true, files, violations:[], unexpected_files:[] };
+
+  const violations = [];
+  const limit = Math.max(1, Number(execution.patch_file_limit) || PATH_LIMITS.FAST.patch_files);
+  if (files.length > limit) violations.push(`FAST patch touches ${files.length} files; limit is ${limit}`);
+
+  const creates = files.filter(item => item.operation === 'create');
+  const deletes = files.filter(item => item.operation === 'delete');
+  const newLimit = Number(execution.allow_new_source_files) || 0;
+  if (creates.length > newLimit) violations.push(`FAST patch creates ${creates.length} files; allowed is ${newLimit}`);
+  if (deletes.length && execution.allow_delete !== true) violations.push('FAST patch may not delete files');
+
+  if (taskCard.type === TASK_TYPES.FAST_UI) {
+    const deepOnlyPaths = files.filter(item => /(?:^|\/)(?:migrations?|seed(?:ing)?|installer|database)(?:\/|[-_.])/i.test(item.path));
+    if (deepOnlyPaths.length) violations.push(`FAST_UI patch entered data/migration ownership: ${deepOnlyPaths.map(item => item.path).join(', ')}`);
+  }
+
+  const expected = new Set((taskCard.expected_files || []).map(item => String(item).replace(/\\/g, '/')));
+  const unexpected = expected.size ? files.filter(item => !expected.has(item.path)).map(item => item.path) : [];
+  if (files.length && expected.size && files.every(item => !expected.has(item.path))) {
+    violations.push('FAST patch abandons all ranked owner candidates; re-plan before changing a different owner');
+  }
+
+  return { ok:violations.length === 0, files, violations, unexpected_files:unexpected };
+}
+
 module.exports = {
   TASK_TYPES,
+  EXECUTION_PATHS,
   TYPE_READ_LIMIT,
+  PATH_LIMITS,
   classifyTask,
+  deepPathReasons,
+  preflightExecutionPath,
+  classifyExecutionPath,
   targetLabel,
   selectOwnerCandidates,
   selectRelevantRules,
-  buildTaskCard
+  buildTaskCard,
+  patchScopeFromUnifiedDiff,
+  validatePatchAgainstTaskCard
 };
