@@ -1,4 +1,5 @@
 const path = require('path');
+const { ownershipMap } = require('./owner-resolver');
 
 const TASK_TYPES = Object.freeze({
   FAST_UI:'FAST_UI',
@@ -194,20 +195,26 @@ function explicitNewFileRequest(request) {
   return /(?:create|add|tạo|tao|thêm|them)[^\n]{0,60}(?:new\s+)?(?:file|stylesheet|css\s+file|php\s+file)|(?:file|stylesheet)[^\n]{0,60}(?:create|add|tạo|tao|thêm|them)/i.test(String(request || ''));
 }
 
-function buildTaskCard({ request, inspect = {}, projectRules = [], verificationHints = [] } = {}) {
+function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfile = {}, verificationHints = [] } = {}) {
   const type = classifyTask(request, inspect);
   const execution = classifyExecutionPath(request, type);
   const typeLimit = TYPE_READ_LIMIT[type] || 6;
   const limit = Math.min(typeLimit, execution.limits.context_files);
   const ownerCandidates = selectOwnerCandidates(inspect, request, type, limit);
+  const resolved = ownershipMap({ request, inspect, projectProfile, fallbackCandidates:ownerCandidates });
   const relevantRules = selectRelevantRules(projectRules, request, type);
   const policy = typePolicy(type);
-  const primary = ownerCandidates[0] || null;
+  const primary = resolved.primary || null;
   const verification = unique([...verificationFromHints(verificationHints), ...policy.verify]).slice(0,8);
   const allowNewFile = execution.path === EXECUTION_PATHS.FAST && explicitNewFileRequest(request);
+  const expectedFiles = unique([
+    primary?.path,
+    ...(resolved.companion_paths || []),
+    ...ownerCandidates.map(item => item.path)
+  ]).slice(0,limit);
 
   return {
-    version:2,
+    version:3,
     type,
     execution:{
       path:execution.path,
@@ -221,12 +228,19 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], verificationH
     },
     target:targetLabel(request),
     owner:{
-      status:primary ? 'candidate' : 'unknown',
+      status:primary?.status || 'unknown',
+      kind:primary?.kind || null,
       primary_path:primary?.path || null,
+      primary_symbol:primary?.symbol || null,
+      confidence:primary?.confidence || 0,
       candidates:ownerCandidates.map(item => item.path).slice(0,limit),
-      basis:primary ? 'ranked existing task context; confirm ownership before broadening or creating a new owner' : 'no owner candidate in current task context'
+      companions:(resolved.companion_paths || []).slice(0,3),
+      enforce_paths:(resolved.enforce_paths || []).slice(0,3),
+      requires_read:!!resolved.requires_owner_read,
+      basis:primary ? `${primary.source}: ${(primary.evidence || []).join('; ') || 'existing ownership evidence'}` : 'no owner evidence in current task context'
     },
-    expected_files:ownerCandidates.map(item => item.path).slice(0,limit),
+    ownership_map:(resolved.entries || []).slice(0,8),
+    expected_files:expectedFiles,
     must_preserve:policy.preserve,
     out_of_scope:policy.out,
     verification,
@@ -234,7 +248,8 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], verificationH
     constraints:{
       expected_read_limit:limit,
       new_source_files:execution.path === EXECUTION_PATHS.FAST ? (allowNewFile ? 1 : 0) : 'existing owner first',
-      scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only'
+      scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only',
+      owner_resolution:primary?.status || 'unknown'
     }
   };
 }
@@ -290,6 +305,11 @@ function validatePatchAgainstTaskCard(taskCard, patch) {
   const unexpected = expected.size ? files.filter(item => !expected.has(item.path)).map(item => item.path) : [];
   if (files.length && expected.size && files.every(item => !expected.has(item.path))) {
     violations.push('FAST patch abandons all ranked owner candidates; re-plan before changing a different owner');
+  }
+
+  const enforcePaths = new Set((taskCard?.owner?.enforce_paths || []).map(item => String(item).replace(/\\/g, '/')));
+  if (files.length && enforcePaths.size && files.every(item => !enforcePaths.has(item.path))) {
+    violations.push(`FAST patch bypasses resolved ${taskCard.owner.kind || 'owner'}: ${[...enforcePaths].join(', ')}`);
   }
 
   return { ok:violations.length === 0, files, violations, unexpected_files:unexpected };
