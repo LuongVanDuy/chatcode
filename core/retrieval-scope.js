@@ -35,7 +35,7 @@ function createScopedInspect(api, store) {
     const started = nowMs();
     const project = store.getProject(ref);
     const telemetry = { total_ms:0, filesystem_ms:0, brain_refresh_ms:0, git_ms:0, explicit_search_ms:0 };
-    const rankedLimit = Math.min(16, Math.max(6, Number(limit) || 8));
+    const rankedLimit = Math.min(16, Math.max(3, Number(limit) || 8));
 
     const brainStart = nowMs();
     const [context, overview] = await Promise.all([
