@@ -51,14 +51,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const projects = createProjectService(store, { recordActivity:async entry => recorded.push(entry) });
   const approvals = createApprovalService(store);
   const backups = { async snapshot() { return null; } };
-  const api = createSafeToolApi(projects, store, approvals, backups, { notifyTaskCompleted:() => ({ emitted:false, count:0, reason:'test' }) });
+  const createApi = () => createSafeToolApi(projects, store, approvals, backups, { notifyTaskCompleted:() => ({ emitted:false, count:0, reason:'test' }) });
 
+  // Project Scope Lock is session-local. Keep the negative Safe Workspace permission
+  // assertion in its own API session so the Trusted Terminal scenario starts a new task scope.
+  const permissionApi = createApi();
+  await assert.rejects(() => permissionApi.exec('safe', 'node --version'), error => normalizeError(error).code === 'PERMISSION_DENIED');
+  if (typeof permissionApi.shutdownTerminalJobs === 'function') await permissionApi.shutdownTerminalJobs();
+
+  const api = createApi();
   assert.equal(typeof api.exec, 'function');
   assert.equal(typeof api.jobStatus, 'function');
   assert.equal(typeof api.jobStop, 'function');
   assert.equal(typeof api.listTerminalJobs, 'function');
-
-  await assert.rejects(() => api.exec('safe', 'node --version'), error => normalizeError(error).code === 'PERMISSION_DENIED');
 
   const chained = await api.exec('trusted', `node -e "process.stdout.write('CHAIN_A')" && node -e "process.stdout.write('CHAIN_B')"`);
   assert.equal(chained.status, 'completed', chained.stderr);
