@@ -31,10 +31,21 @@ function detectBricksVersion(inspect = {}) {
   ].map(normalizeVersion).find(Boolean);
   if (direct) return direct;
 
-  const themes = [...(inspect?.wordpress?.childThemes || []), ...(inspect?.wordpress?.parentThemes || [])];
+  const wp = inspect?.wordpress || {};
+  const themes = [
+    ...(wp.childThemes || []), ...(wp.parentThemes || []),
+    ...(wp.child_themes || []), ...(wp.parent_themes || [])
+  ];
   for (const theme of themes) {
     if (!/bricks/i.test(`${theme?.slug || ''} ${theme?.name || ''} ${theme?.template || ''}`)) continue;
     const version = normalizeVersion(theme?.version);
+    if (version) return version;
+  }
+
+  const plugins = [...(wp.customPlugins || []), ...(wp.custom_plugins || [])];
+  for (const plugin of plugins) {
+    if (!/bricks/i.test(`${plugin?.slug || ''} ${plugin?.name || ''}`)) continue;
+    const version = normalizeVersion(plugin?.version);
     if (version) return version;
   }
 
@@ -82,7 +93,7 @@ function resolveBricksSpec(inspect = {}) {
     return { spec:bundled, source:'bundled-source-verified', detected_version:detectedVersion, spec_version:specVersion, status:'exact', confidence:0.98, exact_shapes:true, source_required:false };
   }
   if (detectedVersion && dm === sm && dn === sn) {
-    return { spec:bundled, source:'bundled-compatible-minor', detected_version:detectedVersion, spec_version:specVersion, status:'compatible', confidence:0.84, exact_shapes:true, source_required:false };
+    return { spec:bundled, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'compatible-version-different-patch', confidence:0.72, exact_shapes:false, source_required:true };
   }
   if (detectedVersion) {
     return { spec:bundled, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'version-mismatch', confidence:0.45, exact_shapes:false, source_required:true };
