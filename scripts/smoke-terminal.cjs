@@ -73,6 +73,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(chained.terminal.cwd_inside_project, true);
   assert.equal(chained.terminal.os_filesystem_sandbox, false);
 
+  // Acceptance E foreground: exercise a real nested CMD on Windows, not only node through the default shell.
+  if (process.platform === 'win32') {
+    const cmd = await api.exec('trusted', `cmd.exe /d /q /c "echo CMD_FOREGROUND_OK"`);
+    assert.equal(cmd.status, 'completed', cmd.stderr);
+    assert.equal(cmd.exit_code, 0, cmd.stderr);
+    assert.match(cmd.stdout, /CMD_FOREGROUND_OK/);
+    assert.equal(cmd.terminal.hidden, true);
+  }
+
   const pipeCommand = process.platform === 'win32' ? `node -e "console.log('PIPE_OK')" | findstr PIPE_OK` : `node -e "console.log('PIPE_OK')" | grep PIPE_OK`;
   const piped = await api.exec('trusted', pipeCommand);
   assert.equal(piped.status, 'completed', piped.stderr);
@@ -130,6 +139,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(timed.stop_reason, 'timeout');
   assert.match(timed.stderr, /timeout/i);
 
+  // Acceptance E background: real PowerShell process, output/exit code retained and terminal remains hidden.
+  if (process.platform === 'win32') {
+    const ps = await api.exec('trusted', 'powershell.exe -NoLogo -NoProfile -NonInteractive -Command Write-Output POWERSHELL_BACKGROUND_OK', { background:true });
+    assert.equal(ps.background, true);
+    assert.equal(ps.terminal.hidden, true);
+    for (let i = 0; i < 100 && ['running','stopping'].includes(api.jobStatus(ps.job_id).status); i++) await sleep(100);
+    const psStatus = api.jobStatus(ps.job_id);
+    assert.equal(psStatus.status, 'completed', psStatus.stderr);
+    assert.equal(psStatus.exit_code, 0, psStatus.stderr);
+    assert.match(psStatus.stdout, /POWERSHELL_BACKGROUND_OK/);
+    assert.equal(psStatus.terminal.hidden, true);
+  }
+
   await sleep(200);
   const events = await support.listEvents(120);
   const terminalSpawns = events.filter(event => event.type === 'process' && event.phase === 'spawn' && ['shell','task'].includes(event.source));
@@ -140,5 +162,5 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   approvals.shutdown();
   projects.shutdown();
   await fsp.rm(temp, { recursive:true, force:true });
-  console.log('Trusted Terminal smoke test: PASS');
+  console.log('Trusted Terminal smoke test: PASS (hidden foreground CMD + background PowerShell on Windows)');
 })().catch(error => { console.error(error); process.exit(1); });

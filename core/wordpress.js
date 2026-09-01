@@ -85,18 +85,34 @@ function analyzeCssSelectors(text) {
 
 function detectWordPressProfile(files, texts) {
   const normalized = files.map(norm), lower = normalized.map(x => x.toLowerCase()); const has = part => lower.some(x => x === part || x.startsWith(`${part}/`) || x.endsWith(`/${part}`)); const isWordPress = has('wp-content') || has('wp-includes') || has('wp-admin') || lower.includes('wp-config.php') || lower.includes('wp-settings.php');
-  if (!isWordPress) return { isWordPress:false, frameworks:[], childThemes:[], customPlugins:[], parentThemes:[] };
+  if (!isWordPress) return { isWordPress:false, frameworks:[], childThemes:[], customPlugins:[], parentThemes:[], bricksVersion:'' };
   const childThemes = [], parentThemes = [], customPlugins = [];
   for (const file of normalized) {
     const theme = file.match(/^wp-content\/themes\/([^/]+)\/style\.css$/i);
-    if (theme) { const text = String(texts.get(file) || ''), template = text.match(/^\s*Template\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || '', name = text.match(/^\s*Theme Name\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || theme[1], item = { slug:theme[1], name, template, root:`wp-content/themes/${theme[1]}` }; if (template) childThemes.push(item); else parentThemes.push(item); }
-    const plugin = file.match(/^wp-content\/plugins\/([^/]+)\/([^/]+\.php)$/i); if (plugin && plugin[1].toLowerCase() !== 'woocommerce' && !customPlugins.some(x => x.slug === plugin[1])) customPlugins.push({ slug:plugin[1], root:`wp-content/plugins/${plugin[1]}` });
+    if (theme) {
+      const source = String(texts.get(file) || '');
+      const template = source.match(/^\s*Template\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || '';
+      const name = source.match(/^\s*Theme Name\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || theme[1];
+      const version = source.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || '';
+      const item = { slug:theme[1], name, template, version, root:`wp-content/themes/${theme[1]}` };
+      if (template) childThemes.push(item); else parentThemes.push(item);
+    }
+    const plugin = file.match(/^wp-content\/plugins\/([^/]+)\/([^/]+\.php)$/i);
+    if (plugin && plugin[1].toLowerCase() !== 'woocommerce' && !customPlugins.some(x => x.slug === plugin[1])) {
+      const source = String(texts.get(file) || '');
+      const name = source.match(/^\s*Plugin Name\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || plugin[1];
+      const version = source.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1]?.trim() || '';
+      customPlugins.push({ slug:plugin[1], name, version, root:`wp-content/plugins/${plugin[1]}` });
+    }
   }
   const joined = [...texts.values()].join('\n').slice(0,4*1024*1024); const woocommerce = lower.some(x => x.startsWith('wp-content/plugins/woocommerce/')) || /woocommerce_|\bWC_[A-Za-z_]/.test(joined); const flatsomeChild = childThemes.find(theme => /flatsome/i.test(theme.template) || /flatsome/i.test(theme.slug) || /flatsome/i.test(theme.name));
+  const bricksMeta = [...parentThemes, ...childThemes, ...customPlugins].find(item => item.version && /\bbricks\b/i.test(`${item.slug || ''} ${item.name || ''} ${item.template || ''}`));
+  const bricksVersion = bricksMeta?.version || '';
   const frameworks = [{ name:'WordPress', evidence:'Cấu trúc WordPress' }]; if (woocommerce) frameworks.push({ name:'WooCommerce', evidence:'WooCommerce plugin/hooks' });
   for (const theme of childThemes.slice(0,6)) frameworks.push({ name:/child/i.test(theme.name) ? theme.name : `${theme.name || theme.slug} Child Theme`, evidence:`${theme.root}/style.css${theme.template ? ` · Template: ${theme.template}` : ''}` });
+  if (bricksVersion) frameworks.push({ name:'Bricks Builder', version:bricksVersion, evidence:`local theme/plugin metadata · ${bricksVersion}` });
   if (flatsomeChild && !frameworks.some(x => /Flatsome Child Theme/i.test(x.name))) frameworks.push({ name:'Flatsome Child Theme', evidence:flatsomeChild.root });
-  return { isWordPress, woocommerce, flatsomeChild:flatsomeChild || null, childThemes, parentThemes, customPlugins, frameworks };
+  return { isWordPress, woocommerce, flatsomeChild:flatsomeChild || null, childThemes, parentThemes, customPlugins, bricksVersion, frameworks };
 }
 
 function pathRole(file, profile) {
@@ -112,13 +128,28 @@ function wordpressPriority(file, profile) {
 }
 
 function contextBoost(file, query, profile) {
-  if (!profile?.isWordPress) return 0; const p = norm(file), lower = p.toLowerCase(), q = String(query || '').toLowerCase(); let score = wordpressPriority(p, profile); const bootstrap = /bootstrap|request flow|khởi tạo|khoi tao|initiali[sz]|startup|entrypoint/.test(q);
+  if (!profile?.isWordPress) return 0; const p = norm(file), lower = p.toLowerCase(), q = String(query || '').toLowerCase(), role = pathRole(p, profile); let score = wordpressPriority(p, profile); const bootstrap = /bootstrap|request flow|khởi tạo|khoi tao|initiali[sz]|startup|entrypoint/.test(q);
   if (bootstrap) {
     const exact = { 'index.php':320, 'wp-blog-header.php':300, 'wp-load.php':280, 'wp-settings.php':260 }; score += exact[lower] || 0;
     if (/\/functions\.php$/i.test(p)) score += 190; if (/\/includes\/(?:init|bootstrap|loader)\.php$/i.test(p)) score += 180;
     if (/\.(?:js|css|scss)$/i.test(p) && !/bootstrap/i.test(lower)) score -= 90;
   }
   if (/checkout|address|địa chỉ|dia chi|billing|shipping/.test(q)) { if (/wp-content\/themes\/.*\/(woocommerce|includes)\//i.test(p)) score += 160; if (/\/functions\.php$/i.test(p)) score += 120; if (/checkout|address|billing|shipping/i.test(lower)) score += 120; if (/wp-content\/plugins\/woocommerce\//i.test(p)) score += 10; }
+
+  const bricksIntent = /\bbricks\b|bricks[-\s]?child|custom\s+(?:bricks\s+)?elements?|builder\s+setup|home(?:page)?\s+(?:setup|element|builder)|(?:setup|elements?)[^\n]{0,40}home(?:page)?/i.test(q);
+  if (bricksIntent) {
+    const pluginMentioned = (profile.customPlugins || []).some(plugin => {
+      const values = [plugin?.slug, plugin?.name].filter(Boolean).map(value => String(value).toLowerCase());
+      return values.some(value => value.length >= 3 && q.includes(value));
+    });
+    if (role === 'child-theme') score += 260;
+    if (role === 'child-theme' && /\/functions\.php$/i.test(p)) score += 220;
+    if (role === 'child-theme' && /\/inc\/(?:setup|templates?)\//i.test(p)) score += 210;
+    if (role === 'child-theme' && /\/elements?\//i.test(p)) score += 240;
+    if (role === 'child-theme' && /\/assets\/(?:css|js)\//i.test(p)) score += 90;
+    if (/home|homepage|front-page/i.test(q) && /(?:^|\/)(?:home|homepage|front-page)(?:[\/._-]|$)/i.test(lower)) score += 220;
+    if (role === 'custom-plugin' && !pluginMentioned) score -= 260;
+  }
   return score;
 }
 
@@ -140,6 +171,6 @@ function buildWordPressRelations(analyses, fileSet, profile) {
   return unique(relations,x=>`${x.from}:${x.to}:${x.type}:${x.selector || x.handle || ''}`);
 }
 
-function wordpressSummary(profile) { if (!profile?.isWordPress) return null; return { is_wordpress:true, woocommerce:!!profile.woocommerce, child_themes:profile.childThemes, custom_plugins:profile.customPlugins, flatsome_child_theme:profile.flatsomeChild || null }; }
+function wordpressSummary(profile) { if (!profile?.isWordPress) return null; return { is_wordpress:true, woocommerce:!!profile.woocommerce, bricks_version:profile.bricksVersion || '', child_themes:profile.childThemes, parent_themes:profile.parentThemes, custom_plugins:profile.customPlugins, flatsome_child_theme:profile.flatsomeChild || null }; }
 
 module.exports = { analyzePhp, analyzeJsSelectors, analyzeCssSelectors, detectWordPressProfile, wordpressPriority, contextBoost, pathRole, resolveFragment, buildWordPressRelations, wordpressSummary };

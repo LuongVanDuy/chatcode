@@ -29,6 +29,15 @@ const exactInspect = {
 };
 
 assert.equal(detectBricksVersion(exactInspect), '2.3.6');
+assert.equal(detectBricksVersion({
+  framework_names:['WordPress','Bricks Builder'],
+  wordpress:{
+    bricks_version:'2.3.6',
+    parent_themes:[{ slug:'bricks', name:'Bricks', version:'2.3.6' }],
+    child_themes:[{ slug:'bricks-child', template:'bricks', version:'1.0.0' }]
+  }
+}), '2.3.6', 'snake_case local WordPress summary must expose actual Bricks version');
+
 const exact = resolveBricksSpec(exactInspect);
 assert.equal(exact.status, 'exact');
 assert.equal(exact.exact_shapes, true);
@@ -36,6 +45,19 @@ assert.equal(exact.source_required, false);
 const accordionFacts = searchBricksKnowledge('Tạo accordion native Bricks có FAQ và kiểm structure', exact, 3);
 assert.ok(accordionFacts.some(item => item.id === 'accordion-structure'));
 assert.ok(formatBricksKnowledge(accordionFacts, exact).includes('accordion-nested'));
+
+const patchDifferent = resolveBricksSpec({
+  ...exactInspect,
+  project_profile:{ facts:{ builder:'bricks' } },
+  wordpress:{ ...exactInspect.wordpress, bricks_version:'2.3.7', parentThemes:[{ slug:'bricks', version:'2.3.7' }] }
+});
+assert.equal(patchDifferent.status, 'compatible-version-different-patch');
+assert.equal(patchDifferent.source, 'bundled-invariants-only');
+assert.equal(patchDifferent.exact_shapes, false, 'same minor but different patch must not guess exact Builder JSON shapes');
+assert.equal(patchDifferent.source_required, true);
+const patchFacts = searchBricksKnowledge('builder data parent children typography', patchDifferent, 5);
+assert.ok(patchFacts.length >= 1);
+assert.ok(patchFacts.every(item => item.stability === 'invariant'));
 
 const mismatch = resolveBricksSpec({ ...exactInspect, project_profile:{ facts:{ bricks_version:'2.4.1' } }, wordpress:{ ...exactInspect.wordpress, parentThemes:[{ slug:'bricks', version:'2.4.1' }] } });
 assert.equal(mismatch.status, 'version-mismatch');
@@ -128,7 +150,7 @@ assert.ok(skill.resource_context.used_chars <= 12000);
   assert.equal(results[0].kind, 'bricks-json');
   assert.equal(results[0].ok, false);
   assert.ok(results[0].errors.some(item => item.code === 'BRICKS_TYPOGRAPHY_CAMELCASE'));
-  console.log('Bricks Spec Engine PASS: version-aware search + local precedence + deterministic JSON/tree/settings validation');
+  console.log('Bricks Spec Engine PASS: local version precedence + exact-shape gate + deterministic JSON/tree/settings validation');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

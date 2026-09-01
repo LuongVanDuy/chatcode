@@ -101,6 +101,12 @@ function requestTokens(request) {
   return unique(text(request).split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 3 && !stop.has(token))).slice(0,16);
 }
 
+function explicitUserPaths(request = '') {
+  const source = String(request || '').replace(/`([^`]+)`/g, ' $1 ');
+  const matches = source.match(/(?:[A-Za-z]:[\\/])?(?:[A-Za-z0-9_.@-]+[\\/])+[A-Za-z0-9_.@-]+\.[A-Za-z0-9]{1,12}/g) || [];
+  return unique(matches.map(value => norm(value).replace(/[),.;:]+$/g, ''))).slice(0,8);
+}
+
 function componentOwner(rows, request) {
   const tokens = requestTokens(request).filter(token => !['bricks','builder','controls','control','section','template','product','products','sản','phẩm','san','pham'].includes(token));
   if (!tokens.length) return null;
@@ -171,6 +177,16 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     if (map.some(item => `${item.kind}:${item.path || ''}:${item.symbol || ''}` === key)) return;
     map.push(entry);
   };
+
+  for (const explicitPath of explicitUserPaths(request)) {
+    add(evidenceEntry('explicit_path', {
+      path:explicitPath,
+      status:OWNER_STATUS.CONFIRMED,
+      confidence:1,
+      source:'user-explicit-path',
+      basis:['exact file path supplied by the user; no unrelated existing owner is required']
+    }));
+  }
 
   if (facts.global_css_owner) {
     const current = exactFile(rows, facts.global_css_owner);
@@ -277,16 +293,16 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     return null;
   };
 
-  let primary = null;
-  if (isProductionTask) primary = choose(['deployment']);
-  else if (isDataTask) primary = choose(['data_model']);
-  else if (isBuilderTask) {
+  let primary = choose(['explicit_path']);
+  if (!primary && isProductionTask) primary = choose(['deployment']);
+  else if (!primary && isDataTask) primary = choose(['data_model']);
+  else if (!primary && isBuilderTask) {
     if (flags.header && flags.template) primary = choose(['header_template']);
     else if (flags.footer && flags.template) primary = choose(['footer_template']);
     else if (flags.archive && flags.template) primary = choose(['archive_template']);
     else if (flags.single && flags.template) primary = choose(['single_template']);
     else primary = choose(['builder_component']);
-  } else if (taskType === 'FAST_UI') {
+  } else if (!primary && taskType === 'FAST_UI') {
     if (flags.header && flags.style) primary = choose(['header_css','global_css']);
     else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
     else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
@@ -295,7 +311,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
     else if (flags.product) primary = choose(['product_renderer','product_css']);
     else if (flags.style) primary = choose(['global_css']);
-  } else {
+  } else if (!primary) {
     if (flags.production) primary = choose(['deployment']);
     else if (flags.data) primary = choose(['data_model']);
     else if (flags.header && flags.template) primary = choose(['header_template']);
@@ -343,21 +359,22 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   ).slice(0,4);
 
   return {
-    version:3,
+    version:4,
     primary,
     entries:scoped,
     companion_paths:companionPaths,
     enforce_paths:enforcePaths,
-    owner_set_mode:enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
+    owner_set_mode:primary?.kind === 'explicit_path' ? 'explicit-user-path' : enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
     task_type:taskType || null,
     fallback_used:primary?.status === OWNER_STATUS.CANDIDATE,
-    requires_owner_read:!!(primary?.path && !exactFile(rows, primary.path))
+    requires_owner_read:!!(primary?.path && primary?.kind !== 'explicit_path' && !exactFile(rows, primary.path))
   };
 }
 
 module.exports = {
   OWNER_STATUS,
   requestFlags,
+  explicitUserPaths,
   allowedKindsForTask,
   ownershipMap
 };

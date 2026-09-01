@@ -53,6 +53,21 @@ assert.equal(preflightExecutionPath('Bulk import toàn bộ sản phẩm').path,
 assert.equal(preflightExecutionPath('Fix WooCommerce checkout flow').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Upload file qua FTP và verify production').path, EXECUTION_PATHS.DEEP);
 
+const explicitPath = 'wp-content/themes/bricks-child/.chatcode-v15-smoke.txt';
+const explicitRequest = `Tạo đúng file \`${explicitPath}\`, ghi một dòng data tạm rồi rollback thay đổi file.`;
+const explicitPreflight = preflightExecutionPath(explicitRequest);
+assert.equal(explicitPreflight.path, EXECUTION_PATHS.FAST, 'plain explicit file work must not become persisted-data migration');
+assert.equal(explicitPreflight.reasons.includes('persisted-data-migration'), false);
+const explicitCard = buildTaskCard({ request:explicitRequest, inspect, projectRules:rules });
+assert.equal(explicitCard.type, TASK_TYPES.FAST_UI);
+assert.equal(explicitCard.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(explicitCard.execution.reasons.length, 0);
+assert.equal(explicitCard.execution.allow_new_source_files, 1);
+assert.equal(explicitCard.owner.kind, 'explicit_path');
+assert.equal(explicitCard.owner.primary_path, explicitPath);
+assert.deepEqual(explicitCard.owner.candidates, []);
+assert.equal(explicitCard.owner.requires_read, false);
+
 const fast = buildTaskCard({ request:'Sửa font và width container trang chủ', inspect, projectRules:rules });
 assert.equal(fast.type, TASK_TYPES.FAST_UI);
 assert.equal(fast.execution.path, EXECUTION_PATHS.FAST);
@@ -92,6 +107,15 @@ const oneFilePatch = [
   ''
 ].join('\n');
 assert.equal(validatePatchAgainstTaskCard(fast, oneFilePatch).ok, true);
+
+const explicitFilePatch = [
+  '--- /dev/null',
+  `+++ b/${explicitPath}`,
+  '@@ -0,0 +1 @@',
+  '+chatcode-v15-smoke',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(explicitCard, explicitFilePatch).ok, true, 'explicit requested file create must pass FAST scope gate');
 
 const newFilePatch = [
   '--- /dev/null',
@@ -163,7 +187,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (3-file micro + compact graph + 4-file fast + deep triggers + pre-mutation scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (explicit file FAST + 3-file micro + compact graph + 4-file fast + deep triggers + scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

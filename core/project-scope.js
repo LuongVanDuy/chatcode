@@ -99,6 +99,11 @@ function createProjectScopeApi(api) {
     return !!current && !!project && (projectMatchesRef(current.target, project.id) || projectMatchesRef(current.target, project.name));
   }
 
+  function clearScopeForProject(project) {
+    const current = activeScope();
+    if (current && targetMatches(current, project)) scope = null;
+  }
+
   function shape(current = activeScope()) {
     if (!current) return { locked:false };
     return {
@@ -121,7 +126,21 @@ function createProjectScopeApi(api) {
         attempted_project:scopeProjectShape(attempted || {}),
         operation,
         reference_projects:(current?.references || []).map(scopeProjectShape),
-        rule:'Chỉ mở project khác khi yêu cầu người dùng có multi-project intent rõ ràng. Bắt đầu task mới bằng prepare_task trên project mới để chuyển scope.'
+        rule:'Project đang active vẫn bị khóa. Sau khi task/work session hoàn tất hoặc rollback, prepare_task trên project mới được phép thiết lập target mới; khi session còn active phải có intent chuyển project rõ ràng.'
+      }
+    );
+  }
+
+  function missingSessionScopeViolation(attempted, operation) {
+    return chatError(
+      'PROJECT_SCOPE_VIOLATION',
+      `Không có project scope đang active cho ${operation}.`,
+      {
+        target_project:null,
+        attempted_project:scopeProjectShape(attempted || {}),
+        operation,
+        reference_projects:[],
+        rule:'Session mutation không được tự khóa project. Hãy bắt đầu task mới bằng prepare_task trên target project trước khi complete/finish session của project đó. rollback_work của session đã hoàn tất vẫn được phép khi chưa có target mới.'
       }
     );
   }
@@ -209,11 +228,18 @@ function createProjectScopeApi(api) {
     throw violation(current, attempted, operation);
   }
 
-  async function guardSession(sessionId, operation, mode = 'read') {
+  async function guardSession(sessionId, operation, mode = 'read', allowWithoutScope = false) {
     if (!original.workStatus) return null;
     const status = await original.workStatus(String(sessionId || ''));
     const ref = status?.project_id || status?.project || '';
-    if (ref) await ensureProject(ref, operation, mode);
+    if (!ref) return status;
+    const projects = await allProjects();
+    const attempted = await resolveProject(ref, projects);
+    if (mode === 'write' && !activeScope()) {
+      if (allowWithoutScope) return status;
+      throw missingSessionScopeViolation(attempted, operation);
+    }
+    await ensureProject(ref, operation, mode);
     return status;
   }
 
@@ -286,16 +312,26 @@ function createProjectScopeApi(api) {
 
   if (original.completeTask) {
     api.completeTask = async (taskId, ...args) => {
-      await guardSession(taskId, 'complete_task', 'write');
-      return original.completeTask(taskId, ...args);
+      const session = await guardSession(taskId, 'complete_task', 'write');
+      const result = await original.completeTask(taskId, ...args);
+      if (/^(?:completed|finished|rolled_back)$/i.test(String(result?.status || ''))) {
+        const ref = session?.project_id || session?.project || '';
+        if (ref) clearScopeForProject(await resolveProject(ref));
+      }
+      return result;
     };
   }
 
   for (const name of ['finishWork','rollbackWork']) {
     if (!original[name]) continue;
     api[name] = async (sessionId, ...args) => {
-      await guardSession(sessionId, name, 'write');
-      return original[name](sessionId, ...args);
+      const session = await guardSession(sessionId, name, 'write', name === 'rollbackWork');
+      const result = await original[name](sessionId, ...args);
+      if (result?.ok !== false) {
+        const ref = session?.project_id || session?.project || '';
+        if (ref) clearScopeForProject(await resolveProject(ref));
+      }
+      return result;
     };
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "bootstrap-main.js",
   "private": true,

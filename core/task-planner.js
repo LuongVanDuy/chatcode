@@ -1,5 +1,5 @@
 const path = require('path');
-const { ownershipMap } = require('./owner-resolver');
+const { ownershipMap, explicitUserPaths } = require('./owner-resolver');
 
 const TASK_TYPES = Object.freeze({
   FAST_UI:'FAST_UI',
@@ -44,7 +44,21 @@ function hasBricks(inspect = {}) {
   if ((inspect?.framework_names || []).some(name => /\bbricks\b/i.test(String(name)))) return true;
   if ((inspect?.frameworks || []).some(item => /\bbricks\b/i.test(String(item?.name || item || '')))) return true;
   const wp = inspect?.wordpress || {};
-  return [...(wp.childThemes || []), ...(wp.parentThemes || [])].some(theme => /\bbricks\b/i.test(`${theme?.slug || ''} ${theme?.name || ''} ${theme?.template || ''} ${theme?.root || ''}`));
+  return [
+    ...(wp.childThemes || []), ...(wp.parentThemes || []),
+    ...(wp.child_themes || []), ...(wp.parent_themes || [])
+  ].some(theme => /\bbricks\b/i.test(`${theme?.slug || ''} ${theme?.name || ''} ${theme?.template || ''} ${theme?.root || ''}`));
+}
+
+function hasPersistedStateEvidence(request) {
+  const text = normalizeText(request);
+  return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb)\b|builder\s+data|persisted\s+data|persisted\s+state|stored\s+state|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|post\s+meta|wp_options?|option\s+table|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)/i.test(text);
+}
+
+function isExplicitFilesystemTask(request) {
+  if (!explicitUserPaths(request).length) return false;
+  const text = normalizeText(request);
+  return /\b(?:create|add|write|edit|modify|update|delete|remove|rename|move|rollback|temporary|temp|file|tạo|tao|thêm|them|ghi|sửa|sua|chỉnh|chinh|xóa|xoá|xoa|đổi\s+tên|doi\s+ten|di\s+chuyển|di\s+chuyen|tạm|tam)\b/i.test(text);
 }
 
 function classifyTask(request, inspect = {}) {
@@ -52,6 +66,8 @@ function classifyTask(request, inspect = {}) {
 
   const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
   if (production) return TASK_TYPES.PRODUCTION;
+
+  if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
   const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates)\b|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(text);
   if (strongData) return TASK_TYPES.DATA;
@@ -75,10 +91,10 @@ function deepPathReasons(request, type = '') {
   add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
   add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
   add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,90}(?:(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks))|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks)/i);
-  add('persisted-data-migration', /\b(?:migration|migrate)\b|builder\s+data|element\s+id|parent\s*\/\s*children|compare-and-set|rollback[^\n]{0,50}(?:db|database|builder|data)/i);
+  add('persisted-data-migration', /\b(?:migration|migrate)\b|builder\s+data|persisted\s+(?:data|state)|stored\s+state|element\s+id|parent\s*\/\s*children|compare-and-set|rollback[^\n]{0,50}(?:db|database|builder\s+data|persisted\s+(?:data|state)|stored\s+state)/i);
   add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm)/i);
   add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
-  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|data|database|record|post|template|builder)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i);
+  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+data|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i);
   add('explicit-broad-scope', /full\s+(?:audit|refactor|review)|(?:audit|refactor|review)[^\n]{0,50}(?:entire|whole|all)\s+(?:project|site|code)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|tái\s+cấu\s+trúc\s+toàn\s+bộ/i);
 
   return unique(reasons);
@@ -159,7 +175,9 @@ function scoreFile(item, index, request, type) {
 }
 
 function selectOwnerCandidates(inspect, request, type, limit = TYPE_READ_LIMIT[type] || 6) {
+  const explicit = new Set(explicitUserPaths(request).map(value => value.toLowerCase()));
   const files = (inspect?.relevant_files || []).map((item,index) => scoreFile(item,index,request,type)).filter(item => item.path);
+  if (explicit.size) return files.filter(item => explicit.has(item.path.toLowerCase())).slice(0, Math.max(1, Number(limit) || 6));
   files.sort((a,b) => b.score - a.score || a.path.localeCompare(b.path));
   return files.slice(0, Math.max(1, Number(limit) || 6));
 }
@@ -215,6 +233,7 @@ function verificationFromHints(hints) {
 }
 
 function explicitNewFileRequest(request) {
+  if (explicitUserPaths(request).length && /\b(?:create|add|tạo|tao|thêm|them)\b/i.test(String(request || ''))) return true;
   return /(?:create|add|tạo|tao|thêm|them)[^\n]{0,60}(?:new\s+)?(?:file|stylesheet|css\s+file|php\s+file)|(?:file|stylesheet)[^\n]{0,60}(?:create|add|tạo|tao|thêm|them)/i.test(String(request || ''));
 }
 
