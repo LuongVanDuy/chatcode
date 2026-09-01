@@ -84,7 +84,7 @@ for (const phrase of [
   'normal frontend `init`/`wp` requests'
 ]) assert.ok(combined.includes(phrase), `missing deterministic discipline: ${phrase}`);
 
-expectRoute('Đổi số điện thoại trong footer text', null, bricksInspect);
+expectRoute('Đổi số điện thoại trong footer text', 'resources/templates.md', bricksInspect);
 expectRoute('Fix responsive CSS padding on product card mobile', 'resources/design-system.md', bricksInspect);
 expectRoute('Refactor prefix namespace and child-theme file ownership', 'resources/code-organization.md', bricksInspect);
 expectRoute('Tạo custom Bricks element có controls và repeater', 'resources/builder-editability.md', bricksInspect);
