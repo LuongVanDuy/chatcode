@@ -96,7 +96,8 @@
     holder.appendChild(icon('globe-2'));
     button.append(holder, document.createTextNode('Trình duyệt'));
     button.addEventListener('click', () => showBrowser());
-    connection?.after(button) || nav.appendChild(button);
+    if (connection) connection.after(button);
+    else nav.appendChild(button);
   }
 
   function activeTab() {
