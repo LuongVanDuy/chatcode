@@ -97,4 +97,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('vendor/lucide.js', 'lucide-vendor');
   await load('current-runtime.js', 'current-runtime');
   await load('browser-workspace.js', 'browser-workspace');
+  await load('browser-project-labels.js', 'browser-project-labels');
 });
