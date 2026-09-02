@@ -198,7 +198,6 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
             activate:details?.disposition !== 'background-tab',
             skipLoad:!!options?.webContents
           });
-          if (!options?.webContents) child.view.webContents.loadURL(target).catch(() => {});
           return child.view.webContents;
         }
       };
@@ -333,6 +332,7 @@ let installed = null;
 function installBrowserWorkspace() {
   if (installed) return installed;
   const { app, ipcMain, WebContentsView, session, shell } = require('electron');
+  let workspaceWindow = null;
   const workspace = createBrowserWorkspace({
     WebContentsView,
     session,
@@ -342,7 +342,6 @@ function installBrowserWorkspace() {
       if (window && !window.isDestroyed?.()) window.webContents.send('browser:changed', value);
     }
   });
-  let workspaceWindow = null;
 
   app.on('browser-window-created', (_event, window) => {
     if (workspaceWindow && !workspaceWindow.isDestroyed?.()) return;
