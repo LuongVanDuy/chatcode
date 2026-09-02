@@ -1,5 +1,5 @@
 const path = require('path');
-const { ownershipMap, explicitUserPaths } = require('./owner-resolver');
+const { ownershipMap, explicitUserPaths, requestFlags } = require('./owner-resolver');
 
 const TASK_TYPES = Object.freeze({
   FAST_UI:'FAST_UI',
@@ -48,6 +48,14 @@ function stripNegatedStoredStateEvidence(value) {
   });
 }
 
+function stripNegatedIntent(value) {
+  const text = normalizeText(value);
+  return text.replace(NEGATED_CLAUSE_RE, clause => {
+    const contrast = clause.search(CONTRAST_RE);
+    return contrast < 0 ? ' ' : clause.slice(contrast);
+  });
+}
+
 function requestTokens(request) {
   const stop = new Set(['the','and','for','with','this','that','from','into','trong','cho','của','cua','với','voi','một','mot','phần','phan','sửa','sua','chỉnh','chinh','thêm','them','tạo','tao']);
   return unique(normalizeText(request).split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 3 && !stop.has(token))).slice(0,18);
@@ -83,7 +91,7 @@ function classifyTask(request, inspect = {}) {
 
   if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
-  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu|record)|duplicates?\s+(?:post|template|records?|data)/i.test(evidenceText);
   if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
@@ -170,12 +178,18 @@ function targetLabel(request) {
 function scoreFile(item, index, request, type) {
   const rel = String(item?.path || item?.file || item || '').replace(/\\/g, '/');
   const lower = rel.toLowerCase();
+  const flags = requestFlags(request);
+  const isCss = /\.(?:css|scss|sass|less)$/.test(lower);
   let score = Math.max(0, 20 - index * 2);
   for (const token of requestTokens(request)) if (lower.includes(token)) score += 4;
 
   if (type === TASK_TYPES.FAST_UI) {
-    if (/\.(?:css|scss|sass|less)$/.test(lower)) score += 10;
+    if (isCss) score += 10;
+    if (flags.style && isCss) score += 12;
     if (/header|footer|home|product|card|style|frontend/.test(lower)) score += 3;
+    if (flags.productCard && /product[-_.]?(?:card|item)|(?:card|item)[-_.]?product/.test(lower)) score += 14;
+    if (flags.single && flags.product && /single[-_.]?product|product[-_.]?single/.test(lower)) score += 16;
+    if (flags.cssOnly && /\.php$/.test(lower)) score -= 18;
   } else if (type === TASK_TYPES.BRICKS_BUILDER) {
     if (/bricks|element|template|header|footer|archive|single|builder/.test(lower)) score += 9;
     if (/\.php$/.test(lower)) score += 3;
@@ -248,8 +262,9 @@ function verificationFromHints(hints) {
 }
 
 function explicitNewFileRequest(request) {
-  if (explicitUserPaths(request).length && /\b(?:create|add|tạo|tao|thêm|them)\b/i.test(String(request || ''))) return true;
-  return /(?:create|add|tạo|tao|thêm|them)[^\n]{0,60}(?:new\s+)?(?:file|stylesheet|css\s+file|php\s+file)|(?:file|stylesheet)[^\n]{0,60}(?:create|add|tạo|tao|thêm|them)/i.test(String(request || ''));
+  const positive = stripNegatedIntent(request);
+  if (explicitUserPaths(request).length && /\b(?:create|add|tạo|tao|thêm|them)\b/i.test(positive)) return true;
+  return /(?:create|add|tạo|tao|thêm|them)[^\n]{0,60}(?:new\s+)?(?:file|stylesheet|css\s+file|php\s+file)|(?:file|stylesheet)[^\n]{0,60}(?:create|add|tạo|tao|thêm|them)/i.test(positive);
 }
 
 function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfile = {}, verificationHints = [] } = {}) {
@@ -265,12 +280,12 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
   const verification = unique([...verificationFromHints(verificationHints), ...policy.verify]).slice(0,8);
   const allowNewFile = execution.path === EXECUTION_PATHS.FAST && explicitNewFileRequest(request);
   const explicitPaths = unique(explicitUserPaths(request));
+  const evidencePaths = unique([primary?.path, ...(resolved.companion_paths || []), ...(resolved.enforce_paths || [])]);
   const expectedFiles = explicitPaths.length
     ? explicitPaths.slice(0,limit)
     : unique([
-        primary?.path,
-        ...(resolved.companion_paths || []),
-        ...ownerCandidates.map(item => item.path)
+        ...evidencePaths,
+        ...((resolved.enforce_paths || []).length ? [] : ownerCandidates.map(item => item.path))
       ]).slice(0,limit);
 
   return {

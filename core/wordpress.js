@@ -136,6 +136,16 @@ function contextBoost(file, query, profile) {
   }
   if (/checkout|address|địa chỉ|dia chi|billing|shipping/.test(q)) { if (/wp-content\/themes\/.*\/(woocommerce|includes)\//i.test(p)) score += 160; if (/\/functions\.php$/i.test(p)) score += 120; if (/checkout|address|billing|shipping/i.test(lower)) score += 120; if (/wp-content\/plugins\/woocommerce\//i.test(p)) score += 10; }
 
+  const styleIntent = /\bcss\b|stylesheet|style|font|typography|spacing|padding|margin|responsive|layout|khoảng\s+cách|màu|mau/i.test(q);
+  if (styleIntent) {
+    const isStyleAsset = /\.(?:css|scss|sass|less)$/i.test(lower);
+    if (role === 'child-theme' && isStyleAsset) score += 220;
+    if (/product\s+card|card\s+sản\s*phẩm|card\s+san\s*pham|product\s+item/i.test(q) && /product[-_.]?(?:card|item)|(?:card|item)[-_.]?product/i.test(lower)) score += 240;
+    if (/single\s+product|chi\s+tiết\s+sản\s*phẩm|chi\s+tiet\s+san\s*pham/i.test(q) && /single[-_.]?product|product[-_.]?single/i.test(lower)) score += 260;
+    if (/\/functions\.php$/i.test(p) && !/enqueue|register|handle|functions\.php|bootstrap/i.test(q)) score -= 150;
+    if (role === 'custom-plugin' && !/plugin|extension|module/i.test(q)) score -= 80;
+  }
+
   const bricksIntent = /\bbricks\b|bricks[-\s]?child|custom\s+(?:bricks\s+)?elements?|builder\s+setup|home(?:page)?\s+(?:setup|element|builder)|(?:setup|elements?)[^\n]{0,40}home(?:page)?/i.test(q);
   if (bricksIntent) {
     const pluginMentioned = (profile.customPlugins || []).some(plugin => {
