@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.21**
+> Phiên bản hiện tại: **v1.0.23**
 
 ## Kiến trúc
 
@@ -133,13 +133,16 @@ Các thao tác nguy hiểm như **Git push** và **`reset --hard`** không đư�
 
 ### Browser Workspace
 
-Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số cửa sổ phải mở khi làm việc. v1.0.21 tối ưu giao diện để browser chiếm toàn bộ vùng làm việc bên phải sidebar và ưu tiên tiếng Việt riêng cho session trình duyệt:
+Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số cửa sổ phải mở khi làm việc. v1.0.21 tối ưu giao diện để browser chiếm toàn bộ vùng làm việc bên phải sidebar và ưu tiên tiếng Việt riêng cho session trình duyệt. v1.0.23 thêm nhãn project cho tab ChatGPT dựa trên hoạt động CHATCODEX thực tế:
 
 - Tab đầu tiên mở ChatGPT; tab mới mặc định mở Google.
 - Có Back, Forward, Reload/Stop, thanh địa chỉ/tìm kiếm và mở trang hiện tại bằng browser ngoài.
 - Link `target=_blank`/`window.open()` được đưa vào tab mới trong ChatCode khi phù hợp.
 - Khi route **Trình duyệt** active, top header của ChatCode được ẩn và browser dùng trọn vùng cạnh sidebar; khi rời route, layout cũ tự khôi phục.
 - Session browser ưu tiên `vi-VN` qua `Accept-Language`, không đổi locale của MCP, terminal hoặc các project flow khác.
+- Khi CHATCODEX bắt đầu dùng một project thật trong conversation ChatGPT hiện tại, tab ChatGPT được gắn nhãn theo tên project đó; project đầu tiên giữ quyền sở hữu nhãn để các project tham chiếu sau không đổi tên tab.
+- Khi mở New Chat hoặc chuyển sang một conversation ChatGPT khác, nhãn project cũ được reset; tab không phải ChatGPT không nhận nhãn project.
+- Nhãn chỉ trang trí Browser Workspace của ChatCode, không đọc hay sửa DOM/nội dung ChatGPT và không cố đổi title thật trong sidebar ChatGPT.
 - Session dùng partition riêng **`persist:chatcode-browser`**, nên cookie đăng nhập được giữ qua lần mở app sau.
 - Browser dùng `WebContentsView` của Electron với `nodeIntegration:false`, `contextIsolation:true`, `sandbox:true` và không có ChatCode preload.
 - Browser được lazy-load: nếu không mở route Trình duyệt thì không tạo tab/web contents.
@@ -486,12 +489,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.21** tinh gọn Browser Workspace theo phản hồi sử dụng thực tế: khi mở Trình duyệt, top header của ChatCode được ẩn và browser dùng trọn vùng làm việc cạnh sidebar; rời browser thì layout cũ tự khôi phục. Partition `persist:chatcode-browser` giờ ưu tiên `vi-VN` bằng `Accept-Language`, trong khi MCP, Fast Agent, Project Scope và terminal không thay đổi. Không thêm dependency, service hay runtime mode mới.
+**v1.0.23** thêm project-aware labels cho các tab ChatGPT trong Browser Workspace. Khi CHATCODEX bắt đầu thao tác với một project thật, tab ChatGPT hiện tại dùng tên project đó làm nhãn; project đầu tiên của conversation giữ ownership, còn New Chat hoặc chuyển sang conversation khác sẽ reset nhãn. Tính năng chỉ dùng `activity:changed` và browser URL/state sẵn có, không đọc DOM/nội dung ChatGPT, không thêm MCP channel, dependency, service hay runtime mode mới.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.23** | Browser workflow: tự gắn tên project cho tab ChatGPT theo conversation, first-project-wins và reset an toàn khi New Chat. |
 | **v1.0.21** | Browser polish: full layout cạnh sidebar + session ưu tiên tiếng Việt, không ảnh hưởng luồng cũ. |
 | **v1.0.20** | Browser Workspace: ChatGPT + multi-tab embedded Chromium, persistent isolated session, lazy-load và protocol guard. |
 | **v1.0.19** | Terminal scope lifecycle: holder-aware foreground/background lease cleanup và precise violation details. |
@@ -499,6 +503,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.21**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.23**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.

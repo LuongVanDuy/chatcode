@@ -12,6 +12,11 @@ const {
   normalizeBrowserInput,
   createBrowserWorkspace
 } = require('../core/browser-workspace');
+const {
+  chatConversationKey,
+  createProjectTabLabelModel,
+  resolveProjectLabel
+} = require('../renderer/browser-project-labels');
 
 class FakeWebContents extends EventEmitter {
   constructor() {
@@ -84,6 +89,53 @@ class FakeWindow extends EventEmitter {
   assert.equal(normalizeDirectUrl('file:///tmp/test.txt'), null);
   assert.match(normalizeBrowserInput('OpenAI API docs'), /^https:\/\/www\.google\.com\/search\?q=/);
   assert.equal(normalizeBrowserInput('javascript:alert(1)'), null);
+
+  assert.equal(chatConversationKey('https://chatgpt.com/'), 'new:/');
+  assert.equal(chatConversationKey('https://chatgpt.com/c/abc-123'), 'conversation:abc-123');
+  assert.equal(chatConversationKey('https://chatgpt.com/g/g-test'), 'new:/g/g-test');
+  assert.equal(chatConversationKey('https://www.google.com/'), null);
+  const configuredProjects = [
+    { id:'project-a', name:'boncauinax.vn' },
+    { id:'project-b', name:'longkhai' }
+  ];
+  assert.equal(resolveProjectLabel('project-a', configuredProjects), 'boncauinax.vn');
+  assert.equal(resolveProjectLabel('BONCAUINAX.VN', configuredProjects), 'boncauinax.vn');
+  assert.equal(resolveProjectLabel('CHATCODE-GPT', configuredProjects), '');
+
+  const labels = createProjectTabLabelModel();
+  labels.sync({ visible:true, active_tab_id:'tab-a', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.claim('boncauinax.vn'), true, 'first real project must claim the active new ChatGPT conversation');
+  assert.equal(labels.labelFor('tab-a'), 'boncauinax.vn');
+  assert.equal(labels.claim('longkhai'), false, 'later reference projects must not replace the conversation owner');
+  labels.sync({ visible:true, active_tab_id:'tab-a', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/c/conversation-a', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.labelFor('tab-a'), 'boncauinax.vn', 'new-chat to /c/... transition must preserve the project owner');
+  labels.sync({ visible:true, active_tab_id:'tab-a', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.labelFor('tab-a'), '', 'returning from a conversation to New Chat must reset the old project');
+  assert.equal(labels.claim('longkhai'), true);
+  labels.sync({ visible:true, active_tab_id:'tab-a', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/c/conversation-b', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.labelFor('tab-a'), 'longkhai');
+  labels.sync({ visible:true, active_tab_id:'tab-a', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/c/conversation-c', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.labelFor('tab-a'), '', 'switching to a different existing conversation must not leak the previous project label');
+  labels.sync({ visible:true, active_tab_id:'tab-b', tabs:[
+    { id:'tab-a', url:'https://chatgpt.com/c/conversation-c', title:'ChatGPT' },
+    { id:'tab-b', url:'https://www.google.com/', title:'Google' }
+  ] });
+  assert.equal(labels.claim('boncauinax.vn'), false, 'non-ChatGPT tabs must never claim a project label');
 
   let permissionRequestHandler = null;
   let permissionCheckHandler = null;
@@ -194,18 +246,23 @@ class FakeWindow extends EventEmitter {
   await assert.rejects(() => workspace.command('new', { url:'https://example.net/' }), /tối đa/i);
 
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'browser-workspace.js'), 'utf8');
+  const projectLabels = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'browser-project-labels.js'), 'utf8');
+  const preload = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
   assert.ok(renderer.includes('body.browser-workspace-active .topbar{display:none!important}'), 'Browser route must hide the ChatCode page header');
   assert.ok(renderer.includes('body.browser-workspace-active .content{padding:0!important;overflow:hidden!important}'), 'Browser route must consume the full main area beside sidebar');
   assert.ok(renderer.includes("document.body.classList.toggle('browser-workspace-active', active)"), 'Fullscreen browser chrome must be scoped only to the active Browser route');
   assert.ok(renderer.includes('Trình duyệt ChatCode'), 'Browser-owned labels must be Vietnamese');
   assert.ok(renderer.includes('Phiên riêng'), 'Browser session note must be Vietnamese');
+  assert.ok(projectLabels.includes('api.onActivityChanged'), 'Project labels must reuse the existing activity event instead of adding a new MCP channel');
+  assert.ok(projectLabels.includes("doc.querySelectorAll('#browserTabs .browser-tab')"), 'Project labels may only decorate ChatCode browser chrome, not the ChatGPT DOM');
+  assert.ok(preload.includes("await load('browser-project-labels.js', 'browser-project-labels')"), 'Project-label module must load after Browser Workspace');
 
   assert.ok(changes.length > 0, 'workspace state changes must be observable by renderer');
   workspace.destroy();
   assert.equal(workspace.snapshot().tabs.length, 0);
   assert.equal(window.contentView.children.size, 0);
 
-  console.log('Browser Workspace PASS: full sidebar-adjacent layout + vi-VN session + isolated tabs/popups + bounded lifecycle');
+  console.log('Browser Workspace PASS: vi-VN isolated tabs + project-aware ChatGPT labels + new-chat reset + bounded lifecycle');
 })().catch(error => {
   console.error(error);
   process.exit(1);
