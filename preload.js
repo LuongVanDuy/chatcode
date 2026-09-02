@@ -64,6 +64,11 @@ contextBridge.exposeInMainWorld('personalCode', {
   appInfo: () => ipcRenderer.invoke('app:info'),
   hideApp: () => ipcRenderer.invoke('app:hide'),
 
+  browserWorkspace: () => ipcRenderer.invoke('browser:workspace'),
+  browserCommand: (action, payload) => ipcRenderer.invoke('browser:command', action, payload || {}),
+  browserSetBounds: bounds => ipcRenderer.invoke('browser:bounds', bounds || {}),
+  browserSetVisible: visible => ipcRenderer.invoke('browser:visible', !!visible),
+
   onConnectionChanged: callback => ipcRenderer.on('connection:changed', (_, value) => callback(value)),
   onActivityChanged: callback => ipcRenderer.on('activity:changed', (_, value) => callback(value)),
   onActivityReset: callback => ipcRenderer.on('activity:reset', () => callback()),
@@ -72,7 +77,8 @@ contextBridge.exposeInMainWorld('personalCode', {
   onApprovalAttention: callback => ipcRenderer.on('approval:attention', (_, value) => callback(value)),
   onBackupsChanged: callback => ipcRenderer.on('backups:changed', () => callback()),
   onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value)),
-  onTerminalChanged: callback => ipcRenderer.on('terminal:changed', (_, value) => callback(value))
+  onTerminalChanged: callback => ipcRenderer.on('terminal:changed', (_, value) => callback(value)),
+  onBrowserChanged: callback => ipcRenderer.on('browser:changed', (_, value) => callback(value))
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
@@ -90,4 +96,5 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   await load('vendor/lucide.js', 'lucide-vendor');
   await load('current-runtime.js', 'current-runtime');
+  await load('browser-workspace.js', 'browser-workspace');
 });

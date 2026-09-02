@@ -26,6 +26,8 @@ jobs:
       - run: npm install
       - name: Kiểm tra cú pháp
         run: npm run test:syntax
+      - name: Smoke test Browser Workspace
+        run: npm run test:browser
       - name: Smoke test MCP protocol
         run: npm run test:mcp
       - name: Smoke test Safety & Recovery

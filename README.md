@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.19**
+> Phiên bản hiện tại: **v1.0.20**
 
 ## Kiến trúc
 
@@ -130,6 +130,20 @@ Trusted Workspace không biến terminal thành OS sandbox. Người dùng vẫn
 - Gắn command vào Work Session để audit và recovery dễ hơn.
 
 Các thao tác nguy hiểm như **Git push** và **`reset --hard`** không được cung cấp trong agent contract mặc định.
+
+### Browser Workspace
+
+Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số cửa sổ phải mở khi làm việc:
+
+- Tab đầu tiên mở ChatGPT; tab mới mặc định mở Google.
+- Có Back, Forward, Reload/Stop, thanh địa chỉ/tìm kiếm và mở trang hiện tại bằng browser ngoài.
+- Link `target=_blank`/`window.open()` được đưa vào tab mới trong ChatCode khi phù hợp.
+- Session dùng partition riêng **`persist:chatcode-browser`**, nên cookie đăng nhập được giữ qua lần mở app sau.
+- Browser dùng `WebContentsView` của Electron với `nodeIntegration:false`, `contextIsolation:true`, `sandbox:true` và không có ChatCode preload.
+- Browser được lazy-load: nếu không mở route Trình duyệt thì không tạo tab/web contents.
+- Tối đa 10 tab để tránh tăng RAM không giới hạn.
+
+Browser Workspace không đưa cookie, password, token hoặc nội dung website vào MCP/Project Brain. Các website vẫn tự quyết định có cho phép luồng đăng nhập embedded hay yêu cầu browser hệ thống hay không.
 
 ### Git
 
@@ -355,6 +369,7 @@ Các smoke/regression test chính:
 
 ```powershell
 npm run test:syntax
+npm run test:browser
 npm run test:mcp
 npm run test:safety
 npm run test:trusted
@@ -400,18 +415,19 @@ Workflow `build-windows.yml` chạy trên `windows-latest` và thực hiện:
 
 1. Install dependencies với Node.js 24.
 2. Syntax check.
-3. MCP protocol smoke test.
-4. Safety & Recovery tests.
-5. Trusted Workspace/Terminal tests.
-6. Codex-style editing và Fast Agent Path tests.
-7. Project Brain + WordPress Brain tests.
-8. WordPress + Bricks skill tests.
-9. Legacy 13-tool skill exposure test.
-10. Filesystem regression, Support, updater và notification tests.
-11. Build NSIS installer.
-12. Verify `latest.yml` updater metadata.
-13. Smoke test remote MCP tunnel.
-14. Publish/update GitHub Release khi phù hợp.
+3. Browser Workspace smoke test.
+4. MCP protocol smoke test.
+5. Safety & Recovery tests.
+6. Trusted Workspace/Terminal tests.
+7. Codex-style editing và Fast Agent Path tests.
+8. Project Brain + WordPress Brain tests.
+9. WordPress + Bricks skill tests.
+10. Legacy 13-tool skill exposure test.
+11. Filesystem regression, Support, updater và notification tests.
+12. Build NSIS installer.
+13. Verify `latest.yml` updater metadata.
+14. Smoke test remote MCP tunnel.
+15. Publish/update GitHub Release khi phù hợp.
 
 Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
 
@@ -446,6 +462,7 @@ Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`
 | `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
+| `core/browser-workspace.js` | Lazy WebContentsView tabs, isolated persistent session và browser IPC. |
 | `core/trusted-workspace.js` | Trusted Workspace behavior và secret access. |
 | `core/skill-runtime.js` | Auto-detect và attach built-in skills. |
 | `core/builtin-skills-project.js` | Read-only `CHATCODE-GPT` compatibility layer. |
@@ -467,18 +484,18 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.19** sửa regression scope lifecycle của standalone terminal: project scope giờ dựa trên work session/foreground terminal/background job còn active thay vì operation gần nhất. Foreground `exec` release holder ở cleanup path; background lease theo `job_id`, được release khi job terminal hoặc bị stop; nhiều job song song vẫn giữ scope cho tới holder cuối cùng. Error `PROJECT_SCOPE_VIOLATION` trả rõ active work session/job holder. Không thêm dependency, service hay runtime mode mới.
+**v1.0.20** thêm Browser Workspace dạng lazy `WebContentsView`: ChatGPT mở mặc định trong app, có multi-tab, Google search/address bar, popup-to-tab và session đăng nhập persistent riêng. Browser chỉ khởi tạo khi người dùng mở route Trình duyệt, tối đa 10 tab, không thêm dependency và không thay đổi MCP/Fast Agent/Project Scope. Website chạy sandboxed với Node integration tắt và không nhận preload/API nội bộ ChatCode.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.20** | Browser Workspace: ChatGPT + multi-tab embedded Chromium, persistent isolated session, lazy-load và protocol guard. |
 | **v1.0.19** | Terminal scope lifecycle: holder-aware foreground/background lease cleanup và precise violation details. |
 | **v1.0.18** | Release consistency guard: package/README/update pipeline không được drift version. |
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
-| **v1.0.15** | Lean I/O optimization: parallel scoped context reads và honor micro/FAST retrieval budget end-to-end. |
 
-Source/package hiện đặt target release **1.0.19**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.20**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.

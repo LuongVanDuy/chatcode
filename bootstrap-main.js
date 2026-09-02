@@ -6,4 +6,5 @@ const { createSupportService, installChildProcessAudit } = require('./core/suppo
 // main.js destructures createProjectService/createSafeToolApi.
 installChildProcessAudit(createSupportService(app));
 require('./core/runtime-bootstrap').installRuntimePatches();
+require('./core/browser-workspace').installBrowserWorkspace();
 require('./main');
