@@ -27,9 +27,11 @@
     const style = document.createElement('style');
     style.id = 'browserWorkspaceStyles';
     style.textContent = `
-      #route-browser.browser-route{height:calc(100vh - 122px);min-height:480px;margin:-8px -10px -20px;overflow:hidden}
+      body.browser-workspace-active .topbar{display:none!important}
+      body.browser-workspace-active .content{padding:0!important;overflow:hidden!important}
+      #route-browser.browser-route{height:100vh;min-height:0;margin:0;overflow:hidden}
       #route-browser.browser-route.active{display:block}
-      .browser-workspace{height:100%;min-height:0;display:flex;flex-direction:column;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);overflow:hidden;background:var(--ui-surface)}
+      .browser-workspace{height:100%;min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;overflow:hidden;background:var(--ui-surface)}
       .browser-tabbar{height:38px;min-height:38px;display:flex;align-items:flex-end;gap:3px;padding:5px 7px 0;background:#1f2022;border-bottom:1px solid var(--ui-border-soft)}
       .browser-tabs{flex:1;min-width:0;display:flex;align-items:flex-end;gap:3px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}.browser-tabs::-webkit-scrollbar{display:none}
       .browser-tab{min-width:112px;max-width:210px;height:31px;padding:0 7px 0 10px;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;background:transparent;color:var(--ui-muted);display:flex;align-items:center;gap:7px;cursor:pointer}
@@ -44,7 +46,7 @@
       .browser-quick{height:30px;padding:0 9px;border:1px solid var(--ui-border);border-radius:6px;background:transparent;color:var(--ui-text-2);display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;cursor:pointer}.browser-quick:hover{background:var(--ui-hover);color:var(--ui-text)}.browser-quick svg{width:13px;height:13px}
       .browser-viewport{position:relative;flex:1;min-height:0;background:#fff;overflow:hidden}.browser-placeholder{position:absolute;inset:0;display:grid;place-items:center;background:var(--ui-bg);color:var(--ui-muted);text-align:center}.browser-placeholder>div{max-width:420px;padding:24px}.browser-placeholder svg{width:26px;height:26px;margin-bottom:9px;color:var(--ui-faint)}.browser-placeholder strong{display:block;margin-bottom:4px;color:var(--ui-text);font-size:13px}.browser-placeholder span{display:block;font-size:11.5px;line-height:1.55}
       .browser-session-note{height:24px;min-height:24px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#1f2022;border-top:1px solid var(--ui-border-soft);color:var(--ui-faint);font-size:9.5px}.browser-session-note b{color:var(--ui-muted);font-weight:500}.browser-session-note .browser-error{color:var(--ui-danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      @media(max-width:900px){#route-browser.browser-route{margin:-8px -16px -20px}.browser-quick span{display:none}.browser-quick{width:30px;padding:0;justify-content:center}.browser-tab{min-width:96px}.browser-session-note>span:first-child{display:none}}
+      @media(max-width:900px){.browser-quick span{display:none}.browser-quick{width:30px;padding:0;justify-content:center}.browser-tab{min-width:96px}.browser-session-note>span:first-child{display:none}}
     `;
     document.head.appendChild(style);
   }
@@ -70,12 +72,12 @@
           <button id="browserReload" class="browser-tool" type="button" title="Tải lại"><i data-lucide="rotate-cw" aria-hidden="true"></i></button>
           <form id="browserAddressForm" class="browser-address-form"><input id="browserAddress" class="browser-address" autocomplete="off" spellcheck="false" placeholder="Nhập địa chỉ hoặc tìm kiếm Google"></form>
           <button id="browserChatGPT" class="browser-quick" type="button" title="Mở ChatGPT"><i data-lucide="sparkles" aria-hidden="true"></i><span>ChatGPT</span></button>
-          <button id="browserExternal" class="browser-tool" type="button" title="Mở ngoài"><i data-lucide="external-link" aria-hidden="true"></i></button>
+          <button id="browserExternal" class="browser-tool" type="button" title="Mở bằng trình duyệt ngoài"><i data-lucide="external-link" aria-hidden="true"></i></button>
         </div>
         <div id="browserViewport" class="browser-viewport">
-          <div id="browserPlaceholder" class="browser-placeholder"><div><i data-lucide="globe-2" aria-hidden="true"></i><strong>Browser Workspace</strong><span>ChatGPT và các website sẽ mở trực tiếp trong ChatCode. Session đăng nhập được giữ riêng và không được đưa vào MCP.</span></div></div>
+          <div id="browserPlaceholder" class="browser-placeholder"><div><i data-lucide="globe-2" aria-hidden="true"></i><strong>Trình duyệt ChatCode</strong><span>ChatGPT và website mở trực tiếp trong ChatCode. Phiên đăng nhập được giữ riêng và không đưa vào MCP.</span></div></div>
         </div>
-        <div class="browser-session-note"><span>Session riêng · <b>persist:chatcode-browser</b> · Node integration tắt</span><span id="browserStatus">Sẵn sàng</span></div>
+        <div class="browser-session-note"><span>Phiên riêng · <b>persist:chatcode-browser</b> · không tích hợp Node</span><span id="browserStatus">Sẵn sàng</span></div>
       </div>`;
     content.appendChild(route);
     viewport = document.getElementById('browserViewport');
@@ -184,6 +186,7 @@
 
   async function syncVisibility() {
     const active = !!route?.classList.contains('active');
+    document.body.classList.toggle('browser-workspace-active', active);
     try { await api.browserSetVisible(active); } catch {}
     if (active) {
       if (!initialized) {
@@ -202,12 +205,6 @@
       document.querySelectorAll('.nav-link[data-route]').forEach(node => node.classList.toggle('active', node.dataset.route === 'browser'));
       localStorage.setItem('route', 'browser');
     }
-    const eyebrow = document.getElementById('pageEyebrow');
-    const title = document.getElementById('pageTitle');
-    const subtitle = document.getElementById('pageSubtitle');
-    if (eyebrow) eyebrow.textContent = 'BROWSER WORKSPACE';
-    if (title) title.textContent = 'Trình duyệt';
-    if (subtitle) subtitle.textContent = 'ChatGPT, Google, wp-admin và website ngay trong ChatCode.';
     await syncVisibility();
   }
 
