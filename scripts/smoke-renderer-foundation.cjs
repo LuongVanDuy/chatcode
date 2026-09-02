@@ -6,16 +6,21 @@ const root = path.join(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 const preload = read('preload.js');
 const runtime = read('renderer/current-runtime.js');
+const browser = read('renderer/browser-workspace.js');
 const v08 = read('renderer/v08-runtime.js');
 const v10 = read('renderer/v10-runtime.js');
 const v10css = read('renderer/v10.css');
 const css = read('renderer/ui-foundation.css');
 
 assert.ok(preload.includes("await load('current-runtime.js', 'current-runtime')"), 'preload must load the current renderer entrypoint');
+assert.ok(preload.includes("await load('browser-workspace.js', 'browser-workspace')"), 'preload must load Browser Workspace after the current renderer entrypoint');
 for (const legacy of ['v07-runtime.js','v08-runtime.js','v081-runtime.js','v09-runtime.js','v091-runtime.js','v10-runtime.js','v10-stage3.js','v10-stage4.js','v102-runtime.js']) {
   assert.equal(preload.includes(legacy), false, `preload must not directly know legacy runtime ${legacy}`);
   assert.ok(runtime.includes(`'${legacy}'`), `current runtime must retain compatibility module ${legacy} until it is proven removable`);
 }
+assert.ok(browser.includes("route.id = 'route-browser'"), 'Browser Workspace must mount as its own route');
+assert.ok(browser.includes("button.dataset.route = 'browser'"), 'Browser Workspace must use the shared navigation route contract');
+assert.ok(browser.includes("api.browserSetVisible(active)"), 'Browser Workspace must detach its native view when the route is inactive');
 assert.ok(runtime.includes("foundation: 'ui-foundation.css'"));
 assert.ok(runtime.includes("new CustomEvent('chatcode:renderer-ready'"));
 assert.ok(runtime.includes('stage: 3'), 'current renderer must expose UI stage 3');
@@ -74,4 +79,4 @@ assert.ok(v10css.includes('.project-tab#project-tab-permissions.active{display:f
 assert.equal(v10.includes('location.reload()'), false, 'Safe/Trusted mode changes must not reload the renderer');
 assert.ok(v10.includes('await render();\n    await refreshTerminalJobs();'), 'workspace mode changes must refresh in place');
 
-console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + tab-state hotfix');
+console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + Browser Workspace integration');
