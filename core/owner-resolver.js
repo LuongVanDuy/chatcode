@@ -12,8 +12,18 @@ function norm(value) {
 function text(value) { return String(value || '').trim().toLowerCase(); }
 function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
 
+const NEGATED_ROUTING_CLAUSE_RE = /(?:\b(?:do\s+not|don't|dont|without|no|not)\b|\b(?:không|khong)\b)[^.!?\n]{0,180}/gi;
+const ROUTING_CONTRAST_RE = /\b(?:but|however|nhưng|nhung|tuy\s+nhiên|tuy\s+nhien)\b/i;
+
+function positiveRequestText(value) {
+  return text(value).replace(NEGATED_ROUTING_CLAUSE_RE, clause => {
+    const contrast = clause.search(ROUTING_CONTRAST_RE);
+    return contrast < 0 ? ' ' : clause.slice(contrast);
+  });
+}
+
 function requestFlags(request = '') {
-  const q = text(request);
+  const raw = text(request), q = positiveRequestText(request);
   return {
     globalStyle:/toàn\s+(?:site|trang|website)|global|site[-\s]?wide|entire\s+site|font\s+toàn/i.test(q),
     homepage:/homepage|home\s*page|trang\s+chủ|trang\s+chu|front[-\s]?page/i.test(q),
@@ -24,7 +34,7 @@ function requestFlags(request = '') {
     product:/product|sản\s*phẩm|san\s*pham/i.test(q),
     productCard:/product\s+card|card\s+sản\s*phẩm|card\s+san\s*pham|thẻ\s+sản\s*phẩm|the\s+san\s*pham|product\s+item/i.test(q),
     style:/\bcss\b|style|font|typography|spacing|padding|margin|width|container|responsive|layout|màu|mau/i.test(q),
-    cssOnly:/\bcss[-\s]?only\b|chỉ[^.!?\n]{0,48}\bcss\b|\bcss\b[^.!?\n]{0,32}(?:duy\s+nhất|only)|(?:không|khong|do\s+not|don't|dont)[^.!?\n]{0,72}\bphp\b/i.test(q),
+    cssOnly:/\bcss[-\s]?only\b|chỉ[^.!?\n]{0,48}\bcss\b|\bcss\b[^.!?\n]{0,32}(?:duy\s+nhất|only)|(?:không|khong|do\s+not|don't|dont)[^.!?\n]{0,72}\bphp\b/i.test(raw),
     template:/\btemplate\b|bricks\s+template/i.test(q),
     builder:/bricks|builder|controls?|set_controls|repeater|custom\s+element|element/i.test(q),
     data:/\bcpt\b|custom\s+post\s+type|post[-\s]?type|database|\bdb\b|seed|migration|import|data|dữ\s+liệu|du\s+lieu/i.test(q),
