@@ -24,6 +24,7 @@ function requestFlags(request = '') {
     product:/product|sản\s*phẩm|san\s*pham/i.test(q),
     productCard:/product\s+card|card\s+sản\s*phẩm|card\s+san\s*pham|thẻ\s+sản\s*phẩm|the\s+san\s*pham|product\s+item/i.test(q),
     style:/\bcss\b|style|font|typography|spacing|padding|margin|width|container|responsive|layout|màu|mau/i.test(q),
+    cssOnly:/\bcss[-\s]?only\b|chỉ[^.!?\n]{0,48}\bcss\b|\bcss\b[^.!?\n]{0,32}(?:duy\s+nhất|only)|(?:không|khong|do\s+not|don't|dont)[^.!?\n]{0,72}\bphp\b/i.test(q),
     template:/\btemplate\b|bricks\s+template/i.test(q),
     builder:/bricks|builder|controls?|set_controls|repeater|custom\s+element|element/i.test(q),
     data:/\bcpt\b|custom\s+post\s+type|post[-\s]?type|database|\bdb\b|seed|migration|import|data|dữ\s+liệu|du\s+lieu/i.test(q),
@@ -88,12 +89,36 @@ function firstPathMatch(rows, predicates = []) {
   return null;
 }
 
+function callableSymbol(symbol) {
+  const name = String(symbol?.name || '').trim();
+  const kind = text(symbol?.kind || '');
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return false;
+  return !kind || /^(?:function|method)$/.test(kind);
+}
+
 function findSymbolOwner(inspect, name) {
   const wanted = text(name);
-  if (!wanted) return null;
-  const matches = symbols(inspect).filter(item => text(item?.name) === wanted && item.path);
+  if (!wanted || !/^[a-z_][a-z0-9_]*$/i.test(String(name || '').trim())) return null;
+  const matches = symbols(inspect).filter(item => callableSymbol(item) && text(item?.name) === wanted && item.path);
   if (matches.length === 1) return matches[0];
   return matches[0] || null;
+}
+
+function findProductRendererOwner(inspect) {
+  const matches = symbols(inspect).filter(item => {
+    const name = String(item?.name || '');
+    return callableSymbol(item) && item.path && /(?:product.*(?:card|item)|(?:card|item).*product)/i.test(name);
+  }).map(item => {
+    const name = String(item.name || ''), lowerPath = norm(item.path).toLowerCase();
+    let score = 0;
+    if (/render/i.test(name)) score += 10;
+    if (/product.*card|card.*product/i.test(name)) score += 8;
+    if (/product[-_/]?card|card[-_/]?product/i.test(lowerPath)) score += 8;
+    if (/\/inc\/(?:woocommerce|product|products)\//i.test(lowerPath)) score += 5;
+    if (/\/functions\.php$/i.test(lowerPath)) score -= 8;
+    return { item, score };
+  }).sort((a,b) => b.score - a.score);
+  return matches[0]?.item || null;
 }
 
 function requestTokens(request) {
@@ -122,6 +147,29 @@ function componentOwner(rows, request) {
   return ranked[0]?.row || null;
 }
 
+function relationCssOwner(inspect, rows, request, flags) {
+  const tokens = requestTokens(request);
+  const candidates = [];
+  for (const relation of inspect?.relevant_relations || []) {
+    const relationType = text(relation?.type || relation?.kind || '');
+    const target = norm(relation?.to || relation?.target || '');
+    if (!target || !/\.(?:css|scss|sass|less)$/i.test(target)) continue;
+    if (!/(?:wp-enqueue-style|selector-css|style)/i.test(relationType)) continue;
+    const lower = target.toLowerCase();
+    let score = 12;
+    if (exactFile(rows, target)) score += 4;
+    for (const token of tokens) if (lower.includes(token)) score += 3;
+    if (flags.productCard && /product[-_.]?(?:card|item)|(?:card|item)[-_.]?product/i.test(lower)) score += 28;
+    if (flags.single && flags.product && /single[-_.]?product|product[-_.]?single/i.test(lower)) score += 30;
+    if (flags.product && /product/i.test(lower)) score += 12;
+    if (flags.homepage && /home|front[-_.]?page/i.test(lower)) score += 16;
+    if (flags.header && /header/i.test(lower)) score += 16;
+    if (flags.footer && /footer/i.test(lower)) score += 16;
+    candidates.push({ path:target, score, relationType });
+  }
+  return candidates.sort((a,b) => b.score - a.score)[0] || null;
+}
+
 function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
   if (taskType === 'PRODUCTION') return ['deployment'];
   if (taskType === 'DATA') return ['data_model'];
@@ -138,9 +186,10 @@ function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
     if (flags.header && flags.style) return ['header_css','global_css'];
     if (flags.footer && flags.style) return ['footer_css','global_css'];
     if (flags.homepage && flags.style) return ['homepage_css','global_css'];
-    if (flags.productCard && flags.style) return ['product_css','product_renderer'];
+    if (flags.productCard && flags.style) return flags.cssOnly ? ['product_css','global_css'] : ['product_css','product_renderer','global_css'];
     if (flags.productCard) return ['product_renderer','product_css'];
     if (flags.globalStyle && flags.style) return ['global_css'];
+    if (flags.product && flags.style) return flags.cssOnly ? ['product_css','global_css'] : ['product_css','product_renderer','global_css'];
     if (flags.product) return ['product_renderer','product_css'];
     if (flags.style) return ['global_css'];
     return primaryKind ? [primaryKind] : [];
@@ -156,10 +205,11 @@ function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
   if (flags.header && flags.style) return ['header_css','global_css'];
   if (flags.footer && flags.style) return ['footer_css','global_css'];
   if (flags.homepage && flags.style) return ['homepage_css','global_css'];
-  if (flags.productCard && flags.style) return ['product_css','product_renderer'];
+  if (flags.productCard && flags.style) return flags.cssOnly ? ['product_css','global_css'] : ['product_css','product_renderer','global_css'];
   if (flags.productCard) return ['product_renderer','product_css'];
   if (flags.builder) return ['builder_component'];
   if (flags.globalStyle && flags.style) return ['global_css'];
+  if (flags.product && flags.style) return flags.cssOnly ? ['product_css','global_css'] : ['product_css','product_renderer','global_css'];
   if (flags.product) return ['product_renderer','product_css'];
   if (flags.style) return ['global_css'];
   return primaryKind ? [primaryKind] : [];
@@ -207,12 +257,23 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
 
   if (facts.shared_product_renderer) {
     const owner = findSymbolOwner(inspect, facts.shared_product_renderer);
-    add(evidenceEntry('product_renderer', {
-      path:owner?.path || '', symbol:facts.shared_product_renderer,
-      status:owner ? OWNER_STATUS.CONFIRMED : OWNER_STATUS.DETECTED,
-      confidence:owner ? 1 : 0.86,
+    if (owner) add(evidenceEntry('product_renderer', {
+      path:owner.path, symbol:facts.shared_product_renderer,
+      status:OWNER_STATUS.CONFIRMED,
+      confidence:1,
       source:'project_profile.fact',
-      basis:[owner ? 'profile renderer symbol matches current source symbol' : 'profile renderer symbol from prior detected source']
+      basis:['profile renderer identity matches a current callable source symbol']
+    }));
+  }
+  if (!map.some(item => item.kind === 'product_renderer' && item.path)) {
+    const owner = findProductRendererOwner(inspect);
+    if (owner) add(evidenceEntry('product_renderer', {
+      path:owner.path,
+      symbol:owner.name,
+      status:OWNER_STATUS.CONFIRMED,
+      confidence:0.97,
+      source:'inspection.callable-symbol',
+      basis:['callable product card/item renderer symbol; handles and registration identities are ignored']
     }));
   }
 
@@ -257,11 +318,25 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   ]);
   if (singleTemplate) add(evidenceEntry('single_template', { path:singleTemplate.path, confidence:0.9, basis:['single template path'] }));
 
+  const relationCss = relationCssOwner(inspect, rows, request, flags);
+  if (relationCss && (flags.style || flags.product || flags.homepage || flags.header || flags.footer)) {
+    const relationKind = flags.homepage ? 'homepage_css' : flags.header ? 'header_css' : flags.footer ? 'footer_css' : 'product_css';
+    add(evidenceEntry(relationKind, {
+      path:relationCss.path,
+      status:exactFile(rows, relationCss.path) ? OWNER_STATUS.CONFIRMED : OWNER_STATUS.DETECTED,
+      confidence:0.98,
+      source:'wordpress.relevant_relation',
+      basis:[`${relationCss.relationType} points to the stylesheet owner`]
+    }));
+  }
+
   const productCss = firstPathMatch(rows, [
+    ...(flags.single && flags.product ? [lower => /\/css\/[^/]*single[-_.]?product[^/]*\.(?:css|scss|sass|less)$/.test(lower)] : []),
+    ...(flags.productCard ? [lower => /\/css\/[^/]*(?:product[-_.]?(?:card|item)|(?:card|item)[-_.]?product)[^/]*\.(?:css|scss|sass|less)$/.test(lower)] : []),
     lower => /\/css\/[^/]*(?:product|products|product-card|product-item)[^/]*\.(?:css|scss|sass|less)$/.test(lower),
     lower => /(?:^|\/)(?:products?|product-card|product-item)\.(?:css|scss|sass|less)$/.test(lower)
   ]);
-  if (productCss) add(evidenceEntry('product_css', { path:productCss.path, confidence:0.88, basis:['product component CSS path'] }));
+  if (productCss) add(evidenceEntry('product_css', { path:productCss.path, confidence:0.9, basis:['product component CSS path'] }));
 
   if (flags.builder && (!taskType || isBuilderTask)) {
     const component = componentOwner(rows, request);
@@ -287,7 +362,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
 
   const choose = kinds => {
     for (const kind of kinds) {
-      const entry = map.find(item => item.kind === kind && item.path);
+      const entry = map.filter(item => item.kind === kind && item.path).sort((a,b) => b.confidence - a.confidence)[0];
       if (entry) return entry;
     }
     return null;
@@ -309,6 +384,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
     else if (flags.productCard) primary = choose(['product_renderer','product_css']);
     else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
+    else if (flags.product && flags.style) primary = choose(['product_css','product_renderer','global_css']);
     else if (flags.product) primary = choose(['product_renderer','product_css']);
     else if (flags.style) primary = choose(['global_css']);
   } else if (!primary) {
@@ -325,9 +401,10 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     else if (flags.productCard) primary = choose(['product_renderer','product_css']);
     else if (flags.builder) primary = choose(['builder_component']);
     else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
+    else if (flags.product && flags.style) primary = choose(['product_css','product_renderer','global_css']);
   }
 
-  if (!primary && taskType !== 'DATA' && flags.product) primary = choose(['product_renderer','product_css']);
+  if (!primary && taskType !== 'DATA' && flags.product) primary = flags.style ? choose(['product_css','product_renderer']) : choose(['product_renderer','product_css']);
   if (!primary && taskType !== 'DATA' && flags.style && !flags.homepage && !flags.header && !flags.footer) primary = choose(['global_css']);
 
   if (!primary) {
@@ -359,7 +436,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   ).slice(0,4);
 
   return {
-    version:4,
+    version:5,
     primary,
     entries:scoped,
     companion_paths:companionPaths,
