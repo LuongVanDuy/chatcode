@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.21**
+> Phiên bản hiện tại: **v1.0.22**
 
 ## Kiến trúc
 
@@ -486,19 +486,19 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.21** tinh gọn Browser Workspace theo phản hồi sử dụng thực tế: khi mở Trình duyệt, top header của ChatCode được ẩn và browser dùng trọn vùng làm việc cạnh sidebar; rời browser thì layout cũ tự khôi phục. Partition `persist:chatcode-browser` giờ ưu tiên `vi-VN` bằng `Accept-Language`, trong khi MCP, Fast Agent, Project Scope và terminal không thay đổi. Không thêm dependency, service hay runtime mode mới.
+**v1.0.22** harden Owner Resolver và FAST retrieval từ acceptance thực tế: synthetic WordPress style handles/registration identities không còn được coi là callable renderer source; renderer profile stale được phục hồi từ function/method thật; `wp-enqueue-style`/selector relation đưa component CSS thành owner first-class; styling task ưu tiên product/single-product CSS và CSS-only scope loại PHP owner. Generic “duplicate” không còn tự đẩy reuse/component task sang DATA, còn duplicate stored records/template/data vẫn giữ DATA/DEEP. Mệnh đề phủ định như “không tạo CSS mới” và “không duplicate renderer/CSS” không tạo intent giả. Không thêm dependency, service hay runtime mode mới.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.22** | Acceptance hardening: callable renderer identity, relation-backed CSS owner, negation-aware owner routing và duplicate-safe FAST classifier. |
 | **v1.0.21** | Browser polish: full layout cạnh sidebar + session ưu tiên tiếng Việt, không ảnh hưởng luồng cũ. |
 | **v1.0.20** | Browser Workspace: ChatGPT + multi-tab embedded Chromium, persistent isolated session, lazy-load và protocol guard. |
 | **v1.0.19** | Terminal scope lifecycle: holder-aware foreground/background lease cleanup và precise violation details. |
 | **v1.0.18** | Release consistency guard: package/README/update pipeline không được drift version. |
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
-| **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.21**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.22**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
