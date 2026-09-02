@@ -1,9 +1,12 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const {
   DEFAULT_HOME,
   NEW_TAB_HOME,
   BROWSER_PARTITION,
+  BROWSER_ACCEPT_LANGUAGE,
   MAX_TABS,
   normalizeDirectUrl,
   normalizeBrowserInput,
@@ -84,11 +87,13 @@ class FakeWindow extends EventEmitter {
 
   let permissionRequestHandler = null;
   let permissionCheckHandler = null;
+  let beforeSendHeadersHandler = null;
   const session = {
     requestedPartition:null,
     fromPartition(partition) {
       this.requestedPartition = partition;
       return {
+        webRequest:{ onBeforeSendHeaders(handler) { beforeSendHeadersHandler = handler; } },
         setPermissionRequestHandler(handler) { permissionRequestHandler = handler; },
         setPermissionCheckHandler(handler) { permissionCheckHandler = handler; }
       };
@@ -112,6 +117,7 @@ class FakeWindow extends EventEmitter {
   let snap = await workspace.command('init');
   assert.equal(snap.tabs.length, 1);
   assert.equal(snap.tabs[0].url, DEFAULT_HOME);
+  assert.equal(snap.locale, 'vi-VN');
   assert.equal(session.requestedPartition, BROWSER_PARTITION);
   assert.equal(window.contentView.children.size, 1);
   const firstId = snap.active_tab_id;
@@ -121,6 +127,11 @@ class FakeWindow extends EventEmitter {
   assert.equal(firstView.options.webPreferences.nodeIntegration, false);
   assert.equal(firstView.options.webPreferences.contextIsolation, true);
   assert.equal(firstView.options.webPreferences.sandbox, true);
+
+  let localizedHeaders = null;
+  beforeSendHeadersHandler({ requestHeaders:{ 'User-Agent':'ChatCode-Test' } }, value => { localizedHeaders = value.requestHeaders; });
+  assert.equal(localizedHeaders['Accept-Language'], BROWSER_ACCEPT_LANGUAGE);
+  assert.equal(localizedHeaders['User-Agent'], 'ChatCode-Test', 'locale header must preserve existing request headers');
 
   let mediaAllowed = null;
   permissionRequestHandler({}, 'media', value => { mediaAllowed = value; });
@@ -143,7 +154,7 @@ class FakeWindow extends EventEmitter {
 
   snap = await workspace.command('navigate', { input:'OpenAI API docs' });
   assert.match(snap.tabs.find(tab => tab.id === firstId).url, /^https:\/\/www\.google\.com\/search\?q=/);
-  await assert.rejects(() => workspace.command('navigate', { input:'javascript:alert(1)' }), /protocol/i);
+  await assert.rejects(() => workspace.command('navigate', { input:'javascript:alert(1)' }), /giao thức/i);
 
   const firstContents = [...window.contentView.children][0].webContents;
   const popup = firstContents.windowOpenHandler({ url:'https://example.com/login', disposition:'foreground-tab' });
@@ -182,12 +193,19 @@ class FakeWindow extends EventEmitter {
   while (workspace.snapshot().tabs.length < MAX_TABS) await workspace.command('new', { url:'https://example.com/' });
   await assert.rejects(() => workspace.command('new', { url:'https://example.net/' }), /tối đa/i);
 
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'browser-workspace.js'), 'utf8');
+  assert.ok(renderer.includes('body.browser-workspace-active .topbar{display:none!important}'), 'Browser route must hide the ChatCode page header');
+  assert.ok(renderer.includes('body.browser-workspace-active .content{padding:0!important;overflow:hidden!important}'), 'Browser route must consume the full main area beside sidebar');
+  assert.ok(renderer.includes("document.body.classList.toggle('browser-workspace-active', active)"), 'Fullscreen browser chrome must be scoped only to the active Browser route');
+  assert.ok(renderer.includes('Trình duyệt ChatCode'), 'Browser-owned labels must be Vietnamese');
+  assert.ok(renderer.includes('Phiên riêng'), 'Browser session note must be Vietnamese');
+
   assert.ok(changes.length > 0, 'workspace state changes must be observable by renderer');
   workspace.destroy();
   assert.equal(workspace.snapshot().tabs.length, 0);
   assert.equal(window.contentView.children.size, 0);
 
-  console.log('Browser Workspace PASS: lazy WebContentsView + isolated session + tabs/popups + protocol guard + bounded lifecycle');
+  console.log('Browser Workspace PASS: full sidebar-adjacent layout + vi-VN session + isolated tabs/popups + bounded lifecycle');
 })().catch(error => {
   console.error(error);
   process.exit(1);

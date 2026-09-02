@@ -1,6 +1,7 @@
 const DEFAULT_HOME = 'https://chatgpt.com/';
 const NEW_TAB_HOME = 'https://www.google.com/';
 const BROWSER_PARTITION = 'persist:chatcode-browser';
+const BROWSER_ACCEPT_LANGUAGE = 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7';
 const MAX_TABS = 10;
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const EXTERNAL_PROTOCOLS = new Set(['mailto:', 'tel:']);
@@ -46,7 +47,7 @@ function normalizeBounds(value = {}) {
 }
 
 function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = () => {} } = {}) {
-  if (typeof WebContentsView !== 'function') throw new Error('WebContentsView unavailable.');
+  if (typeof WebContentsView !== 'function') throw new Error('WebContentsView không khả dụng.');
   const tabs = new Map();
   let mainWindow = null;
   let activeTabId = null;
@@ -60,6 +61,16 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
   function configurePartition() {
     if (partitionConfigured || !session?.fromPartition) return;
     const isolatedSession = session.fromPartition(BROWSER_PARTITION);
+    if (isolatedSession?.webRequest?.onBeforeSendHeaders) {
+      isolatedSession.webRequest.onBeforeSendHeaders((details, callback) => {
+        callback({
+          requestHeaders:{
+            ...(details?.requestHeaders || {}),
+            'Accept-Language':BROWSER_ACCEPT_LANGUAGE
+          }
+        });
+      });
+    }
     if (isolatedSession?.setPermissionRequestHandler) {
       isolatedSession.setPermissionRequestHandler((_contents, permission, callback) => {
         callback(permission === 'clipboard-sanitized-write');
@@ -96,6 +107,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
       active_tab_id:activeTabId,
       max_tabs:MAX_TABS,
       partition:BROWSER_PARTITION,
+      locale:'vi-VN',
       tabs:[...tabs.values()].map(tabSnapshot).filter(Boolean)
     };
   }
@@ -205,7 +217,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
   }
 
   function registerTab(view, { url = '', title = 'Tab mới', activate = true, skipLoad = false } = {}) {
-    if (tabs.size >= MAX_TABS) throw new Error(`Browser Workspace chỉ mở tối đa ${MAX_TABS} tab.`);
+    if (tabs.size >= MAX_TABS) throw new Error(`Trình duyệt chỉ mở tối đa ${MAX_TABS} tab.`);
     const id = `browser-tab-${++sequence}`;
     const tab = { id, view, url, title };
     tabs.set(id, tab);
@@ -219,7 +231,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
 
   function createTab(value = NEW_TAB_HOME, activate = true) {
     const target = normalizeBrowserInput(value);
-    if (!target) throw new Error('Địa chỉ không hợp lệ hoặc protocol không được phép.');
+    if (!target) throw new Error('Địa chỉ không hợp lệ hoặc giao thức không được phép.');
     return registerTab(createView(), { url:target, title:'Đang mở…', activate });
   }
 
@@ -244,7 +256,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
 
   function setActive(id) {
     const tabId = String(id || '');
-    if (!tabs.has(tabId)) throw new Error('Không tìm thấy browser tab.');
+    if (!tabs.has(tabId)) throw new Error('Không tìm thấy tab trình duyệt.');
     activeTabId = tabId;
     syncAttachedView();
     return emit();
@@ -252,9 +264,9 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
 
   async function navigate(value, id = activeTabId) {
     const tab = tabs.get(String(id || ''));
-    if (!tab) throw new Error('Không có browser tab đang active.');
+    if (!tab) throw new Error('Không có tab trình duyệt đang hoạt động.');
     const target = normalizeBrowserInput(value);
-    if (!target) throw new Error('Địa chỉ không hợp lệ hoặc protocol không được phép.');
+    if (!target) throw new Error('Địa chỉ không hợp lệ hoặc giao thức không được phép.');
     await tab.view.webContents.loadURL(target);
     updateFromContents(tab);
     return snapshot();
@@ -273,14 +285,14 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
     if (name === 'home') return navigate(DEFAULT_HOME, payload.tab_id || activeTabId);
 
     const tab = tabs.get(String(payload.tab_id || activeTabId || ''));
-    if (!tab) throw new Error('Không có browser tab đang active.');
+    if (!tab) throw new Error('Không có tab trình duyệt đang hoạt động.');
     const contents = tab.view.webContents;
     if (name === 'back') { if (contents.canGoBack?.()) contents.goBack(); return emit(); }
     if (name === 'forward') { if (contents.canGoForward?.()) contents.goForward(); return emit(); }
     if (name === 'reload') { contents.reload?.(); return emit(); }
     if (name === 'stop') { contents.stop?.(); return emit(); }
     if (name === 'external') { openExternal(contents.getURL?.() || tab.url); return snapshot(); }
-    throw new Error(`Browser command không hỗ trợ: ${name}`);
+    throw new Error(`Lệnh trình duyệt không hỗ trợ: ${name}`);
   }
 
   function attachWindow(window) {
@@ -364,6 +376,7 @@ module.exports = {
   DEFAULT_HOME,
   NEW_TAB_HOME,
   BROWSER_PARTITION,
+  BROWSER_ACCEPT_LANGUAGE,
   MAX_TABS,
   normalizeDirectUrl,
   normalizeBrowserInput,
