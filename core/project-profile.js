@@ -114,11 +114,18 @@ function detectCssOwner(inspect = {}) {
   return preferred || '';
 }
 
+function validCallableRendererSymbol(symbol = {}) {
+  const name = String(symbol?.name || '').trim();
+  const kind = String(symbol?.kind || '').trim().toLowerCase();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return false;
+  return !kind || /^(?:function|method)$/.test(kind);
+}
+
 function detectSharedProductRenderer(inspect = {}) {
   const names = [];
   for (const symbol of inspect?.top_symbols || []) {
     const name = String(symbol?.name || '');
-    if (!name || !/(?:product.*card|card.*product|product.*item|item.*product)/i.test(name)) continue;
+    if (!validCallableRendererSymbol(symbol) || !/(?:product.*card|card.*product|product.*item|item.*product)/i.test(name)) continue;
     if (!names.includes(name)) names.push(name);
   }
   if (!names.length) {
@@ -126,11 +133,14 @@ function detectSharedProductRenderer(inspect = {}) {
     let match;
     while ((match = re.exec(text))) if (!names.includes(match[1])) names.push(match[1]);
   }
-  return names.length === 1 ? names[0] : '';
+  if (names.length === 1) return names[0];
+  const renderers = names.filter(name => /(?:render.*product.*(?:card|item)|product.*(?:card|item).*render)/i.test(name));
+  return renderers.length === 1 ? renderers[0] : '';
 }
 
 function deriveProjectFacts(inspect = {}, currentFacts = {}, project = {}) {
   const facts = { ...normalizeFacts(currentFacts) };
+  if (facts.shared_product_renderer && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(facts.shared_product_renderer)) delete facts.shared_product_renderer;
   const sources = {};
   const set = (key, value, source) => {
     value = String(value || '').trim();
