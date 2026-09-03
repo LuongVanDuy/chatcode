@@ -1,8 +1,10 @@
+const { MAX_BROWSER_TABS, getBrowserPerformanceService } = require('./browser-performance');
+
 const DEFAULT_HOME = 'https://chatgpt.com/';
 const NEW_TAB_HOME = 'https://www.google.com/';
 const BROWSER_PARTITION = 'persist:chatcode-browser';
 const BROWSER_ACCEPT_LANGUAGE = 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7';
-const MAX_TABS = 10;
+const MAX_TABS = MAX_BROWSER_TABS;
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const EXTERNAL_PROTOCOLS = new Set(['mailto:', 'tel:']);
 
@@ -46,7 +48,7 @@ function normalizeBounds(value = {}) {
   };
 }
 
-function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = () => {} } = {}) {
+function createBrowserWorkspace({ WebContentsView, session, shell, performance = null, onChanged = () => {} } = {}) {
   if (typeof WebContentsView !== 'function') throw new Error('WebContentsView không khả dụng.');
   const tabs = new Map();
   let mainWindow = null;
@@ -57,6 +59,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
   let sequence = 0;
   let partitionConfigured = false;
   let disposed = false;
+  let unsubscribePerformance = () => {};
 
   function configurePartition() {
     if (partitionConfigured || !session?.fromPartition) return;
@@ -84,6 +87,10 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
 
   function activeTab() { return tabs.get(activeTabId) || null; }
 
+  function syncPerformance() {
+    try { performance?.syncTabs?.([...tabs.values()], activeTabId, visible); } catch {}
+  }
+
   function tabSnapshot(tab) {
     const contents = tab?.view?.webContents;
     if (!contents) return null;
@@ -108,6 +115,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
       max_tabs:MAX_TABS,
       partition:BROWSER_PARTITION,
       locale:'vi-VN',
+      performance_mode:performance?.isMaximum?.() ? 'maximum' : 'standard',
       tabs:[...tabs.values()].map(tabSnapshot).filter(Boolean)
     };
   }
@@ -170,7 +178,8 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
         nodeIntegration:false,
         webSecurity:true,
         allowRunningInsecureContent:false,
-        spellcheck:true
+        spellcheck:true,
+        backgroundThrottling:!performance?.isMaximum?.()
       }
     });
   }
@@ -224,6 +233,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
     configureContents(tab);
     if (!activeTabId || activate) activeTabId = id;
     syncAttachedView();
+    syncPerformance();
     emit();
     if (!skipLoad && url) view.webContents.loadURL(url).catch(() => updateFromContents(tab));
     return tab;
@@ -251,6 +261,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
     }
     if (ensureOne && tabs.size === 0 && !disposed) createTab(NEW_TAB_HOME, true);
     syncAttachedView();
+    syncPerformance();
     return emit();
   }
 
@@ -259,6 +270,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
     if (!tabs.has(tabId)) throw new Error('Không tìm thấy tab trình duyệt.');
     activeTabId = tabId;
     syncAttachedView();
+    syncPerformance();
     return emit();
   }
 
@@ -303,6 +315,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
       if (window !== mainWindow) return;
       visible = false;
       syncAttachedView();
+      syncPerformance();
     });
     window.on?.('closed', () => {
       if (window !== mainWindow) return;
@@ -310,6 +323,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
       mainWindow = null;
     });
     syncAttachedView();
+    syncPerformance();
     return snapshot();
   }
 
@@ -322,12 +336,15 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
   function setVisible(value) {
     visible = !!value;
     syncAttachedView();
+    syncPerformance();
     emit();
     return true;
   }
 
   function destroy() {
     disposed = true;
+    unsubscribePerformance();
+    try { performance?.syncTabs?.([...tabs.values()], null, false); } catch {}
     removeAttachedView();
     for (const tab of tabs.values()) {
       try { if (!tab.view.webContents.isDestroyed?.()) tab.view.webContents.close?.(); } catch {}
@@ -337,6 +354,11 @@ function createBrowserWorkspace({ WebContentsView, session, shell, onChanged = (
     visible = false;
   }
 
+  unsubscribePerformance = performance?.onModeChanged?.(() => {
+    syncPerformance();
+    emit();
+  }) || (() => {});
+
   return { snapshot, command, attachWindow, setBounds, setVisible, destroy };
 }
 
@@ -344,11 +366,13 @@ let installed = null;
 function installBrowserWorkspace() {
   if (installed) return installed;
   const { app, ipcMain, WebContentsView, session, shell } = require('electron');
+  const performance = getBrowserPerformanceService();
   let workspaceWindow = null;
   const workspace = createBrowserWorkspace({
     WebContentsView,
     session,
     shell,
+    performance,
     onChanged:value => {
       const window = workspaceWindow;
       if (window && !window.isDestroyed?.()) window.webContents.send('browser:changed', value);
