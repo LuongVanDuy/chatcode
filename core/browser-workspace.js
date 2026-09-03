@@ -186,7 +186,10 @@ function createBrowserWorkspace({ WebContentsView, session, shell, performance =
 
   function configureContents(tab) {
     const contents = tab.view.webContents;
-    const refresh = () => updateFromContents(tab);
+    const refresh = () => {
+      updateFromContents(tab);
+      syncPerformance();
+    };
     for (const event of ['did-start-loading','did-stop-loading','did-navigate','did-navigate-in-page','page-title-updated']) {
       contents.on?.(event, refresh);
     }
@@ -281,6 +284,7 @@ function createBrowserWorkspace({ WebContentsView, session, shell, performance =
     if (!target) throw new Error('Địa chỉ không hợp lệ hoặc giao thức không được phép.');
     await tab.view.webContents.loadURL(target);
     updateFromContents(tab);
+    syncPerformance();
     return snapshot();
   }
 
