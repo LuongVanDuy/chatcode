@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld('personalCode', {
   browserCommand: (action, payload) => ipcRenderer.invoke('browser:command', action, payload || {}),
   browserSetBounds: bounds => ipcRenderer.invoke('browser:bounds', bounds || {}),
   browserSetVisible: visible => ipcRenderer.invoke('browser:visible', !!visible),
+  browserPerformance: () => ipcRenderer.invoke('browser-performance:get'),
+  browserPerformanceSetMode: mode => ipcRenderer.invoke('browser-performance:set-mode', mode),
+  browserPerformanceInstallQos: () => ipcRenderer.invoke('browser-performance:qos-install'),
+  browserPerformanceRemoveQos: () => ipcRenderer.invoke('browser-performance:qos-remove'),
 
   onConnectionChanged: callback => ipcRenderer.on('connection:changed', (_, value) => callback(value)),
   onActivityChanged: callback => ipcRenderer.on('activity:changed', (_, value) => callback(value)),
@@ -98,4 +102,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   await load('current-runtime.js', 'current-runtime');
   await load('browser-workspace.js', 'browser-workspace');
   await load('browser-project-labels.js', 'browser-project-labels');
+  await load('browser-performance.js', 'browser-performance');
 });

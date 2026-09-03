@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.23**
+> Phiên bản hiện tại: **v1.0.24**
 
 ## Kiến trúc
 
@@ -133,7 +133,7 @@ Các thao tác nguy hiểm như **Git push** và **`reset --hard`** không đư�
 
 ### Browser Workspace
 
-Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số cửa sổ phải mở khi làm việc. v1.0.21 tối ưu giao diện để browser chiếm toàn bộ vùng làm việc bên phải sidebar và ưu tiên tiếng Việt riêng cho session trình duyệt. v1.0.23 thêm nhãn project cho tab ChatGPT dựa trên hoạt động CHATCODEX thực tế:
+Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số cửa sổ phải mở khi làm việc. v1.0.21 tối ưu giao diện để browser chiếm toàn bộ vùng làm việc bên phải sidebar và ưu tiên tiếng Việt riêng cho session trình duyệt. v1.0.23 thêm nhãn project cho tab ChatGPT dựa trên hoạt động CHATCODEX thực tế. v1.0.24 thêm **Browser Performance Mode** để tận dụng mạnh hơn CPU, RAM, GPU và LAN khi người dùng muốn ưu tiên Browser Workspace:
 
 - Tab đầu tiên mở ChatGPT; tab mới mặc định mở Google.
 - Có Back, Forward, Reload/Stop, thanh địa chỉ/tìm kiếm và mở trang hiện tại bằng browser ngoài.
@@ -146,7 +146,14 @@ Từ v1.0.20, ChatCode có trình duyệt mini tích hợp để giảm số c�
 - Session dùng partition riêng **`persist:chatcode-browser`**, nên cookie đăng nhập được giữ qua lần mở app sau.
 - Browser dùng `WebContentsView` của Electron với `nodeIntegration:false`, `contextIsolation:true`, `sandbox:true` và không có ChatCode preload.
 - Browser được lazy-load: nếu không mở route Trình duyệt thì không tạo tab/web contents.
-- Tối đa 10 tab để tránh tăng RAM không giới hạn.
+- Browser Performance có hai mức **Tiêu chuẩn** và **Tối đa** trong Cài đặt; v1.0.24 mặc định dùng **Tối đa**.
+- Ở mức Tối đa, tab browser đang active được nâng process priority lên `HIGH`; khi browser ẩn hoặc tab không active thì priority trở về `NORMAL`.
+- `backgroundThrottling` được tắt ở mức Tối đa để các tab đang mở luôn nóng trong RAM và không bị Chromium giảm timer/animation khi chạy nền; ChatCode không đặt hard RAM limit cho Browser Workspace.
+- Chromium được khởi động với `force_high_performance_gpu` ở mức Tối đa để ưu tiên discrete GPU khi máy có nhiều GPU. Đổi trạng thái GPU cần thoát hoàn toàn và mở lại ChatCode.
+- Cài đặt hiển thị GPU feature status, GPU đang active, LAN adapter/link speed và trạng thái Windows QoS để kiểm tra hiệu năng thực tế.
+- Nút **Cài QoS ưu tiên** tạo Windows NetQos policy cho đúng executable ChatCode với DSCP 46, precedence 255 và không đặt bandwidth throttle. Thao tác này yêu cầu UAC/Administrator rõ ràng, không tự nâng quyền âm thầm.
+- QoS chỉ ưu tiên khi mạng/router/switch có hỗ trợ và không thể tăng tốc độ vật lý của đường LAN hoặc tốc độ phản hồi phía server.
+- Tối đa **8 tab** để giữ Browser Workspace gọn; các tab không bị discard tự động trong lúc app còn chạy.
 
 Browser Workspace không đưa cookie, password, token hoặc nội dung website vào MCP/Project Brain. Các website vẫn tự quyết định có cho phép luồng đăng nhập embedded hay yêu cầu browser hệ thống hay không.
 
@@ -467,6 +474,7 @@ Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`
 | `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
+| `core/browser-performance.js` | CPU/GPU/RAM performance policy, GPU/LAN diagnostics và explicit Windows QoS management. |
 | `core/browser-workspace.js` | Lazy WebContentsView tabs, isolated persistent session và browser IPC. |
 | `core/trusted-workspace.js` | Trusted Workspace behavior và secret access. |
 | `core/skill-runtime.js` | Auto-detect và attach built-in skills. |
@@ -489,12 +497,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.23** thêm project-aware labels cho các tab ChatGPT trong Browser Workspace. Khi CHATCODEX bắt đầu thao tác với một project thật, tab ChatGPT hiện tại dùng tên project đó làm nhãn; project đầu tiên của conversation giữ ownership, còn New Chat hoặc chuyển sang conversation khác sẽ reset nhãn. Tính năng chỉ dùng `activity:changed` và browser URL/state sẵn có, không đọc DOM/nội dung ChatGPT, không thêm MCP channel, dependency, service hay runtime mode mới.
+**v1.0.24** thêm Browser Performance Mode theo hướng tách biệt khỏi coding runtime. Chế độ **Tối đa** ưu tiên CPU `HIGH` cho renderer browser active, tắt Chromium background throttling, giữ tab nóng trong RAM, yêu cầu discrete GPU bằng `force_high_performance_gpu`, hiển thị GPU/LAN diagnostics và cho phép người dùng cài/gỡ Windows QoS DSCP 46 bằng UAC rõ ràng. Không đặt hard RAM/bandwidth limit, không tự elevate, và không thay MCP, Fast Agent, Project Scope, terminal hay CHATCODEX routing.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.24** | Browser Performance Mode: CPU HIGH active tab, warm RAM tabs, discrete-GPU preference, LAN/GPU diagnostics và explicit Windows QoS. |
 | **v1.0.23** | Browser workflow: tự gắn tên project cho tab ChatGPT theo conversation, first-project-wins và reset an toàn khi New Chat. |
 | **v1.0.21** | Browser polish: full layout cạnh sidebar + session ưu tiên tiếng Việt, không ảnh hưởng luồng cũ. |
 | **v1.0.20** | Browser Workspace: ChatGPT + multi-tab embedded Chromium, persistent isolated session, lazy-load và protocol guard. |
@@ -503,6 +512,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.23**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.24**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
