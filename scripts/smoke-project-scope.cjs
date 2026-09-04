@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const { createProjectScopeApi } = require('../core/project-scope');
 
 function errCode(error) { return String(error?.code || error?.details?.code || ''); }
-function errDetails(error) { return error?.details?.details || error?.details || {}; }
 
 function fakeApi() {
   const projects = [
@@ -23,14 +22,41 @@ function fakeApi() {
     async projectBrain(project) { return { project }; },
     async projectContext(project, query) { return { project, query }; },
     async inspectProject(project, query) { return { project:{ id:project, name:projects.find(p => p.id === project)?.name || project }, query }; },
-    async startWork(project, goal) { const id=`work-${++seq}`; sessions.set(id,{ project_id:project, status:'active' }); return { work_session_id:id, project_id:project, workspace_mode:'trusted', baseline:{} }; },
+    async startWork(project, goal) {
+      const id=`work-${++seq}`;
+      sessions.set(id,{ project_id:project, status:'active' });
+      return { work_session_id:id, project_id:project, workspace_mode:'trusted', baseline:{}, goal };
+    },
     async workStatus(id) { return sessions.get(id) || { project_id:'', status:'missing' }; },
-    async prepareTask(project, request) { const id=`task-${++seq}`; sessions.set(id,{ project_id:project, status:'active' }); return { ok:true, task_id:id, work_session_id:id, request, context:{ project:{ id:project, name:projects.find(p => p.id === project)?.name || project } }, agent_contract:{ guidance:[] } }; },
-    async completeTask(id) { const session=sessions.get(id); if (session) session.status='completed'; return { ok:true, task_id:id, status:'completed' }; },
+    async prepareTask(project, request) {
+      const id=`task-${++seq}`;
+      sessions.set(id,{ project_id:project, status:'active' });
+      return {
+        ok:true,
+        task_id:id,
+        work_session_id:id,
+        request,
+        context:{ project:{ id:project, name:projects.find(p => p.id === project)?.name || project } },
+        agent_contract:{ guidance:[] }
+      };
+    },
+    async completeTask(id) {
+      const session=sessions.get(id);
+      if (session) session.status='completed';
+      return { ok:true, task_id:id, work_session_id:id, status:'completed' };
+    },
     async writeFile(project, file) { return { ok:true, project, file }; },
     async applyPatch(project) { return { ok:true, project }; },
-    async finishWork(id) { const session=sessions.get(id); if (session) session.status='completed'; return { ok:true, id, status:'completed' }; },
-    async rollbackWork(id) { const session=sessions.get(id); if (session) session.status='rolled_back'; return { ok:true, id, status:'rolled_back' }; },
+    async finishWork(id) {
+      const session=sessions.get(id);
+      if (session) session.status='completed';
+      return { ok:true, id, work_session_id:id, status:'completed' };
+    },
+    async rollbackWork(id) {
+      const session=sessions.get(id);
+      if (session) session.status='rolled_back';
+      return { ok:true, id, work_session_id:id, status:'rolled_back' };
+    },
     async gitStatus(project) { return { project, ok:true }; },
     async gitStage(project) { return { project, ok:true }; },
     async exec(project, command, options = {}) {
@@ -54,7 +80,6 @@ function fakeApi() {
       const job = jobs.get(id);
       if (!job) throw Object.assign(new Error('missing job'), { code:'FILE_NOT_FOUND' });
       job.status = 'stopped';
-      job.exit_code = null;
       return { ...job, stop_requested:true };
     },
     __setJobStatus(id, status, exitCode = status === 'completed' ? 0 : null) {
@@ -67,204 +92,135 @@ function fakeApi() {
 }
 
 (async () => {
-  // First project-specific call pins a single-project scope.
+  // Read-only discovery is never a process-global project lock.
   {
     const api = createProjectScopeApi(fakeApi());
     await api.search('boncauinax', 'header mobile');
+    await api.search('eupharma', 'footer mobile');
     const visible = await api.listProjects();
-    assert.deepEqual(visible.map(p => p.id).sort(), ['CHATCODE-GPT','boncauinax']);
-    await assert.rejects(() => api.search('eupharma', 'header'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
-    const skill = await api.readFile('CHATCODE-GPT', 'skills/wordpress-bricks/SKILL.md');
-    assert.equal(skill.project, 'CHATCODE-GPT');
+    assert.deepEqual(visible.map(p => p.id).sort(), ['CHATCODE-GPT','boncauinax','eupharma','vitas']);
+    assert.equal(api.projectScope().locked, false);
   }
 
-  // Explicit migration/reference intent permits only named references, read-only.
+  // Two normal coding tasks on different projects may stay active concurrently.
   {
     const api = createProjectScopeApi(fakeApi());
-    const prepared = await api.prepareTask('boncauinax', 'Copy sản phẩm từ vitas sang boncauinax rồi kiểm tra lại');
-    assert.equal(prepared.project_scope.locked, true);
-    assert.equal(prepared.project_scope.target.id, 'boncauinax');
-    assert.deepEqual(prepared.project_scope.reference_projects.map(p => p.id), ['vitas']);
+    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
+    const second = await api.prepareTask('eupharma', 'Làm dự án eupharma phần footer');
+    assert.equal(first.project_scope.target.id, 'boncauinax');
+    assert.equal(second.project_scope.target.id, 'eupharma');
+    const aggregate = api.projectScope();
+    assert.equal(aggregate.concurrent, true);
+    assert.equal(aggregate.scope_count, 2);
+    assert.deepEqual(aggregate.targets.map(p => p.id).sort(), ['boncauinax','eupharma']);
+    assert.ok(api.projectScope('boncauinax').active_work_session_ids.includes(first.task_id));
+    assert.ok(api.projectScope('eupharma').active_work_session_ids.includes(second.task_id));
+
+    await api.writeFile('boncauinax', 'header.php', 'a');
+    await api.writeFile('eupharma', 'footer.php', 'b');
+
+    await api.completeTask(first.task_id);
+    assert.equal(api.projectScope('boncauinax').locked, false);
+    assert.equal(api.projectScope('eupharma').locked, true, 'finishing A must not release project B');
+    await api.completeTask(second.task_id);
+    assert.equal(api.projectScope().locked, false);
+  }
+
+  // A reference stays read-only inside its source lane, but can become an independent
+  // writable target when another conversation/task explicitly prepares that project.
+  {
+    const api = createProjectScopeApi(fakeApi());
+    const migration = await api.prepareTask('boncauinax', 'Copy sản phẩm từ vitas sang boncauinax rồi kiểm tra lại');
+    assert.deepEqual(migration.project_scope.reference_projects.map(p => p.id), ['vitas']);
     await api.search('vitas', 'products');
     await assert.rejects(() => api.writeFile('vitas', 'x.txt', 'x'), error => errCode(error) === 'PROJECT_SCOPE_READ_ONLY');
-    await assert.rejects(() => api.search('eupharma', 'products'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
-    await api.writeFile('boncauinax', 'wp-content/themes/child/functions.php', '<?php');
-  }
 
-  // Merely mentioning a normal external reference concept must not open another local project.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const prepared = await api.prepareTask('boncauinax', 'Làm boncauinax giống website mẫu bên ngoài');
-    assert.equal(prepared.project_scope.multi_project, false);
-    await assert.rejects(() => api.projectBrain('vitas'), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
-  }
+    const vitasTask = await api.prepareTask('vitas', 'Sửa riêng project vitas phần sản phẩm');
+    assert.equal(vitasTask.project_scope.target.id, 'vitas');
+    await api.writeFile('vitas', 'x.txt', 'x');
+    assert.equal(api.projectScope().scope_count, 2);
 
-  // A truly active task/work holder cannot be bypassed even with explicit switch wording.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
-    await assert.rejects(
-      () => api.prepareTask('eupharma', 'Tiếp theo chuyển sang project eupharma phần header'),
-      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
-        && errDetails(error).scope_holder_type === 'work_session'
-        && errDetails(error).active_work_session_ids.includes(first.task_id)
-    );
-    await api.finishWork(first.task_id);
-    const switched = await api.prepareTask('eupharma', 'Tiếp theo chuyển sang project eupharma phần header');
-    assert.equal(switched.project_scope.target.id, 'eupharma');
-  }
-
-  // Rollback releases the old target. The next prepare_task may select a new project.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần header');
-    await api.rollbackWork(first.task_id);
+    await api.completeTask(vitasTask.task_id);
+    assert.equal(api.projectScope('vitas').locked, false);
+    await assert.rejects(() => api.writeFile('vitas', 'x.txt', 'x'), error => errCode(error) === 'PROJECT_SCOPE_READ_ONLY');
+    await api.completeTask(migration.task_id);
     assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('eupharma', 'check header');
-    assert.equal(next.project_scope.target.id, 'eupharma');
   }
 
-  // Finish has the same lifecycle semantics as rollback.
+  // A running terminal job on one project must not block a coding task on another.
   {
     const api = createProjectScopeApi(fakeApi());
-    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax phần footer');
-    await api.finishWork(first.task_id);
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('vitas', 'check footer');
-    assert.equal(next.project_scope.target.id, 'vitas');
-  }
+    const job = await api.exec('vitas', 'watch-assets', { background:true });
+    assert.ok(api.projectScope('vitas').active_job_ids.includes(job.job_id));
+    const task = await api.prepareTask('boncauinax', 'Sửa boncauinax phần menu');
+    assert.equal(task.project_scope.target.id, 'boncauinax');
+    assert.equal(api.projectScope().concurrent, true);
 
-  // Successful complete_task also releases the old target for a new prepare_task.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
-    await api.completeTask(first.task_id);
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('eupharma', 'check home');
-    assert.equal(next.project_scope.target.id, 'eupharma');
-  }
-
-  // Read-only calls do not become active scope holders and may be superseded by explicit prepare intent.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    await api.readFile('vitas', 'readme.txt');
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
-  }
-
-  // A. Standalone foreground completion releases its temporary holder.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const first = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
-    await api.finishWork(first.task_id);
-    const terminal = await api.exec('vitas', 'foreground-success');
-    assert.equal(terminal.status, 'completed');
-    assert.equal(terminal.terminal.hidden, true);
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
-  }
-
-  // B. Foreground non-zero, timeout, and spawn failure all clean up scope in finally paths.
-  for (const command of ['exit-nonzero', 'timeout']) {
-    const api = createProjectScopeApi(fakeApi());
-    const terminal = await api.exec('vitas', command);
-    assert.ok(['failed','timeout'].includes(terminal.status));
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
-  }
-  {
-    const api = createProjectScopeApi(fakeApi());
-    await assert.rejects(() => api.exec('vitas', 'spawn-failure'), /spawn failed/);
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
-  }
-
-  // C. Completed background job releases the job lease when observed terminal.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const job = await api.exec('vitas', 'background-complete', { background:true });
-    assert.equal(api.projectScope().scope_holder_type, 'terminal_job');
-    api.__setJobStatus(job.job_id, 'completed');
-    const status = await api.jobStatus(job.job_id);
-    assert.equal(status.status, 'completed');
-    assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
-  }
-
-  // D. Running background job remains a real holder and blocks project switching with precise details.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const job = await api.exec('vitas', 'background-running', { background:true });
-    assert.equal((await api.jobStatus(job.job_id)).status, 'running');
-    await assert.rejects(
-      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
-      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
-        && errDetails(error).scope_holder_type === 'terminal_job'
-        && errDetails(error).active_job_ids.includes(job.job_id)
-    );
-  }
-
-  // E. Stopped background job releases its lease.
-  {
-    const api = createProjectScopeApi(fakeApi());
-    const job = await api.exec('vitas', 'background-stop', { background:true });
     const stopped = await api.jobStop(job.job_id);
     assert.equal(stopped.status, 'stopped');
+    assert.equal(api.projectScope('vitas').locked, false);
+    assert.equal(api.projectScope('boncauinax').locked, true);
+    await api.completeTask(task.task_id);
     assert.equal(api.projectScope().locked, false);
-    const next = await api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax');
-    assert.equal(next.project_scope.target.id, 'boncauinax');
   }
 
-  // F. One completed job must not release a project while another job is still running.
+  // Multiple holders only keep their own project lane alive.
   {
     const api = createProjectScopeApi(fakeApi());
     const first = await api.exec('vitas', 'background-one', { background:true });
     const second = await api.exec('vitas', 'background-two', { background:true });
+    const other = await api.prepareTask('eupharma', 'Sửa eupharma phần home');
+
     api.__setJobStatus(first.job_id, 'completed');
     await api.jobStatus(first.job_id);
-    assert.deepEqual(api.projectScope().active_job_ids, [second.job_id]);
-    await assert.rejects(
-      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
-      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
-        && errDetails(error).active_job_ids.length === 1
-        && errDetails(error).active_job_ids[0] === second.job_id
-    );
+    assert.deepEqual(api.projectScope('vitas').active_job_ids, [second.job_id]);
+    assert.equal(api.projectScope('eupharma').locked, true);
+
     api.__setJobStatus(second.job_id, 'completed');
     await api.jobStatus(second.job_id);
-    assert.equal(api.projectScope().locked, false);
+    assert.equal(api.projectScope('vitas').locked, false);
+    assert.equal(api.projectScope('eupharma').locked, true);
+    await api.completeTask(other.task_id);
   }
 
-  // G. Explicit start_work is a holder and must still protect its target.
+  // start_work lanes are also independent across projects.
   {
     const api = createProjectScopeApi(fakeApi());
     const work = await api.startWork('vitas', 'active work');
-    await assert.rejects(
-      () => api.prepareTask('boncauinax', 'Explicitly switch target back to project boncauinax'),
-      error => errCode(error) === 'PROJECT_SCOPE_VIOLATION'
-        && errDetails(error).scope_holder_type === 'work_session'
-        && errDetails(error).active_work_session_ids.includes(work.work_session_id)
-    );
+    const task = await api.prepareTask('boncauinax', 'Làm boncauinax song song');
+    assert.equal(api.projectScope().scope_count, 2);
     await api.rollbackWork(work.work_session_id);
-    assert.equal(api.projectScope().locked, false);
+    assert.equal(api.projectScope('vitas').locked, false);
+    assert.equal(api.projectScope('boncauinax').locked, true);
+    await api.completeTask(task.task_id);
   }
 
-  // Session mutations remain strict: once completed A scope is released, an old B session
-  // cannot self-pin B via complete_task. A new prepare_task must establish B first.
+  // Foreground terminal holders always clean up their own lane, including errors.
+  for (const command of ['foreground-success', 'exit-nonzero', 'timeout']) {
+    const api = createProjectScopeApi(fakeApi());
+    const result = await api.exec('vitas', command);
+    assert.ok(['completed','failed','timeout'].includes(result.status));
+    assert.equal(api.projectScope('vitas').locked, false);
+  }
+  {
+    const api = createProjectScopeApi(fakeApi());
+    await assert.rejects(() => api.exec('vitas', 'spawn-failure'), /spawn failed/);
+    assert.equal(api.projectScope('vitas').locked, false);
+  }
+
+  // Session mutations remain strict: a session created outside the scoped wrapper
+  // cannot self-pin a project later just because another project lane exists.
   {
     const base = fakeApi();
-    const other = await base.prepareTask('vitas', 'internal pre-existing session');
+    const old = await base.prepareTask('vitas', 'internal pre-existing session');
     const api = createProjectScopeApi(base);
     const task = await api.prepareTask('boncauinax', 'Làm dự án boncauinax');
+    await assert.rejects(() => api.completeTask(old.task_id), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
+    assert.equal(api.projectScope('boncauinax').locked, true);
     await api.completeTask(task.task_id);
-    assert.equal(api.projectScope().locked, false);
-    await assert.rejects(() => api.completeTask(other.task_id), error => errCode(error) === 'PROJECT_SCOPE_VIOLATION');
   }
 
-  console.log('Project scope lock PASS: active holder lifecycle + terminal cleanup + strict session mutation binding');
+  console.log('Project scope lanes PASS: concurrent projects + holder isolation + reference safety + strict session binding');
 })().catch(error => {
   console.error(error);
   process.exit(1);

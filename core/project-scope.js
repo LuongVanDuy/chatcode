@@ -58,6 +58,10 @@ function scopeProjectShape(project = {}) {
   return { id:String(project.id || ''), name:String(project.name || project.id || '') };
 }
 
+function scopeKey(project = {}) {
+  return exactKey(project.id || project.name);
+}
+
 function createProjectScopeApi(api) {
   const methodNames = [
     'listProjects','listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext',
@@ -68,7 +72,11 @@ function createProjectScopeApi(api) {
   for (const name of methodNames) if (typeof api[name] === 'function') original[name] = api[name].bind(api);
   if (!original.listProjects) return api;
 
-  let scope = null;
+  // Project scope used to be one process-global lock. That made unrelated ChatGPT
+  // conversations block each other. Keep independent target lanes instead: each
+  // project can own work/terminal holders concurrently while session-bound calls
+  // still resolve back to the project that created them.
+  const scopes = new Map();
   let terminalHolderSeq = 0;
   const activeWorkSessions = new Map();
   const activeTerminalJobs = new Map();
@@ -80,15 +88,15 @@ function createProjectScopeApi(api) {
     return !!holder && !!project && (projectMatchesRef(holder, project.id) || projectMatchesRef(holder, project.name));
   }
 
-  function holderDetails(project = scope?.target || null) {
+  function holderDetails(project = null) {
     const activeWorkSessionIds = [...activeWorkSessions.entries()]
-      .filter(([, holder]) => holderMatchesProject(holder, project))
+      .filter(([, holder]) => !project || holderMatchesProject(holder, project))
       .map(([id]) => id);
     const activeJobIds = [...activeTerminalJobs.entries()]
-      .filter(([, holder]) => holderMatchesProject(holder, project))
+      .filter(([, holder]) => !project || holderMatchesProject(holder, project))
       .map(([id]) => id);
     const activeForegroundTerminalIds = [...activeForegroundTerminals.entries()]
-      .filter(([, holder]) => holderMatchesProject(holder, project))
+      .filter(([, holder]) => !project || holderMatchesProject(holder, project))
       .map(([id]) => id);
     const scopeHolderType = activeWorkSessionIds.length
       ? 'work_session'
@@ -112,17 +120,37 @@ function createProjectScopeApi(api) {
       || details.active_foreground_terminal_count > 0;
   }
 
-  function activeScope() {
-    if (!scope) return null;
-    if (now() - scope.updated_at > PROJECT_SCOPE_TTL_MS) {
-      if (hasActiveHolders(scope.target)) {
-        scope.updated_at = now();
-        return scope;
+  function pruneScopes() {
+    const currentTime = now();
+    for (const [key, current] of scopes.entries()) {
+      if (currentTime - current.updated_at <= PROJECT_SCOPE_TTL_MS) continue;
+      if (hasActiveHolders(current.target)) {
+        current.updated_at = currentTime;
+        continue;
       }
-      scope = null;
-      return null;
+      scopes.delete(key);
     }
-    return scope;
+  }
+
+  function activeScopes() {
+    pruneScopes();
+    return [...scopes.values()];
+  }
+
+  function scopeForProject(project) {
+    if (!project) return null;
+    return activeScopes().find(current => targetMatches(current, project)) || null;
+  }
+
+  function referenceScopesForProject(project) {
+    if (!project) return [];
+    return activeScopes().filter(current => current.references.some(ref => projectMatchesRef(ref, project.id) || projectMatchesRef(ref, project.name)));
+  }
+
+  function saveScope(current) {
+    const key = scopeKey(current?.target);
+    if (key) scopes.set(key, current);
+    return current;
   }
 
   async function allProjects() {
@@ -147,10 +175,13 @@ function createProjectScopeApi(api) {
   }
 
   function maybeReleaseScopeForProject(project) {
-    if (scope && targetMatches(scope, project) && !hasActiveHolders(project)) scope = null;
+    if (!project || hasActiveHolders(project)) return;
+    for (const [key, current] of scopes.entries()) {
+      if (targetMatches(current, project)) scopes.delete(key);
+    }
   }
 
-  function shape(current = activeScope()) {
+  function shape(current) {
     if (!current) return { locked:false };
     return {
       locked:true,
@@ -164,20 +195,32 @@ function createProjectScopeApi(api) {
     };
   }
 
-  function violation(current, attempted, operation) {
-    const holders = holderDetails(current?.target || null);
+  function aggregateShape() {
+    const lanes = activeScopes().map(shape);
+    if (!lanes.length) return { locked:false, concurrent:false, scope_count:0, lanes:[] };
+    if (lanes.length === 1) return { ...lanes[0], concurrent:false, scope_count:1, lanes };
+    return {
+      locked:true,
+      concurrent:true,
+      scope_count:lanes.length,
+      target:null,
+      targets:lanes.map(lane => lane.target),
+      lanes,
+      ...holderDetails()
+    };
+  }
+
+  function sessionViolation(expected, attempted, operation, sessionId) {
     return chatError(
       'PROJECT_SCOPE_VIOLATION',
-      `Task hiện tại đã khóa vào project "${current?.target?.name || current?.target?.id || ''}". Không được tự truy cập project khác.`,
+      `Session "${sessionId}" thuộc project "${expected?.name || expected?.id || ''}", không thể chạy trên project "${attempted?.name || attempted?.id || ''}".`,
       {
-        target_project:scopeProjectShape(current?.target || {}),
+        target_project:scopeProjectShape(expected || {}),
         attempted_project:scopeProjectShape(attempted || {}),
         operation,
-        reference_projects:(current?.references || []).map(scopeProjectShape),
-        ...holders,
-        rule:holders.scope_holder_type
-          ? 'Project scope đang được giữ bởi holder còn active. Hãy finish/rollback work session hoặc chờ/dừng terminal job trước khi chuyển target.'
-          : 'Project scope chưa có holder active. prepare_task chỉ được chuyển target khi user thể hiện intent chuyển project rõ ràng.'
+        session_id:String(sessionId || ''),
+        ...holderDetails(expected || null),
+        rule:'Work Session/task/terminal holder luôn bị ràng buộc vào project đã tạo ra nó; project khác có thể chạy song song bằng holder riêng.'
       }
     );
   }
@@ -195,7 +238,7 @@ function createProjectScopeApi(api) {
         active_job_ids:[],
         active_foreground_terminal_count:0,
         scope_holder_type:'',
-        rule:'Session mutation không được tự khóa project. Hãy bắt đầu task mới bằng prepare_task trên target project trước khi complete/finish session của project đó. rollback_work của session đã hoàn tất vẫn được phép khi chưa có target mới.'
+        rule:'Session mutation không được tự khóa project từ một session cũ/không được ChatCode theo dõi. Hãy bắt đầu task mới bằng prepare_task hoặc start_work trên project đó.'
       }
     );
   }
@@ -208,7 +251,7 @@ function createProjectScopeApi(api) {
         target_project:scopeProjectShape(current?.target || {}),
         reference_project:scopeProjectShape(attempted || {}),
         operation,
-        rule:'Mutation chỉ được phép trên target project. Muốn sửa project tham chiếu, hãy mở prepare_task riêng cho project đó.'
+        rule:'Mutation chỉ được phép trên target project của lane này. Muốn sửa project tham chiếu song song, hãy mở prepare_task/start_work riêng cho project đó để tạo lane độc lập.'
       }
     );
   }
@@ -223,6 +266,15 @@ function createProjectScopeApi(api) {
       source,
       updated_at:now()
     };
+  }
+
+  function mergeReferences(current, next) {
+    const merged = new Map();
+    for (const ref of [...(current?.references || []), ...(next?.references || [])]) {
+      const key = scopeKey(ref);
+      if (key) merged.set(key, scopeProjectShape(ref));
+    }
+    return [...merged.values()];
   }
 
   async function refreshTerminalHolders(project) {
@@ -240,45 +292,27 @@ function createProjectScopeApi(api) {
     maybeReleaseScopeForProject(project);
   }
 
-  async function establishFromPrepare(ref, request) {
-    if (isBuiltinRef(ref)) return activeScope();
+  async function establishTargetLane(ref, request, source) {
+    if (isBuiltinRef(ref)) return null;
     const projects = await allProjects();
     const target = await resolveProject(ref, projects);
-    if (!target) return activeScope();
-    if (scope?.target) await refreshTerminalHolders(scope.target);
-    const current = activeScope();
-    if (current && !targetMatches(current, target)) {
-      if (hasActiveHolders(current.target)) throw violation(current, target, 'prepare_task');
-      const normalized = normalizeText(request);
-      const explicitTarget = textMentionsProject(request, target);
-      if (!explicitTarget || !PROJECT_SWITCH_INTENT_RE.test(normalized)) throw violation(current, target, 'prepare_task');
-    }
-    scope = buildScope(target, request, projects, 'prepare_task');
-    return scope;
+    if (!target) return null;
+    await refreshTerminalHolders(target);
+    const existing = scopeForProject(target);
+    const next = buildScope(target, request, projects, source);
+    if (!existing) return saveScope(next);
+    existing.references = mergeReferences(existing, next);
+    existing.source = source || existing.source;
+    existing.updated_at = now();
+    return existing;
+  }
+
+  async function establishFromPrepare(ref, request) {
+    return establishTargetLane(ref, request, 'prepare_task');
   }
 
   async function establishFromInspect(ref, request) {
-    if (isBuiltinRef(ref)) return activeScope();
-    const projects = await allProjects();
-    const target = await resolveProject(ref, projects);
-    if (!target) return activeScope();
-    if (scope?.target) await refreshTerminalHolders(scope.target);
-    const current = activeScope();
-    if (!current) {
-      scope = buildScope(target, request, projects, 'inspect_project');
-      return scope;
-    }
-    if (!targetMatches(current, target)) {
-      if (hasActiveHolders(current.target)) throw violation(current, target, 'inspect_project');
-      const normalized = normalizeText(request);
-      const explicitTarget = textMentionsProject(request, target);
-      if (!explicitTarget || !PROJECT_SWITCH_INTENT_RE.test(normalized)) throw violation(current, target, 'inspect_project');
-      scope = buildScope(target, request, projects, 'inspect_project-switch');
-      return scope;
-    }
-    if (MULTI_PROJECT_INTENT_RE.test(normalizeText(request))) scope = buildScope(target, request, projects, current.source);
-    else scope.updated_at = now();
-    return scope;
+    return establishTargetLane(ref, request, 'inspect_project');
   }
 
   async function ensureProject(ref, operation, mode = 'read') {
@@ -286,46 +320,49 @@ function createProjectScopeApi(api) {
     const projects = await allProjects();
     const attempted = await resolveProject(ref, projects);
     if (!attempted) return null;
-    let current = activeScope();
-    if (!current) {
-      scope = { target:scopeProjectShape(attempted), references:[], source:`implicit:${operation}`, updated_at:now() };
-      current = scope;
+
+    const targetLane = scopeForProject(attempted);
+    if (targetLane) {
+      targetLane.updated_at = now();
       return attempted;
     }
-    current.updated_at = now();
-    if (targetMatches(current, attempted)) return attempted;
-    const isReference = current.references.some(project => projectMatchesRef(project, attempted.id) || projectMatchesRef(project, attempted.name));
-    if (isReference) {
-      if (mode === 'read') return attempted;
-      throw referenceWriteViolation(current, attempted, operation);
-    }
-    throw violation(current, attempted, operation);
+
+    const referenceLane = referenceScopesForProject(attempted)[0] || null;
+    if (referenceLane && mode !== 'read') throw referenceWriteViolation(referenceLane, attempted, operation);
+    if (mode === 'read') return attempted;
+
+    saveScope({ target:scopeProjectShape(attempted), references:[], source:`implicit:${operation}`, updated_at:now() });
+    return attempted;
   }
 
   async function guardSession(sessionId, operation, mode = 'read', allowWithoutScope = false) {
     if (!original.workStatus) return null;
-    const status = await original.workStatus(String(sessionId || ''));
+    const id = String(sessionId || '');
+    const status = await original.workStatus(id);
     const ref = status?.project_id || status?.project || '';
     if (!ref) return status;
     const projects = await allProjects();
     const attempted = await resolveProject(ref, projects);
-    if (mode === 'write' && !activeScope()) {
-      if (allowWithoutScope) return status;
-      throw missingSessionScopeViolation(attempted, operation);
+    const holder = activeWorkSessions.get(id) || null;
+    if (holder && attempted && !holderMatchesProject(holder, attempted)) throw sessionViolation(holder, attempted, operation, id);
+
+    let current = attempted ? scopeForProject(attempted) : null;
+    if (mode === 'write' && !current) {
+      if (holder && attempted && holderMatchesProject(holder, attempted)) {
+        current = saveScope({ target:scopeProjectShape(attempted), references:[], source:`session-recover:${operation}`, updated_at:now() });
+      } else if (allowWithoutScope) {
+        return status;
+      } else {
+        throw missingSessionScopeViolation(attempted, operation);
+      }
     }
-    await ensureProject(ref, operation, mode);
+    if (ref) await ensureProject(ref, operation, mode);
     return status;
   }
 
-  api.listProjects = async (...args) => {
-    const projects = await original.listProjects(...args);
-    const current = activeScope();
-    if (!current || !Array.isArray(projects)) return projects;
-    return projects.filter(project => {
-      if (isBuiltinRef(project?.id) || isBuiltinRef(project?.name)) return true;
-      return scopeContainsProject(current, project, true);
-    });
-  };
+  // Never hide other projects globally. Concurrent conversations need to discover and
+  // open independent project lanes even while another project has active holders.
+  api.listProjects = (...args) => original.listProjects(...args);
 
   const readMethods = ['listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext','gitStatus','gitDiff','gitStatusExplicit','gitDiffExplicit'];
   for (const name of readMethods) {
@@ -347,11 +384,17 @@ function createProjectScopeApi(api) {
 
   if (original.startWork) {
     api.startWork = async (ref, ...args) => {
-      const project = await ensureProject(ref, 'startWork', 'write');
-      const result = await original.startWork(ref, ...args);
-      const sessionId = String(result?.work_session_id || result?.session_id || result?.id || '');
-      if (sessionId && project) activeWorkSessions.set(sessionId, scopeProjectShape(project));
-      return result;
+      const lane = await establishTargetLane(ref, args[0] || '', 'start_work');
+      const project = lane?.target ? await resolveProject(lane.target.id) : await ensureProject(ref, 'startWork', 'write');
+      try {
+        const result = await original.startWork(ref, ...args);
+        const sessionId = String(result?.work_session_id || result?.session_id || result?.id || '');
+        if (sessionId && project) activeWorkSessions.set(sessionId, scopeProjectShape(project));
+        return result;
+      } catch (error) {
+        if (project) maybeReleaseScopeForProject(project);
+        throw error;
+      }
     };
   }
 
@@ -407,36 +450,49 @@ function createProjectScopeApi(api) {
 
   if (original.inspectProject) {
     api.inspectProject = async (ref, query, ...rest) => {
-      await establishFromInspect(ref, query);
-      const result = await original.inspectProject(ref, query, ...rest);
-      return { ...result, project_scope:shape() };
+      const lane = await establishFromInspect(ref, query);
+      try {
+        const result = await original.inspectProject(ref, query, ...rest);
+        return { ...result, project_scope:shape(lane) };
+      } catch (error) {
+        if (lane?.target) maybeReleaseScopeForProject(lane.target);
+        throw error;
+      }
     };
   }
 
   if (original.prepareTask) {
     api.prepareTask = async (ref, request, ...rest) => {
-      await establishFromPrepare(ref, request);
-      const result = await original.prepareTask(ref, request, ...rest);
-      const project = await resolveProject(ref);
-      const sessionId = String(result?.work_session_id || result?.task_id || '');
-      if (sessionId && project && !WORK_FINAL_RE.test(String(result?.status || ''))) {
-        activeWorkSessions.set(sessionId, scopeProjectShape(project));
+      const lane = await establishFromPrepare(ref, request);
+      try {
+        const result = await original.prepareTask(ref, request, ...rest);
+        const project = await resolveProject(ref);
+        const holderIds = [...new Set([
+          String(result?.task_id || ''),
+          String(result?.work_session_id || '')
+        ].filter(Boolean))];
+        if (project && !WORK_FINAL_RE.test(String(result?.status || ''))) {
+          for (const id of holderIds) activeWorkSessions.set(id, scopeProjectShape(project));
+        }
+        const projectScope = shape(lane || scopeForProject(project));
+        const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
+        return {
+          ...result,
+          project_scope:projectScope,
+          context:result?.context ? { ...result.context, project_scope:projectScope } : result?.context,
+          agent_contract:result?.agent_contract ? {
+            ...result.agent_contract,
+            guidance:[
+              `Project lane của task này là ${projectScope?.target?.name || ref}. Task/project khác có thể chạy song song nhưng session này chỉ được mutate target lane của chính nó.`,
+              'Reference project chỉ được đọc trong lane hiện tại; muốn sửa reference song song, mở prepare_task/start_work riêng cho project đó.',
+              ...guidance
+            ]
+          } : result?.agent_contract
+        };
+      } catch (error) {
+        if (lane?.target) maybeReleaseScopeForProject(lane.target);
+        throw error;
       }
-      const projectScope = shape();
-      const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
-      return {
-        ...result,
-        project_scope:projectScope,
-        context:result?.context ? { ...result.context, project_scope:projectScope } : result?.context,
-        agent_contract:result?.agent_contract ? {
-          ...result.agent_contract,
-          guidance:[
-            `Project scope đã khóa vào ${projectScope?.target?.name || ref}. Không list/search/read project khác nếu nó không nằm trong reference_projects do user yêu cầu rõ ràng.`,
-            'Reference project chỉ được đọc; mọi mutation phải ở target project.',
-            ...guidance
-          ]
-        } : result?.agent_contract
-      };
     };
   }
 
@@ -456,6 +512,12 @@ function createProjectScopeApi(api) {
     };
   }
 
+  function releaseSessionHolder(id, project, extraIds = []) {
+    const ids = [...new Set([String(id || ''), ...extraIds.map(value => String(value || ''))].filter(Boolean))];
+    for (const holderId of ids) activeWorkSessions.delete(holderId);
+    if (project) maybeReleaseScopeForProject(project);
+  }
+
   if (original.completeTask) {
     api.completeTask = async (taskId, ...args) => {
       const session = await guardSession(taskId, 'complete_task', 'write');
@@ -464,8 +526,7 @@ function createProjectScopeApi(api) {
         const id = String(taskId || '');
         const ref = session?.project_id || session?.project || '';
         const project = activeWorkSessions.get(id) || (ref ? await resolveProject(ref) : null);
-        activeWorkSessions.delete(id);
-        if (project) maybeReleaseScopeForProject(project);
+        releaseSessionHolder(id, project, [result?.task_id, result?.work_session_id]);
       }
       return result;
     };
@@ -480,14 +541,19 @@ function createProjectScopeApi(api) {
         const id = String(sessionId || '');
         const ref = session?.project_id || session?.project || '';
         const project = activeWorkSessions.get(id) || (ref ? await resolveProject(ref) : null);
-        activeWorkSessions.delete(id);
-        if (project) maybeReleaseScopeForProject(project);
+        releaseSessionHolder(id, project, [result?.task_id, result?.work_session_id, result?.id]);
       }
       return result;
     };
   }
 
-  api.projectScope = () => shape();
+  api.projectScope = ref => {
+    if (ref) {
+      const current = activeScopes().find(item => projectMatchesRef(item.target, ref));
+      return shape(current || null);
+    }
+    return aggregateShape();
+  };
   return api;
 }
 
