@@ -20,47 +20,271 @@ jobs:
       CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm install
+
+      - name: Detect affected PR test groups
+        id: scope
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $files = @(git diff --name-only "$env:BASE_SHA" "$env:HEAD_SHA")
+          $files = @($files | ForEach-Object { $_.Trim().Replace('\','/').ToLowerInvariant() } | Where-Object { $_ })
+
+          function Hit([string[]]$patterns) {
+            foreach ($file in $files) {
+              foreach ($pattern in $patterns) {
+                if ($file -like $pattern) { return $true }
+              }
+            }
+            return $false
+          }
+
+          function Out([string]$name, [bool]$value) {
+            "$name=$($value.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          }
+
+          $workflow = Hit @('.github/workflows/build-windows.yml')
+          $all = $workflow -or (Hit @(
+            'bootstrap-main.js',
+            'main.js',
+            'preload.js',
+            'mcp-server.mjs',
+            'core/runtime-bootstrap.js',
+            'core/safety-tools.js',
+            'core/projects.js',
+            'core/store.js'
+          ))
+
+          $syntax = $all -or (Hit @('*.js','*.cjs','*.mjs'))
+          $browser = $all -or (Hit @(
+            'core/browser-*',
+            'renderer/browser-*',
+            'scripts/smoke-browser-workspace.cjs'
+          ))
+          $mcp = $all -or (Hit @(
+            'core/connection.js',
+            'core/project-scope.js',
+            'core/agent-runtime.js',
+            'core/skill-runtime.js',
+            'core/builtin-skills-project.js',
+            'scripts/smoke-mcp.mjs'
+          ))
+          $safety = $all -or (Hit @(
+            'core/approvals.js',
+            'core/backups.js',
+            'core/errors.js',
+            'core/trusted-workspace.js',
+            'core/terminal-runtime.js',
+            'core/work-runtime.js',
+            'core/project-scope.js',
+            'scripts/smoke-safety.cjs',
+            'scripts/smoke-trusted.cjs'
+          ))
+          $trusted = $all -or (Hit @(
+            'core/trusted-workspace.js',
+            'core/terminal-runtime.js',
+            'core/project-scope.js',
+            'scripts/smoke-trusted.cjs'
+          ))
+          $terminal = $all -or (Hit @(
+            'core/terminal-runtime.js',
+            'core/work-runtime.js',
+            'core/project-scope.js',
+            'core/support.js',
+            'scripts/smoke-terminal.cjs'
+          ))
+          $editing = $all -or (Hit @(
+            'core/work-runtime.js',
+            'core/agent-runtime.js',
+            'core/task-policy.js',
+            'core/git-lazy.js',
+            'core/project-scope.js',
+            'scripts/smoke-editing.cjs'
+          ))
+          $agent = $all -or (Hit @(
+            'core/agent-runtime.js',
+            'core/task-planner.js',
+            'core/owner-resolver.js',
+            'core/project-profile.js',
+            'core/project-scope.js',
+            'core/work-runtime.js',
+            'core/task-policy.js',
+            'core/retrieval-scope.js',
+            'core/wordpress-retrieval.js',
+            'core/skill-runtime.js',
+            'core/skill-policy.js',
+            'scripts/smoke-agent.cjs'
+          ))
+          $brain = $all -or (Hit @(
+            'core/brain.js',
+            'core/brain-scope.js',
+            'core/project-profile.js',
+            'core/owner-resolver.js',
+            'core/wordpress.js',
+            'core/wordpress-retrieval.js',
+            'core/retrieval-scope.js',
+            'scripts/smoke-brain.cjs',
+            'scripts/smoke-wordpress.cjs'
+          ))
+          $wordpress = $all -or (Hit @(
+            'chatcode-gpt/*',
+            'core/wordpress.js',
+            'core/wordpress-retrieval.js',
+            'core/brain-scope.js',
+            'core/skill-runtime.js',
+            'core/skill-policy.js',
+            'core/ui-knowledge.js',
+            'core/bricks-spec.js',
+            'core/bricks-validator.js',
+            'core/builtin-skills-project.js',
+            'scripts/smoke-wordpress*',
+            'scripts/smoke-bricks-spec.cjs',
+            'scripts/smoke-builtin-skills-project.cjs'
+          ))
+          $fastpath = $all -or (Hit @(
+            'core/agent-runtime.js',
+            'core/work-runtime.js',
+            'core/project-scope.js',
+            'core/task-policy.js',
+            'scripts/smoke-fastpath.cjs'
+          ))
+          $regression = $all -or (Hit @(
+            'core/approvals.js',
+            'core/backups.js',
+            'core/errors.js',
+            'core/work-runtime.js',
+            'core/terminal-runtime.js',
+            'core/project-scope.js',
+            'core/task-policy.js',
+            'core/support.js',
+            'scripts/smoke-regression.cjs'
+          ))
+          $support = $all -or (Hit @(
+            'core/support.js',
+            'core/terminal-runtime.js',
+            'scripts/smoke-support.cjs'
+          ))
+          $update = $workflow -or (Hit @(
+            'core/updater.js',
+            'package.json',
+            'readme.md',
+            'renderer/v08-runtime.js',
+            'scripts/smoke-updater.cjs'
+          ))
+          $notifications = $all -or (Hit @(
+            'core/task-policy.js',
+            'core/usage.js',
+            'core/agent-runtime.js',
+            'core/work-runtime.js',
+            'renderer/current-runtime.js',
+            'renderer/v102-runtime.js',
+            'scripts/smoke-notifications.cjs'
+          ))
+          $installer = $workflow -or (Hit @(
+            'package.json',
+            'assets/*',
+            'bootstrap-main.js',
+            'main.js',
+            'preload.js'
+          ))
+          $tunnel = $all -or (Hit @(
+            'core/connection.js',
+            'scripts/smoke-tunnel.mjs'
+          ))
+
+          $install = $syntax -or $browser -or $mcp -or $safety -or $trusted -or $terminal -or $editing -or $agent -or $brain -or $wordpress -or $fastpath -or $regression -or $support -or $notifications -or $installer -or $tunnel
+
+          Out 'install' $install
+          Out 'syntax' $syntax
+          Out 'browser' $browser
+          Out 'mcp' $mcp
+          Out 'safety' $safety
+          Out 'trusted' $trusted
+          Out 'terminal' $terminal
+          Out 'editing' $editing
+          Out 'agent' $agent
+          Out 'brain' $brain
+          Out 'wordpress' $wordpress
+          Out 'fastpath' $fastpath
+          Out 'regression' $regression
+          Out 'support' $support
+          Out 'update' $update
+          Out 'notifications' $notifications
+          Out 'installer' $installer
+          Out 'tunnel' $tunnel
+
+          Write-Host "Changed files:"
+          $files | ForEach-Object { Write-Host " - $_" }
+          Write-Host "Selective PR tests enabled. Main/tag/workflow_dispatch still run the full release gate."
+
+      - name: Install dependencies
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.install == 'true' }}
+        run: npm install
+
       - name: Kiểm tra cú pháp
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.syntax == 'true' }}
         run: npm run test:syntax
       - name: Smoke test Browser Workspace
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.browser == 'true' }}
         run: npm run test:browser
       - name: Smoke test MCP protocol
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.mcp == 'true' }}
         run: npm run test:mcp
       - name: Smoke test Safety & Recovery
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.safety == 'true' }}
         run: npm run test:safety
       - name: Smoke test Trusted Workspace
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.trusted == 'true' }}
         run: npm run test:trusted
       - name: Smoke test Trusted Terminal Runtime
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.terminal == 'true' }}
         run: npm run test:terminal
       - name: Smoke test Codex-style editing
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.editing == 'true' }}
         run: npm run test:editing
       - name: Smoke test Fast Agent Path
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.agent == 'true' }}
         run: npm run test:agent
       - name: Smoke test Project Brain
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.brain == 'true' }}
         run: npm run test:brain
       - name: Smoke test WordPress Brain
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.wordpress == 'true' }}
         run: npm run test:wordpress
       - name: Smoke test WordPress + Bricks skill
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.wordpress == 'true' }}
         run: npm run test:wordpress-bricks-skill
       - name: Smoke test legacy 13-tool skill exposure
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.wordpress == 'true' }}
         run: npm run test:builtin-skills-project
       - name: Smoke test fast coding path
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.fastpath == 'true' }}
         run: npm run test:fastpath
       - name: Regression test filesystem & Windows tasks
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.regression == 'true' }}
         run: npm run test:regression
       - name: Smoke test Support Journal & terminal audit
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.support == 'true' }}
         run: npm run test:support
       - name: Smoke test updater
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.update == 'true' }}
         run: npm run test:update
       - name: Smoke test task-level notifications
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.notifications == 'true' }}
         run: npm run test:notifications
+
       - name: Build Windows installer
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.installer == 'true' }}
         run: npm run dist:win
       - name: Verify updater metadata
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.installer == 'true' }}
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
@@ -69,6 +293,7 @@ jobs:
           if (-not (Test-Path "dist\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
           Write-Host "Updater metadata OK: $($installer.Name) + latest.yml"
       - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.installer == 'true' }}
         with:
           name: chatcode-ca-nhan-windows
           path: |
@@ -76,6 +301,7 @@ jobs:
             dist/latest.yml
             dist/*.blockmap
       - name: Smoke test remote MCP tunnel
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.tunnel == 'true' }}
         continue-on-error: true
         run: npm run test:tunnel
       - name: Publish updater GitHub Release
