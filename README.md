@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.24**
+> Phiên bản hiện tại: **v1.0.25**
 
 ## Kiến trúc
 
@@ -50,6 +50,7 @@ MCP server chỉ listen tại **`127.0.0.1:47820`**. Truy cập từ ChatGPT đi
 - List, search và đọc source code/text file.
 - Ghi, xóa, đổi tên hoặc di chuyển file theo quyền của từng project.
 - Tự index lại project sau thay đổi quan trọng.
+- Từ v1.0.25, nhiều project có thể có task/Work Session/terminal holder active song song; mỗi project dùng một scope lane độc lập thay vì một process-global lock.
 
 ### Project Brain
 
@@ -106,6 +107,7 @@ Nếu verification fail, task giữ nguyên trạng thái để AI tạo correct
 - Theo dõi changed files, commands và Git state.
 - Có thể rollback toàn bộ Work Session.
 - Verification có thể chạy tối đa nhiều lệnh phù hợp với task.
+- Work Session/task id luôn bị ràng buộc vào project đã tạo nó; việc project B chạy song song không cho session của A mutate sang B.
 
 ### Safe Workspace và Trusted Workspace
 
@@ -469,6 +471,7 @@ Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`
 | --- | --- |
 | `core/projects.js` | Project filesystem, indexing và boundary validation. |
 | `core/safety-tools.js` | Permission, approval và safe mutation layer. |
+| `core/project-scope.js` | Per-project concurrent scope lanes, reference policy và Work Session/terminal holder binding. |
 | `core/brain.js` | Symbol/framework/dependency indexing. |
 | `core/wordpress.js` | WordPress-specific analysis. |
 | `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
@@ -494,15 +497,17 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Verify after write:** coding flow có verification và Git diff/status sau thay đổi.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
+- **Concurrent project isolation:** project A và B được phép chạy song song, nhưng mỗi task/Work Session/terminal holder chỉ được mutate project đã tạo holder đó.
 
 ## Release hiện tại
 
-**v1.0.24** thêm Browser Performance Mode theo hướng tách biệt khỏi coding runtime. Chế độ **Tối đa** ưu tiên CPU `HIGH` cho renderer browser active, tắt Chromium background throttling, giữ tab nóng trong RAM, yêu cầu discrete GPU bằng `force_high_performance_gpu`, hiển thị GPU/LAN diagnostics và cho phép người dùng cài/gỡ Windows QoS DSCP 46 bằng UAC rõ ràng. Không đặt hard RAM/bandwidth limit, không tự elevate, và không thay MCP, Fast Agent, Project Scope, terminal hay CHATCODEX routing.
+**v1.0.25** thay Project Scope từ một process-global lock thành **per-project concurrent lanes**. Hai conversation có thể cùng chạy `prepare_task`, Work Session hoặc terminal trên hai project khác nhau mà không chặn nhau. `list_projects` không còn bị ẩn bởi scope của conversation khác; hoàn tất/dừng project A chỉ giải phóng lane A. Task/session id vẫn bị ràng buộc chặt với project đã tạo nó, reference source vẫn read-only trong lane hiện tại cho đến khi project đó mở một lane target riêng, và project-root/sensitive-file/safety boundaries không thay đổi.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.25** | Concurrent Project Scope Lanes: nhiều project/task/terminal chạy song song, lifecycle độc lập, session binding vẫn strict. |
 | **v1.0.24** | Browser Performance Mode: CPU HIGH active tab, warm RAM tabs, discrete-GPU preference, LAN/GPU diagnostics và explicit Windows QoS. |
 | **v1.0.23** | Browser workflow: tự gắn tên project cho tab ChatGPT theo conversation, first-project-wins và reset an toàn khi New Chat. |
 | **v1.0.21** | Browser polish: full layout cạnh sidebar + session ưu tiên tiếng Việt, không ảnh hưởng luồng cũ. |
@@ -512,6 +517,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.24**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.25**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
