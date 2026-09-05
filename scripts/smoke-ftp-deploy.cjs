@@ -4,8 +4,10 @@ const os = require('os');
 const path = require('path');
 const {
   FTP_CONFIG_RELATIVE,
+  MAX_TERMINAL_COMMAND_CHARS,
   normalizeDeployFiles,
   buildFtpDeployCommand,
+  buildFtpDeployBatches,
   parseDeployResult,
   deployChangedFiles,
   createFtpDeployApi
@@ -52,6 +54,15 @@ function decodeCommand(command) {
   assert.equal(script.includes('SECRET_SHOULD_NOT_APPEAR'), false, 'credential value leaked into generated terminal command');
   assert.equal(script.toLowerCase().includes('boncauinax.vn'), false, 'project-specific host leaked into generic FTP deploy');
 
+  const manyFiles = Array.from({ length:50 }, (_, i) => `wp-content/themes/site/assets/generated/component-${String(i).padStart(2,'0')}-with-a-long-filename.css`);
+  const batches = buildFtpDeployBatches(manyFiles);
+  assert.ok(batches.length > 1, 'large changed-file set should be split into multiple terminal commands');
+  assert.deepEqual(batches.flat(), manyFiles, 'FTP batching lost or reordered changed files');
+  for (const batch of batches) {
+    const batchedCommand = buildFtpDeployCommand(batch);
+    assert.ok(batchedCommand.length <= MAX_TERMINAL_COMMAND_CHARS, `FTP batch exceeds terminal command budget: ${batchedCommand.length}`);
+  }
+
   const parsed = parseDeployResult({
     status:'completed', exit_code:0,
     stdout:'CHATCODE_FTP_OK|upload|a.php\nCHATCODE_FTP_OK|delete|old.css\nCHATCODE_FTP_SKIP_FILE|local_missing|x.txt\n', stderr:''
@@ -85,6 +96,7 @@ function decodeCommand(command) {
   assert.equal(deployed.status, 'completed');
   assert.deepEqual(deployed.uploaded, ['inc/test.php']);
   assert.equal(execCalls, 1);
+  assert.equal(deployed.batch_count, 1);
   assert.equal(decodeCommand(seenCommand).includes('SECRET_SHOULD_NOT_APPEAR'), false, 'runtime command exposed stored password');
 
   const wrappedApi = createFtpDeployApi({
@@ -111,7 +123,7 @@ function decodeCommand(command) {
 
   fs.rmSync(root, { recursive:true, force:true });
   fs.rmSync(noConfigRoot, { recursive:true, force:true });
-  console.log('Terminal FTP deploy smoke PASS: config-local credentials + changed-files-only + Work Session completion hook.');
+  console.log('Terminal FTP deploy smoke PASS: local credentials + changed-files-only + bounded terminal batching + Work Session hook.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
