@@ -6,6 +6,7 @@ const {
   FTP_CONFIG_RELATIVE,
   MAX_TERMINAL_COMMAND_CHARS,
   normalizeDeployFiles,
+  changedFilesFromLegacyChanges,
   buildFtpDeployCommand,
   buildFtpDeployBatches,
   parseDeployResult,
@@ -42,6 +43,12 @@ function decodeCommand(command) {
     'wp-content/themes/site/style.css',
     'wp-content/themes/site/functions.php'
   ]);
+  assert.deepEqual(changedFilesFromLegacyChanges([
+    { op:'write', path:'new.php' },
+    { op:'patch', path:'style.css' },
+    { op:'rename', from:'old.js', to:'new.js' },
+    { op:'delete', path:'gone.txt' }
+  ]), ['new.php','style.css','old.js','new.js','gone.txt']);
 
   const command = buildFtpDeployCommand(['wp-content/themes/site/style.css', 'assets/logo 1.svg']);
   assert.match(command, /^powershell\.exe .* -EncodedCommand /);
@@ -88,7 +95,9 @@ function decodeCommand(command) {
       seenCommand = cmd;
       assert.equal(opts.background, false);
       assert.equal(opts.timeout_ms, 180000);
-      return { status:'completed', exit_code:0, stdout:'CHATCODE_FTP_OK|upload|inc/test.php\n', stderr:'' };
+      const decoded = decodeCommand(cmd);
+      const marker = decoded.includes('legacy.php') ? 'legacy.php' : 'inc/test.php';
+      return { status:'completed', exit_code:0, stdout:`CHATCODE_FTP_OK|upload|${marker}\n`, stderr:'' };
     }
   };
   const deployed = await deployChangedFiles(api, store, 'p1', ['inc/test.php']);
@@ -102,12 +111,25 @@ function decodeCommand(command) {
   const wrappedApi = createFtpDeployApi({
     workStatus:async () => ({ project_id:'p1', project:'Fixture', status:'active', changed_files:['inc/test.php'] }),
     finishWork:async () => ({ project_id:'p1', project:'Fixture', status:'completed', changed_files:['inc/test.php'] }),
+    applyAndVerify:async () => ({ project:'Fixture', status:'completed', ok:true, verification_passed:true }),
     exec:api.exec
   }, store);
   const finished = await wrappedApi.finishWork('work-1');
   assert.equal(finished.status, 'completed');
   assert.equal(finished.ftp_deploy.status, 'completed');
   assert.deepEqual(finished.ftp_deploy.uploaded, ['inc/test.php']);
+
+  const legacy = await wrappedApi.applyAndVerify('p1', [{ op:'write', path:'legacy.php', content:'<?php' }], []);
+  assert.equal(legacy.status, 'completed');
+  assert.equal(legacy.ftp_deploy.status, 'completed');
+  assert.deepEqual(legacy.ftp_deploy.uploaded, ['legacy.php']);
+
+  const failedLegacyApi = createFtpDeployApi({
+    applyAndVerify:async () => ({ project:'Fixture', status:'completed', ok:false, verification_passed:false }),
+    exec:async () => { throw new Error('must not deploy failed verification'); }
+  }, store);
+  const failedLegacy = await failedLegacyApi.applyAndVerify('p1', [{ op:'write', path:'bad.php' }], []);
+  assert.equal(failedLegacy.ftp_deploy, undefined, 'failed legacy verification must not reach FTP');
 
   const safeStore = {
     getProject:ref => ({ id:String(ref), name:'Safe', root, workspaceMode:'safe', safety:{ _workspaceMode:'safe' } })
@@ -123,7 +145,7 @@ function decodeCommand(command) {
 
   fs.rmSync(root, { recursive:true, force:true });
   fs.rmSync(noConfigRoot, { recursive:true, force:true });
-  console.log('Terminal FTP deploy smoke PASS: local credentials + changed-files-only + bounded terminal batching + Work Session hook.');
+  console.log('Terminal FTP deploy smoke PASS: local credentials + bounded batching + Fast/Work/legacy verified completion hooks.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
