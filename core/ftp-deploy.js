@@ -25,6 +25,16 @@ function normalizeDeployFiles(files) {
   return out;
 }
 
+function changedFilesFromLegacyChanges(changes) {
+  const files = [];
+  for (const change of Array.isArray(changes) ? changes : []) {
+    const op = String(change?.op || change?.operation || '').toLowerCase();
+    if (op === 'rename' || op === 'move') files.push(change?.from, change?.to);
+    else if (['write','patch','delete'].includes(op)) files.push(change?.path);
+  }
+  return normalizeDeployFiles(files);
+}
+
 function powershellEncodedCommand(script) {
   return Buffer.from(String(script || ''), 'utf16le').toString('base64');
 }
@@ -67,17 +77,14 @@ function buildFtpDeployBatches(files, maxCommandChars = MAX_TERMINAL_COMMAND_CHA
   let current = [];
   for (const file of normalized) {
     const candidate = [...current, file];
-    const command = buildFtpDeployCommand(candidate);
-    if (command.length <= maxCommandChars) {
+    if (buildFtpDeployCommand(candidate).length <= maxCommandChars) {
       current = candidate;
       continue;
     }
     if (!current.length) throw new Error(`FTP deploy command exceeds terminal guard for file: ${file}`);
     batches.push(current);
     current = [file];
-    if (buildFtpDeployCommand(current).length > maxCommandChars) {
-      throw new Error(`FTP deploy command exceeds terminal guard for file: ${file}`);
-    }
+    if (buildFtpDeployCommand(current).length > maxCommandChars) throw new Error(`FTP deploy command exceeds terminal guard for file: ${file}`);
   }
   if (current.length) batches.push(current);
   return batches;
@@ -131,9 +138,7 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
     try {
       const raw = await api.exec(project.id, buildFtpDeployCommand(batch), { background:false, timeout_ms:180000 });
       const parsed = parseDeployResult(raw, batch);
-      if (parsed.status === 'skipped' && parsed.reason) {
-        return { ...parsed, changed_files:files, batch_count:batches.length };
-      }
+      if (parsed.status === 'skipped' && parsed.reason) return { ...parsed, changed_files:files, batch_count:batches.length };
       uploaded.push(...parsed.uploaded);
       deleted.push(...parsed.deleted);
       skippedFiles.push(...parsed.skipped_files);
@@ -158,22 +163,42 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
   };
 }
 
+function shouldAttachFtpResult(ftp) {
+  return ftp && ftp.status !== 'not_configured' && ftp.reason !== 'no_changed_files';
+}
+
 function createFtpDeployApi(api, store) {
-  if (!api || typeof api.finishWork !== 'function' || api.__ftpDeployWrapped) return api;
+  if (!api || api.__ftpDeployWrapped) return api;
+  if (typeof api.finishWork !== 'function' && typeof api.applyAndVerify !== 'function') return api;
   api.__ftpDeployWrapped = true;
-  const originalFinishWork = api.finishWork.bind(api);
-  api.finishWork = async (workSessionId, ...args) => {
-    let before = null;
-    try { if (typeof api.workStatus === 'function') before = await api.workStatus(workSessionId); } catch {}
-    const result = await originalFinishWork(workSessionId, ...args);
-    if (result?.status !== 'completed') return result;
-    const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
-    const changedFiles = result?.changed_files || before?.changed_files || [];
-    if (!projectRef) return result;
-    const ftp = await deployChangedFiles(api, store, projectRef, changedFiles);
-    if (ftp.status === 'not_configured' || ftp.reason === 'no_changed_files') return result;
-    return { ...result, ftp_deploy:ftp };
-  };
+
+  if (typeof api.finishWork === 'function') {
+    const originalFinishWork = api.finishWork.bind(api);
+    api.finishWork = async (workSessionId, ...args) => {
+      let before = null;
+      try { if (typeof api.workStatus === 'function') before = await api.workStatus(workSessionId); } catch {}
+      const result = await originalFinishWork(workSessionId, ...args);
+      if (result?.status !== 'completed') return result;
+      const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
+      const changedFiles = result?.changed_files || before?.changed_files || [];
+      if (!projectRef) return result;
+      const ftp = await deployChangedFiles(api, store, projectRef, changedFiles);
+      return shouldAttachFtpResult(ftp) ? { ...result, ftp_deploy:ftp } : result;
+    };
+  }
+
+  if (typeof api.applyAndVerify === 'function') {
+    const originalApplyAndVerify = api.applyAndVerify.bind(api);
+    api.applyAndVerify = async (ref, changes = [], tasks = []) => {
+      const result = await originalApplyAndVerify(ref, changes, tasks);
+      if (result?.status !== 'completed' || result?.ok === false || result?.verification_passed === false) return result;
+      const changedFiles = changedFilesFromLegacyChanges(changes);
+      if (!changedFiles.length) return result;
+      const ftp = await deployChangedFiles(api, store, ref, changedFiles);
+      return shouldAttachFtpResult(ftp) ? { ...result, ftp_deploy:ftp } : result;
+    };
+  }
+
   return api;
 }
 
@@ -192,6 +217,7 @@ module.exports = {
   MAX_DEPLOY_FILES,
   MAX_TERMINAL_COMMAND_CHARS,
   normalizeDeployFiles,
+  changedFilesFromLegacyChanges,
   buildFtpDeployCommand,
   buildFtpDeployBatches,
   parseDeployResult,
