@@ -12,7 +12,7 @@ This is the mandatory umbrella contract for projects that inspection identifies 
 - Existing owner/component/data source first. A normal edit defaults to zero new source files.
 - Read more only when a concrete dependency blocks a safe change.
 - Preserve Builder/user-edited state and confirmed project decisions.
-- Do not broaden into Git, external research, migration, refactor or deployment unless the user/task actually requires it.
+- Do not broaden into Git, external research, migration, refactor or unrelated deployment unless the user/task actually requires it; project-configured post-edit sync is allowed.
 - When a reference site/domain is named, keep reference research scoped to that source unless it is unavailable/insufficient or wider research is explicitly requested.
 
 ## Native delivery order
@@ -56,6 +56,10 @@ For `ui` tasks, runtime performs a deterministic local search and attaches at mo
 - Functional icons use Bricks/native verified icon infrastructure; brand marks use real assets.
 - One-time setup/migration must reach a terminal no-op state and must not keep doing setup work on normal frontend requests.
 - Global design tokens belong to the established global owner; page/component styling stays with its scoped owner unless evidence proves the problem is global.
+
+## Project FTP completion
+
+When project root has `.vscode/sftp.json` with `uploadOnSave:true`, remote sync is part of completion. A successful `ftp_deploy` result is authoritative; do not upload twice. For legacy/direct writes without it, use Trusted Terminal `exec` once after verification to sync only current-task changed files—never VS Code/Ctrl+S. The terminal must read credentials locally from the config, never expose/store them, and map `remotePath + project-relative path`. Delete remote only for a task-deleted file when `watcher.autoDelete:true`. Report any skip/failure exactly.
 
 ## Completion
 
