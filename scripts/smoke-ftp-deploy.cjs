@@ -30,6 +30,12 @@ function decodeCommand(command) {
   return Buffer.from(encoded, 'base64').toString('utf16le');
 }
 
+function filesFromCommand(command) {
+  const script = decodeCommand(command);
+  const filesBase64 = script.match(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/)?.[1] || '';
+  return JSON.parse(Buffer.from(filesBase64, 'base64').toString('utf8') || '[]');
+}
+
 (async () => {
   assert.equal(FTP_CONFIG_RELATIVE, '.vscode/sftp.json');
   assert.deepEqual(normalizeDeployFiles([
@@ -53,6 +59,7 @@ function decodeCommand(command) {
   const command = buildFtpDeployCommand(['wp-content/themes/site/style.css', 'assets/logo 1.svg']);
   assert.match(command, /^powershell\.exe .* -EncodedCommand /);
   assert.ok(command.length < 16000, `FTP terminal command exceeds Trusted Terminal guard: ${command.length}`);
+  assert.deepEqual(filesFromCommand(command), ['wp-content/themes/site/style.css', 'assets/logo 1.svg']);
   const script = decodeCommand(command);
   for (const phrase of ['.vscode\\sftp.json', 'uploadOnSave', 'remotePath', 'FtpWebRequest', 'UsePassive', 'EnableSsl', 'autoDelete', 'CHATCODE_FTP_OK']) {
     assert.ok(script.includes(phrase), `FTP script missing ${phrase}`);
@@ -68,6 +75,7 @@ function decodeCommand(command) {
   for (const batch of batches) {
     const batchedCommand = buildFtpDeployCommand(batch);
     assert.ok(batchedCommand.length <= MAX_TERMINAL_COMMAND_CHARS, `FTP batch exceeds terminal command budget: ${batchedCommand.length}`);
+    assert.deepEqual(filesFromCommand(batchedCommand), batch, 'terminal batch payload differs from planned files');
   }
 
   const parsed = parseDeployResult({
@@ -95,9 +103,8 @@ function decodeCommand(command) {
       seenCommand = cmd;
       assert.equal(opts.background, false);
       assert.equal(opts.timeout_ms, 180000);
-      const decoded = decodeCommand(cmd);
-      const marker = decoded.includes('legacy.php') ? 'legacy.php' : 'inc/test.php';
-      return { status:'completed', exit_code:0, stdout:`CHATCODE_FTP_OK|upload|${marker}\n`, stderr:'' };
+      const file = filesFromCommand(cmd)[0] || '';
+      return { status:'completed', exit_code:0, stdout:`CHATCODE_FTP_OK|upload|${file}\n`, stderr:'' };
     }
   };
   const deployed = await deployChangedFiles(api, store, 'p1', ['inc/test.php']);
