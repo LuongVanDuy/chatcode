@@ -3,6 +3,7 @@ const path = require('path');
 
 const FTP_CONFIG_RELATIVE = '.vscode/sftp.json';
 const MAX_DEPLOY_FILES = 50;
+const MAX_TERMINAL_COMMAND_CHARS = 15000;
 
 function isTrusted(project) {
   return project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
@@ -60,6 +61,28 @@ exit 0`;
   return `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(script)}`;
 }
 
+function buildFtpDeployBatches(files, maxCommandChars = MAX_TERMINAL_COMMAND_CHARS) {
+  const normalized = normalizeDeployFiles(files);
+  const batches = [];
+  let current = [];
+  for (const file of normalized) {
+    const candidate = [...current, file];
+    const command = buildFtpDeployCommand(candidate);
+    if (command.length <= maxCommandChars) {
+      current = candidate;
+      continue;
+    }
+    if (!current.length) throw new Error(`FTP deploy command exceeds terminal guard for file: ${file}`);
+    batches.push(current);
+    current = [file];
+    if (buildFtpDeployCommand(current).length > maxCommandChars) {
+      throw new Error(`FTP deploy command exceeds terminal guard for file: ${file}`);
+    }
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
 function parseDeployResult(raw, files) {
   const stdout = String(raw?.stdout || '');
   const stderr = String(raw?.stderr || '');
@@ -98,12 +121,41 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
   const configPath = path.join(root, '.vscode', 'sftp.json');
   if (!fs.existsSync(configPath)) return { ok:true, status:'not_configured', reason:'config_missing', changed_files:files };
   if (!isTrusted(project) || typeof api?.exec !== 'function') return { ok:false, status:'skipped', reason:'trusted_terminal_required', changed_files:files };
-  try {
-    const raw = await api.exec(project.id, buildFtpDeployCommand(files), { background:false, timeout_ms:180000 });
-    return parseDeployResult(raw, files);
-  } catch (error) {
-    return { ok:false, status:'failed', changed_files:files, uploaded:[], deleted:[], skipped_files:[], failures:[], error:String(error?.message || error || 'FTP terminal deploy failed').slice(0, 800) };
+
+  let batches;
+  try { batches = buildFtpDeployBatches(files); }
+  catch (error) { return { ok:false, status:'failed', changed_files:files, uploaded:[], deleted:[], skipped_files:[], failures:[], error:String(error?.message || error).slice(0,800) }; }
+
+  const uploaded = [], deleted = [], skippedFiles = [], failures = [];
+  for (const batch of batches) {
+    try {
+      const raw = await api.exec(project.id, buildFtpDeployCommand(batch), { background:false, timeout_ms:180000 });
+      const parsed = parseDeployResult(raw, batch);
+      if (parsed.status === 'skipped' && parsed.reason) {
+        return { ...parsed, changed_files:files, batch_count:batches.length };
+      }
+      uploaded.push(...parsed.uploaded);
+      deleted.push(...parsed.deleted);
+      skippedFiles.push(...parsed.skipped_files);
+      failures.push(...parsed.failures);
+      if (!parsed.ok && !parsed.failures.length) failures.push({ file:batch.join(', '), error:parsed.error || 'FTP terminal batch failed' });
+    } catch (error) {
+      failures.push({ file:batch.join(', '), error:String(error?.message || error || 'FTP terminal deploy failed').slice(0,800) });
+    }
   }
+
+  const ok = failures.length === 0;
+  return {
+    ok,
+    status:ok ? 'completed' : 'failed',
+    changed_files:files,
+    uploaded,
+    deleted,
+    skipped_files:skippedFiles,
+    failures,
+    batch_count:batches.length,
+    ...(ok ? {} : { error:(failures[0]?.error || 'FTP terminal deploy failed').slice(0,800) })
+  };
 }
 
 function createFtpDeployApi(api, store) {
@@ -138,8 +190,10 @@ function installFtpDeployPatches() {
 module.exports = {
   FTP_CONFIG_RELATIVE,
   MAX_DEPLOY_FILES,
+  MAX_TERMINAL_COMMAND_CHARS,
   normalizeDeployFiles,
   buildFtpDeployCommand,
+  buildFtpDeployBatches,
   parseDeployResult,
   deployChangedFiles,
   createFtpDeployApi,
