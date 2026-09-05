@@ -9,11 +9,11 @@ This is the mandatory umbrella contract for projects identified as WordPress + B
 `LOCK TARGET -> prepare_task -> use ranked owner/context -> apply smallest valid change -> verify touched scope -> STOP`
 
 - Use project evidence, Project Profile and Owner Resolver before guessing.
-- Existing owner/component/data source first; normal edits default to zero new source files.
+- Existing owner/component/data source first. A normal edit defaults to zero new source files.
 - Read more only for a concrete dependency.
 - Preserve Builder/user-edited state and confirmed project decisions.
-- Do not broaden into Git, research, migration, refactor or unrelated deployment; configured post-edit sync is allowed.
-- Keep a named reference site/domain as the scoped source unless unavailable or wider research is requested.
+- Do not broaden into Git, external research, migration, refactor or deployment unless the user/task requires it; configured post-edit sync is allowed.
+- When a reference site/domain is named, keep it as the scoped source unless unavailable or wider research is requested.
 
 ## Native delivery order
 
@@ -54,7 +54,7 @@ For `ui` tasks, runtime performs deterministic local search and attaches at most
 - Prefix collision/storage/security/public identity boundaries only, not every local/descendant identifier.
 - Reference media is slot-specific; accidental attachment reuse is not acceptable by default.
 - Functional icons use verified Bricks/native infrastructure; brand marks use real assets.
-- One-time setup/migration must terminate and become a frontend no-op.
+- One-time setup/migration must reach a terminal no-op state and must not keep setup work on normal frontend requests.
 - Global tokens stay with the established global owner; component styling stays scoped unless evidence proves a global issue.
 
 ## Project FTP completion
