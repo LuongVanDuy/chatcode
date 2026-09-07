@@ -40,12 +40,17 @@ const rules = [
   { key:'checkout-null-policy', value:'Checkout null values become empty strings.' }
 ];
 
-assert.equal(preflightExecutionPath('Sửa font và width container trang chủ').path, EXECUTION_PATHS.FAST);
+assert.equal(preflightExecutionPath('Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại').path, EXECUTION_PATHS.FAST);
 const microPreflight = preflightExecutionPath('Giảm spacing product card trên mobile 8px');
 assert.equal(microPreflight.path, EXECUTION_PATHS.FAST);
-assert.equal(microPreflight.limits.context_files, 3);
+assert.equal(microPreflight.limits.context_files, 2);
 assert.equal(microPreflight.limits.patch_files, 2);
-assert.equal(microPreflight.limits.skill_chars, 3600);
+assert.equal(microPreflight.limits.skill_chars, 2200);
+const longKhaiHomePreflight = preflightExecutionPath('CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn');
+assert.equal(longKhaiHomePreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(longKhaiHomePreflight.limits.context_files, 2);
+assert.equal(longKhaiHomePreflight.limits.patch_files, 2);
+assert.equal(longKhaiHomePreflight.limits.skill_chars, 2200);
 assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
@@ -94,7 +99,7 @@ assert.equal(realOptionMigration.type, TASK_TYPES.DATA);
 assert.equal(realOptionMigration.execution.path, EXECUTION_PATHS.DEEP);
 assert.ok(realOptionMigration.execution.reasons.includes('persisted-data-migration'));
 
-const fast = buildTaskCard({ request:'Sửa font và width container trang chủ', inspect, projectRules:rules });
+const fast = buildTaskCard({ request:'Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại', inspect, projectRules:rules });
 assert.equal(fast.type, TASK_TYPES.FAST_UI);
 assert.equal(fast.execution.path, EXECUTION_PATHS.FAST);
 assert.equal(fast.execution.context_file_limit, 4);
@@ -103,13 +108,13 @@ assert.equal(fast.execution.allow_new_source_files, 0);
 assert.equal(fast.execution.allow_delete, false);
 assert.ok(fast.expected_files.length <= 4);
 
-const micro = buildTaskCard({ request:'Giảm spacing product card trên mobile 8px', inspect, projectRules:rules });
+const micro = buildTaskCard({ request:'CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn', inspect, projectRules:rules });
 assert.equal(micro.type, TASK_TYPES.FAST_UI);
 assert.equal(micro.execution.path, EXECUTION_PATHS.FAST);
-assert.equal(micro.execution.context_file_limit, 3);
+assert.equal(micro.execution.context_file_limit, 2);
 assert.equal(micro.execution.patch_file_limit, 2);
-assert.equal(micro.execution.skill_context_limit_chars, 3600);
-assert.ok(micro.expected_files.length <= 3);
+assert.equal(micro.execution.skill_context_limit_chars, 2200);
+assert.ok(micro.expected_files.length <= 2);
 
 const simpleCpt = buildTaskCard({ request:'Đăng ký CPT sản phẩm catalog không WooCommerce trong owner hiện tại', inspect, projectRules:rules });
 assert.equal(simpleCpt.type, TASK_TYPES.DATA);
@@ -181,9 +186,9 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   };
   const runtime = createAgentRuntime(api, store);
 
-  const preparedFast = await runtime.prepareTask('p1', 'Sửa font và width container trang chủ', 8);
+  const preparedFast = await runtime.prepareTask('p1', 'Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại', 8);
   assert.equal(preparedFast.execution_path, EXECUTION_PATHS.FAST);
-  assert.equal(seenLimits[0], 4, 'Fast prepare must inspect at most four ranked files');
+  assert.equal(seenLimits[0], 4, 'Standard Fast prepare must inspect at most four ranked files');
   assert.ok(preparedFast.context.relevant_files.length <= 4);
   assert.ok(preparedFast.context.relevant_relations.length <= 32);
   assert.ok(preparedFast.skills.every(skill => skill.resource_context.fast_compact === true));
@@ -197,14 +202,14 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   );
   assert.equal(applyCalls, 0, 'scope violation must not reach applyPatch');
 
-  const preparedMicro = await runtime.prepareTask('p1', 'Giảm spacing product card trên mobile 8px', 8);
+  const preparedMicro = await runtime.prepareTask('p1', 'CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn', 8);
   assert.equal(preparedMicro.execution_path, EXECUTION_PATHS.FAST);
-  assert.equal(seenLimits[1], 3, 'Micro Fast prepare must inspect at most three ranked files');
-  assert.ok(preparedMicro.context.relevant_files.length <= 3);
+  assert.equal(seenLimits[1], 2, 'Longkhai-style Micro Fast prepare must inspect at most two ranked files');
+  assert.ok(preparedMicro.context.relevant_files.length <= 2);
   assert.ok(preparedMicro.context.relevant_relations.length <= 18);
   assert.ok(preparedMicro.context.top_symbols.length <= 14);
   assert.equal(preparedMicro.task_card.execution.patch_file_limit, 2);
-  assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 3600);
+  assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 2200);
   assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
 
   const preparedExplicit = await runtime.prepareTask('p1', explicitRequest, 8);
@@ -223,7 +228,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (negation-aware explicit file FAST + real migration DEEP + compact graph + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (Longkhai micro UI lane + negation-aware explicit file FAST + real migration DEEP + scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
