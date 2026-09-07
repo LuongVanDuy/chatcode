@@ -59,17 +59,23 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   let projectBrainCalls = 0;
   let gitInFlight = false;
   let readObservedGitOverlap = false;
-  const profile = { isWordPress:true, childThemes:[], parentThemes:[], customPlugins:[] };
+  const ownerPath = 'wp-content/themes/demo-child/functions.php';
+  const profile = {
+    isWordPress:true,
+    childThemes:[{ slug:'demo-child', template:'bricks', root:'wp-content/themes/demo-child' }],
+    parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }],
+    customPlugins:[]
+  };
   const inspectApi = {
     projectContext:async () => {
       await sleep(3);
       return {
-        frameworks:[{ name:'WordPress' }],
-        framework_names:['WordPress'],
+        frameworks:[{ name:'WordPress' }, { name:'Bricks' }],
+        framework_names:['WordPress','Bricks'],
         primary_language:'PHP',
-        entrypoints:['functions.php'],
+        entrypoints:[ownerPath],
         wordpress:profile,
-        files:[{ path:'functions.php', language:'PHP', symbols:[{ name:'demo_owner', kind:'function', line:1 }], score:10 }],
+        files:[{ path:ownerPath, language:'PHP', symbols:[{ name:'demo_owner', kind:'function', line:1 }], score:10 }],
         relations:[]
       };
     },
@@ -90,12 +96,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     }
   };
   const inspectStore = { getProject:() => ({ id:'p1', name:'Demo', permissions:{ read:true } }) };
-  const inspected = await createScopedInspect(inspectApi, inspectStore)('p1', 'Fix functions owner', 3);
+  const inspected = await createScopedInspect(inspectApi, inspectStore)('p1', 'Fix child theme functions owner', 3);
   assert.equal(projectBrainCalls, 0, 'current Project Brain context metadata should avoid a redundant projectBrain summary call');
   assert.equal(inspected.telemetry.brain_overview_source, 'project-context');
   assert.equal(inspected.telemetry.overlapped_git, true);
   assert.equal(readObservedGitOverlap, true, 'git status should execute underneath content reads instead of after them');
   assert.ok(inspected.top_symbols.some(item => item.name === 'demo_owner'));
+  assert.ok(inspected.relevant_files.some(item => item.path === ownerPath));
 
   const fallbackApi = {
     projectContext:async () => ({ files:[], relations:[] }),
