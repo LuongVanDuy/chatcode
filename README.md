@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.28**
+> Phiên bản hiện tại: **v1.0.29**
 
 ## Kiến trúc
 
@@ -542,12 +542,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.28** thêm **Hard Project Rules**: targeted task mặc định không được tạo source file mới, owner CONFIRMED/DETECTED trở thành binding trước mutation, Bricks UI ưu tiên native thay vì tự tạo shortcode/custom element, và `:root` mới chỉ được thêm trong global CSS owner đã xác nhận. User vẫn có thể yêu cầu rõ file/custom source mới; allowance khi đó hữu hạn và exact path được ràng buộc nếu prompt cung cấp. Rule vi phạm bị chặn trước `applyPatch`, không tạo file rồi mới cleanup.
+**v1.0.29** thêm **Micro Task Latency hotfix** cho các task UI/CSS có scope rõ: prompt kiểu sửa layout Home, banner, danh mục, breadcrumb, card, menu hoặc spacing có thể đi thẳng vào Micro Fast lane mà không cần phải chứa con số `px` hay cụm “một chút”. Lane này giới hạn tối đa **2 context files**, **2 patch files** và khoảng **2.200 ký tự skill context**, trong khi các task database, Bricks template/schema, WooCommerce state, production/deploy hoặc refactor rộng vẫn giữ workflow đầy đủ. Hard Project Rules của v1.0.28 vẫn được giữ nguyên.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.29** | Micro Task Latency: targeted CSS/layout dùng 2-file context + 2-file patch budget và compact skill context. |
 | **v1.0.28** | Hard Project Rules: owner-first, zero-default file budget, native Bricks và global CSS owner guards. |
 | **v1.0.27** | Fast Execution Engine: context reuse, coalesced/parallel I/O, overlapped inspect và bounded inferred verification. |
 | **v1.0.26** | Verified terminal FTP deploy + Windows `=>` redirect artifact guard. |
@@ -561,6 +562,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.28**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.29**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
