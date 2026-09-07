@@ -2,6 +2,7 @@ const assert = require('assert/strict');
 const {
   TASK_TYPES,
   EXECUTION_PATHS,
+  EXECUTION_LANES,
   preflightExecutionPath,
   buildTaskCard,
   patchScopeFromUnifiedDiff,
@@ -40,17 +41,27 @@ const rules = [
   { key:'checkout-null-policy', value:'Checkout null values become empty strings.' }
 ];
 
+const longKhaiReferencePrompt = 'Tiếp theo, vẫn ở trang home build cho tôi section như ảnh nhé ảnh và text thay thế được, tạm thời dùng chung 1 ảnh id 4923';
+
 assert.equal(preflightExecutionPath('Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại').path, EXECUTION_PATHS.FAST);
 const microPreflight = preflightExecutionPath('Giảm spacing product card trên mobile 8px');
 assert.equal(microPreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(microPreflight.lane, EXECUTION_LANES.MICRO_UI);
 assert.equal(microPreflight.limits.context_files, 2);
 assert.equal(microPreflight.limits.patch_files, 2);
 assert.equal(microPreflight.limits.skill_chars, 2200);
 const longKhaiHomePreflight = preflightExecutionPath('CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn');
 assert.equal(longKhaiHomePreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(longKhaiHomePreflight.lane, EXECUTION_LANES.MICRO_UI);
 assert.equal(longKhaiHomePreflight.limits.context_files, 2);
 assert.equal(longKhaiHomePreflight.limits.patch_files, 2);
 assert.equal(longKhaiHomePreflight.limits.skill_chars, 2200);
+const longKhaiReferencePreflight = preflightExecutionPath(longKhaiReferencePrompt);
+assert.equal(longKhaiReferencePreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(longKhaiReferencePreflight.lane, EXECUTION_LANES.MICRO_UI, 'reference-image section build must enter Micro UI without requiring CSS/layout wording');
+assert.equal(longKhaiReferencePreflight.limits.context_files, 2);
+assert.equal(longKhaiReferencePreflight.limits.patch_files, 2);
+assert.equal(longKhaiReferencePreflight.limits.skill_chars, 2200);
 assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
@@ -102,18 +113,32 @@ assert.ok(realOptionMigration.execution.reasons.includes('persisted-data-migrati
 const fast = buildTaskCard({ request:'Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại', inspect, projectRules:rules });
 assert.equal(fast.type, TASK_TYPES.FAST_UI);
 assert.equal(fast.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(fast.execution.lane, EXECUTION_LANES.FAST);
 assert.equal(fast.execution.context_file_limit, 4);
 assert.equal(fast.execution.patch_file_limit, 4);
 assert.equal(fast.execution.allow_new_source_files, 0);
 assert.equal(fast.execution.allow_delete, false);
+assert.equal(fast.execution.latency_guard, null);
 assert.ok(fast.expected_files.length <= 4);
 
-const micro = buildTaskCard({ request:'CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn', inspect, projectRules:rules });
-assert.equal(micro.type, TASK_TYPES.FAST_UI);
+const micro = buildTaskCard({ request:longKhaiReferencePrompt, inspect, projectRules:rules });
+assert.equal(micro.type, TASK_TYPES.BRICKS_BUILDER);
 assert.equal(micro.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(micro.execution.lane, EXECUTION_LANES.MICRO_UI);
 assert.equal(micro.execution.context_file_limit, 2);
 assert.equal(micro.execution.patch_file_limit, 2);
 assert.equal(micro.execution.skill_context_limit_chars, 2200);
+assert.equal(micro.execution.latency_guard.preferred_calls, 2);
+assert.equal(micro.execution.latency_guard.discovery_round_limit, 1);
+assert.equal(micro.execution.latency_guard.dependency_hop_limit, 1);
+assert.equal(micro.execution.latency_guard.verification_round_limit, 1);
+assert.equal(micro.execution.latency_guard.allow_git_inspection, false);
+assert.equal(micro.execution.latency_guard.allow_manual_ftp, false);
+assert.equal(micro.execution.latency_guard.allow_browser_live_verify, false);
+assert.equal(micro.execution.latency_guard.allow_database_diagnostics, false);
+assert.equal(micro.execution.latency_guard.allow_snapshot_diagnostics, false);
+assert.equal(micro.execution.latency_guard.stop_after_scope_verify, true);
+assert.match(micro.constraints.workflow, /prepare_task context -> patch -> complete_task/);
 assert.ok(micro.expected_files.length <= 2);
 
 const simpleCpt = buildTaskCard({ request:'Đăng ký CPT sản phẩm catalog không WooCommerce trong owner hiện tại', inspect, projectRules:rules });
@@ -123,6 +148,7 @@ assert.equal(simpleCpt.execution.path, EXECUTION_PATHS.FAST, 'simple CPT code re
 const builderDeep = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect, projectRules:rules });
 assert.equal(builderDeep.type, TASK_TYPES.BRICKS_BUILDER);
 assert.equal(builderDeep.execution.path, EXECUTION_PATHS.DEEP);
+assert.equal(builderDeep.execution.lane, EXECUTION_LANES.DEEP);
 assert.ok(builderDeep.execution.reasons.includes('builder-schema'));
 
 const prodDeep = buildTaskCard({ request:'Upload đúng file qua FTP và kiểm tra live production', inspect, projectRules:rules });
@@ -202,14 +228,19 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   );
   assert.equal(applyCalls, 0, 'scope violation must not reach applyPatch');
 
-  const preparedMicro = await runtime.prepareTask('p1', 'CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn', 8);
+  const preparedMicro = await runtime.prepareTask('p1', longKhaiReferencePrompt, 8);
   assert.equal(preparedMicro.execution_path, EXECUTION_PATHS.FAST);
-  assert.equal(seenLimits[1], 2, 'Longkhai-style Micro Fast prepare must inspect at most two ranked files');
+  assert.equal(seenLimits[1], 2, 'real Longkhai reference-image Micro UI prepare must inspect at most two ranked files');
   assert.ok(preparedMicro.context.relevant_files.length <= 2);
   assert.ok(preparedMicro.context.relevant_relations.length <= 18);
   assert.ok(preparedMicro.context.top_symbols.length <= 14);
+  assert.equal(preparedMicro.task_card.execution.lane, EXECUTION_LANES.MICRO_UI);
   assert.equal(preparedMicro.task_card.execution.patch_file_limit, 2);
   assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 2200);
+  assert.equal(preparedMicro.task_card.execution.latency_guard.preferred_calls, 2);
+  assert.equal(preparedMicro.task_card.execution.latency_guard.discovery_round_limit, 1);
+  assert.equal(preparedMicro.task_card.execution.latency_guard.allow_manual_ftp, false);
+  assert.equal(preparedMicro.task_card.execution.latency_guard.allow_browser_live_verify, false);
   assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
 
   const preparedExplicit = await runtime.prepareTask('p1', explicitRequest, 8);
@@ -228,7 +259,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (Longkhai micro UI lane + negation-aware explicit file FAST + real migration DEEP + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (real Longkhai reference-image Micro UI lane + latency guard + negation-aware explicit file FAST + real migration DEEP + scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

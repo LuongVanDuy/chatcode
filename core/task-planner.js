@@ -13,6 +13,12 @@ const EXECUTION_PATHS = Object.freeze({
   DEEP:'DEEP'
 });
 
+const EXECUTION_LANES = Object.freeze({
+  MICRO_UI:'MICRO_UI',
+  FAST:'FAST',
+  DEEP:'DEEP'
+});
+
 const TYPE_READ_LIMIT = Object.freeze({
   FAST_UI:4,
   BRICKS_BUILDER:6,
@@ -124,8 +130,9 @@ function isMicroFastRequest(request) {
   const explicitSmallChange = /\b\d+(?:\.\d+)?\s*(?:px|rem|em|%)\b|\b(?:slightly|small|minor|a\s+bit)\b|\bnhẹ\b|một\s+chút|khoảng\s+\d/i.test(text);
   const actionIntent = /\b(?:fix|adjust|change|update|align|reduce|increase|tweak|polish)\b|sửa|sua|chỉnh|chinh|tối\s+ưu|toi\s+uu|giảm|giam|tăng|tang|đổi|doi|căn|canh|cho\b|css\s+lại|style\s+lại/i.test(text);
   const styleAxis = /\bcss\b|\blayout\b|giao\s+diện|giao\s+dien|font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)|align|căn|canh|grid|flex/i.test(text);
-  const scopedTarget = /homepage|home\s*page|trang\s+chủ|trang\s+chu|banner|category|danh\s+mục|breadcrumb|sidebar|card|section|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action/i.test(text);
-  return scopedTarget && styleAxis && (explicitSmallChange || actionIntent);
+  const scopedTarget = /homepage|home\s*page|trang\s+chủ|trang\s+chu|banner|category|danh\s+mục|breadcrumb|sidebar|card|section|block|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action|hero/i.test(text);
+  const referenceUiIntent = /(?:\b(?:build|add|create|make)\b|thêm|them|tạo|tao|triển\s+khai|trien\s+khai|làm|lam)[^\n]{0,100}(?:section|block|layout|banner|card|menu|tab|hero)|(?:section|block|layout|banner|card|menu|tab|hero)[^\n]{0,100}(?:như|giống|giong|theo)\s+(?:ảnh|anh|mẫu|mau|mockup|screenshot)|(?:như|giống|giong|theo)\s+(?:ảnh|anh|mẫu|mau|mockup|screenshot)/i.test(text);
+  return scopedTarget && ((styleAxis && (explicitSmallChange || actionIntent)) || referenceUiIntent);
 }
 
 function executionLimits(request, executionPath) {
@@ -133,16 +140,21 @@ function executionLimits(request, executionPath) {
   return PATH_LIMITS[executionPath];
 }
 
+function executionLane(request, executionPath) {
+  if (executionPath === EXECUTION_PATHS.DEEP) return EXECUTION_LANES.DEEP;
+  return isMicroFastRequest(request) ? EXECUTION_LANES.MICRO_UI : EXECUTION_LANES.FAST;
+}
+
 function preflightExecutionPath(request) {
   const reasons = deepPathReasons(request, '');
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
+  return { path:executionPath, lane:executionLane(request, executionPath), reasons, limits:executionLimits(request, executionPath) };
 }
 
 function classifyExecutionPath(request, type) {
   const reasons = deepPathReasons(request, type);
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
+  return { path:executionPath, lane:executionLane(request, executionPath), reasons, limits:executionLimits(request, executionPath) };
 }
 
 function targetLabel(request) {
@@ -272,18 +284,34 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
         ...(resolved.companion_paths || []),
         ...ownerCandidates.map(item => item.path)
       ]).slice(0,limit);
+  const microUi = execution.lane === EXECUTION_LANES.MICRO_UI;
 
   return {
-    version:3,
+    version:4,
     type,
     execution:{
       path:execution.path,
+      lane:execution.lane,
       reasons:execution.reasons,
       context_file_limit:execution.limits.context_files,
       patch_file_limit:execution.limits.patch_files,
       skill_context_limit_chars:execution.limits.skill_chars,
       allow_new_source_files:execution.path === EXECUTION_PATHS.DEEP ? 'existing owner first' : allowNewFile ? 1 : 0,
       allow_delete:execution.path === EXECUTION_PATHS.DEEP,
+      latency_guard:microUi ? {
+        preferred_calls:2,
+        discovery_round_limit:1,
+        dependency_hop_limit:1,
+        extra_read_limit:resolved.requires_owner_read ? 1 : 0,
+        verification_round_limit:1,
+        allow_git_inspection:false,
+        allow_manual_ftp:false,
+        allow_browser_live_verify:false,
+        allow_database_diagnostics:false,
+        allow_snapshot_diagnostics:false,
+        stop_after_scope_verify:true,
+        escalation_requires_concrete_failure:true
+      } : null,
       escalation:'fixed for this task; do not self-promote FAST to DEEP. Re-plan only when concrete evidence makes the current path unsafe.'
     },
     target:targetLabel(request),
@@ -309,7 +337,12 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
       expected_read_limit:limit,
       new_source_files:execution.path === EXECUTION_PATHS.FAST ? (allowNewFile ? 1 : 0) : 'existing owner first',
       scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only',
-      owner_resolution:primary?.status || 'unknown'
+      owner_resolution:primary?.status || 'unknown',
+      workflow:microUi
+        ? 'MICRO_UI: use prepare_task context -> patch -> complete_task. No broad rediscovery, DB/snapshot diagnostics, manual FTP, Git inspection or browser/CDP live verification unless a concrete failure makes that specific step necessary.'
+        : execution.path === EXECUTION_PATHS.FAST
+          ? 'FAST: use ranked context and owner first, then complete_task with scoped verification.'
+          : 'DEEP: evidence-driven investigation only.'
     }
   };
 }
@@ -378,12 +411,14 @@ function validatePatchAgainstTaskCard(taskCard, patch) {
 module.exports = {
   TASK_TYPES,
   EXECUTION_PATHS,
+  EXECUTION_LANES,
   TYPE_READ_LIMIT,
   PATH_LIMITS,
   stripNegatedStoredStateEvidence,
   hasPersistedStateEvidence,
   classifyTask,
   deepPathReasons,
+  isMicroFastRequest,
   preflightExecutionPath,
   classifyExecutionPath,
   targetLabel,
