@@ -2,7 +2,8 @@ const assert = require('assert/strict');
 const {
   buildHardRuleContract,
   validateHardProjectRules,
-  createHardProjectRulesApi
+  createHardProjectRulesApi,
+  explicitNewFileIntent
 } = require('../core/hard-project-rules');
 
 function prepared(request, overrides = {}) {
@@ -109,6 +110,17 @@ function patchCreate(path, lines) {
   const negatedCustom = buildHardRuleContract(prepared('Do not add shortcode or custom Bricks element; use native Bricks only.'));
   assert.equal(negatedCustom.file_creation.budget, 0, 'negated custom-source request must stay at zero');
   assert.equal(negatedCustom.native_bricks.allow_custom_source, false, 'negated custom-source request must not authorize custom source');
+  assert.equal(explicitNewFileIntent('Đừng tạo file mới, chỉ sửa owner hiện tại.'), false, 'Vietnamese đừng must suppress creation intent');
+  assert.equal(explicitNewFileIntent('Fix spacing in the existing theme file assets/css/main.css.'), false, 'theme must not match transliterated them action');
+
+  const themeMention = buildHardRuleContract(prepared('Fix spacing in the existing theme file `assets/css/main.css`.', {
+    task_card:{
+      ...base.task_card,
+      execution:{ path:'FAST', patch_file_limit:4, allow_new_source_files:1 },
+      owner:{ status:'confirmed', kind:'global_css', enforce_paths:['assets/css/main.css'] }
+    }
+  }));
+  assert.equal(themeMention.file_creation.budget, 0, 'existing theme file mention must not grant a new-file budget');
 
   // Merely mentioning an existing custom element is not permission to create another source owner.
   const existingCustomMention = buildHardRuleContract(prepared('Fix padding in the existing custom Bricks element by 8px', {
@@ -172,5 +184,20 @@ function patchCreate(path, lines) {
   assert.equal(completedCalls, 1);
   assert.equal(runtimeCompleted.hard_rules_check.ok, true);
 
-  console.log('Hard Project Rules PASS: owner-first + zero-default file budget + negation-safe native Bricks + global CSS owner guards.');
+  // Explicit lifecycle completion must clear the stored hard-rule contract.
+  let lifecycleCompleteCalls = 0;
+  let rollbackCalls = 0;
+  const lifecycleFake = {
+    prepareTask:async () => ({ ...base, task_id:'task-lifecycle' }),
+    rollbackWork:async () => { rollbackCalls++; return { ok:true, status:'rolled_back' }; },
+    completeTask:async () => { lifecycleCompleteCalls++; return { ok:true, status:'completed' }; }
+  };
+  const lifecycle = createHardProjectRulesApi(lifecycleFake);
+  const lifecyclePrepared = await lifecycle.prepareTask('demo', base.request, 4);
+  await lifecycle.rollbackWork(lifecyclePrepared.task_id);
+  assert.equal(rollbackCalls, 1);
+  await lifecycle.completeTask(lifecyclePrepared.task_id, helperCreate, []);
+  assert.equal(lifecycleCompleteCalls, 1, 'rollback must clear stale hard-rule contract state');
+
+  console.log('Hard Project Rules PASS: owner-first + zero-default file budget + boundary-safe intent + lifecycle cleanup + native Bricks/global CSS guards.');
 })().catch(error => { console.error(error); process.exit(1); });
