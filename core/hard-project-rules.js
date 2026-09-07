@@ -29,7 +29,9 @@ function explicitNewFileIntent(request = '') {
 
 function explicitCustomBricksSourceIntent(request = '') {
   const q = stripNegatedSourceCreationEvidence(request);
-  return /custom\s+(?:bricks\s+)?element|bricks\s+custom\s+element|register[_\s-]?element|set_controls|\bshortcode\b|custom\s+shortcode/i.test(q);
+  const action = '(?:create|add|build|implement|register|tạo|tao|thêm|them|triển\\s+khai|trien\\s+khai|xây\\s+dựng|xay\\s+dung)';
+  const source = '(?:custom\\s+(?:bricks\\s+)?element|bricks\\s+custom\\s+element|custom\\s+shortcode|shortcode)';
+  return new RegExp(`${action}[^\\n]{0,70}${source}|${source}[^\\n]{0,70}${action}|(?:new|mới|moi)[^\\n]{0,30}${source}`, 'i').test(q);
 }
 
 function explicitArchitectureSourceIntent(request = '') {
