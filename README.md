@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.25**
+> Phiên bản hiện tại: **v1.0.26**
 
 ## Kiến trúc
 
@@ -98,6 +98,8 @@ Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_tas
 
 Nếu verification fail, task giữ nguyên trạng thái để AI tạo corrective patch với cùng `task_id` thay vì inspect lại từ đầu.
 
+Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnSave:true` có thể tự đồng bộ **chỉ các file của task vừa thay đổi** qua Trusted Terminal sau khi verification PASS. FTP fail được trả về `deploy_failed`, nên agent không được báo website đã cập nhật khi local code mới chỉ verify thành công.
+
 ### Work Sessions & recovery
 
 - Tạo baseline trước khi chỉnh sửa.
@@ -130,6 +132,7 @@ Trusted Workspace không biến terminal thành OS sandbox. Người dùng vẫn
 - Đọc incremental stdout/stderr.
 - Dừng process tree của background job.
 - Gắn command vào Work Session để audit và recovery dễ hơn.
+- Trên Windows, v1.0.26 chặn/rewrite inline interpreter command có code arrow `=>` bị `cmd.exe` hiểu nhầm thành output redirection, tránh tạo file rác từ token PHP như `'ASC'`, `'ids'` hoặc tên hàm.
 
 Các thao tác nguy hiểm như **Git push** và **`reset --hard`** không được cung cấp trong agent contract mặc định.
 
@@ -477,6 +480,9 @@ Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`
 | `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
+| `core/windows-terminal-guard.js` | Windows `cmd.exe` redirect guard cho inline code có `=>`. |
+| `core/ftp-deploy.js` | Changed-files-only FTP deploy qua project `.vscode/sftp.json`. |
+| `core/completion-deploy-policy.js` | Không cho Fast Agent báo done khi FTP deploy fail. |
 | `core/browser-performance.js` | CPU/GPU/RAM performance policy, GPU/LAN diagnostics và explicit Windows QoS management. |
 | `core/browser-workspace.js` | Lazy WebContentsView tabs, isolated persistent session và browser IPC. |
 | `core/trusted-workspace.js` | Trusted Workspace behavior và secret access. |
@@ -501,12 +507,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.25** thay Project Scope từ một process-global lock thành **per-project concurrent lanes**. Hai conversation có thể cùng chạy `prepare_task`, Work Session hoặc terminal trên hai project khác nhau mà không chặn nhau. `list_projects` không còn bị ẩn bởi scope của conversation khác; hoàn tất/dừng project A chỉ giải phóng lane A. Task/session id vẫn bị ràng buộc chặt với project đã tạo nó, reference source vẫn read-only trong lane hiện tại cho đến khi project đó mở một lane target riêng, và project-root/sensitive-file/safety boundaries không thay đổi.
+**v1.0.26** thêm **verified terminal FTP deploy** dựa trên `.vscode/sftp.json`: chỉ file của task hiện tại được đồng bộ sau verification PASS, hỗ trợ upload/delete theo `watcher.autoDelete`, giữ credential bên trong terminal process và trả `deploy_failed` nếu remote chưa cập nhật. Bản này cũng sửa lỗi Windows Trusted Terminal có thể hiểu ký tự `>` trong PHP/code arrow `=>` thành output redirection và tạo file rác ở project root; inline PHP nguy cơ cao được chuyển sang PowerShell encoded transport, còn inline command không thể rewrite an toàn sẽ bị chặn trước `cmd.exe`.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.26** | Verified terminal FTP deploy + Windows `=>` redirect artifact guard. |
 | **v1.0.25** | Concurrent Project Scope Lanes: nhiều project/task/terminal chạy song song, lifecycle độc lập, session binding vẫn strict. |
 | **v1.0.24** | Browser Performance Mode: CPU HIGH active tab, warm RAM tabs, discrete-GPU preference, LAN/GPU diagnostics và explicit Windows QoS. |
 | **v1.0.23** | Browser workflow: tự gắn tên project cho tab ChatGPT theo conversation, first-project-wins và reset an toàn khi New Chat. |
@@ -517,6 +524,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.25**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.26**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
