@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.29**
+> Phiên bản hiện tại: **v1.0.30**
 
 ## Kiến trúc
 
@@ -206,7 +206,7 @@ ChatCode có thư viện skill tích hợp và đóng gói cùng ứng dụng.
 
 Skill hiện tại:
 
-**`wordpress-bricks` — WordPress + Bricks Native Delivery, version 2**
+**`wordpress-bricks` — WordPress + Bricks Native Delivery, version 5**
 
 Skill bao gồm rule và resource cho:
 
@@ -542,12 +542,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.29** thêm **Micro Task Latency hotfix** cho các task UI/CSS có scope rõ: prompt kiểu sửa layout Home, banner, danh mục, breadcrumb, card, menu hoặc spacing có thể đi thẳng vào Micro Fast lane mà không cần phải chứa con số `px` hay cụm “một chút”. Lane này giới hạn tối đa **2 context files**, **2 patch files** và khoảng **2.200 ký tự skill context**, trong khi các task database, Bricks template/schema, WooCommerce state, production/deploy hoặc refactor rộng vẫn giữ workflow đầy đủ. Hard Project Rules của v1.0.28 vẫn được giữ nguyên.
+**v1.0.30** thêm **Micro UI Latency Guard** cho các task UI nhỏ theo ảnh/mẫu hoặc layout có scope rõ. Prompt thực tế kiểu “build section Home như ảnh” giờ vào lane `MICRO_UI` ngay cả khi không chứa từ khóa CSS/layout. Lane giữ budget **2 context files / 2 patch files / 2.200 ký tự skill context** và đưa stop rules vào Task Card: ưu tiên **2 calls**, tối đa **1 discovery round**, **1 dependency hop**, tối đa **1 extra owner read** khi thật sự cần và **1 verification round**. Git inspection, manual FTP, browser/CDP live verify, database diagnostics và snapshot diagnostics mặc định không nằm trong workflow Micro UI nếu chưa có concrete failure. Hard Project Rules của v1.0.28 vẫn được giữ nguyên.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.30** | Micro UI Latency Guard: reference-image section prompts vào `MICRO_UI` + explicit orchestration stop rules. |
 | **v1.0.29** | Micro Task Latency: targeted CSS/layout dùng 2-file context + 2-file patch budget và compact skill context. |
 | **v1.0.28** | Hard Project Rules: owner-first, zero-default file budget, native Bricks và global CSS owner guards. |
 | **v1.0.27** | Fast Execution Engine: context reuse, coalesced/parallel I/O, overlapped inspect và bounded inferred verification. |
@@ -562,6 +563,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.29**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.30**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
