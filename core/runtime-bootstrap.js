@@ -3,6 +3,10 @@ function installRuntimePatches() {
   installTrustedWorkspacePatches();
   const { installTerminalRuntimePatches } = require('./terminal-runtime');
   installTerminalRuntimePatches();
+  // Windows cmd.exe treats > inside unquoted code arrows (=>) as output redirection.
+  // Guard/rewrite unsafe inline interpreter commands before Work Session captures exec.
+  const { installWindowsTerminalGuardPatches } = require('./windows-terminal-guard');
+  installWindowsTerminalGuardPatches();
   const { installWorkRuntimePatches } = require('./work-runtime');
   installWorkRuntimePatches();
   // Scope WordPress source-content retrieval before Fast Agent captures inspectProject.
@@ -11,6 +15,13 @@ function installRuntimePatches() {
   installRetrievalScopePatches();
   const { installAgentRuntimePatches } = require('./agent-runtime');
   installAgentRuntimePatches();
+  // A completed Work Session may deploy only its changed files through the project's
+  // local .vscode/sftp.json. Credentials stay inside the terminal process.
+  const { installFtpDeployPatches } = require('./ftp-deploy');
+  installFtpDeployPatches();
+  // Promote FTP deploy outcome into Fast Agent completion so failed upload cannot be reported as fully done.
+  const { installCompletionDeployPolicyPatches } = require('./completion-deploy-policy');
+  installCompletionDeployPolicyPatches();
   // Install after Agent so task grouping sees Terminal, Work Session and Fast Agent calls.
   const { installTaskPolicyPatches } = require('./task-policy');
   installTaskPolicyPatches();

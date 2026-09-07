@@ -34,6 +34,12 @@ Use the discovered project prefix only where collision/storage/security identity
 - One-time setup must terminate: explicit setup/admin/WP-CLI or guarded versioned migration, then no-op. It must not keep doing seed/import/template/media work on normal frontend `init`/`wp` requests.
 - Reuse site-wide tokens only in the global CSS owner; page/component CSS owns its scope.
 
+## Terminal FTP sync
+
+- If `.vscode/sftp.json` exists and `uploadOnSave:true`, verified Work Session/Fast Agent completion must sync only current-task changed files by Trusted Terminal; never use VS Code/Ctrl+S.
+- Treat returned `ftp_deploy` as source of truth and never duplicate a successful sync. For direct/legacy writes with no `ftp_deploy`, run one terminal sync after verification.
+- Credentials stay inside the terminal process: never read/echo/persist the password in model context. Remote target is `remotePath + project-relative path`; task-deleted files are removed remotely only when `watcher.autoDelete:true`.
+
 ## Before reporting done
 
 Validate touched scope only:
@@ -44,6 +50,7 @@ Validate touched scope only:
 - no duplicate template/data/component/media assignment introduced;
 - no unnecessary new source owner/custom element/migration;
 - no one-time setup still performing work on frontend requests;
+- configured FTP sync succeeded when `ftp_deploy` is present; otherwise report its exact skip/failure;
 - no live DB/FTP/frontend claim unless a capable connected tool verified it.
 
 If a required check cannot run, state the limitation instead of implying PASS.
