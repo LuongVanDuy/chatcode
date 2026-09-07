@@ -4,8 +4,11 @@ const { patchScopeFromUnifiedDiff, EXECUTION_PATHS } = require('./task-planner')
 
 const HARD_RULES_VERSION = 1;
 const MAX_EXPLICIT_NEW_FILES = 2;
-const NEGATED_SOURCE_CLAUSE_RE = /(?:\b(?:do\s+not|don't|dont|without|no|not|never)\b|\b(?:không|khong|đừng|dung)\b)[^.!?\n]{0,180}/gi;
+const MAX_TASK_CONTRACTS = 200;
+const NEGATED_SOURCE_CLAUSE_RE = /(?:(?:\b(?:do\s+not|don't|dont|without|no|not|never|không|khong|dung)\b)|đừng)[^.!?\n]{0,180}/gi;
 const CONTRAST_RE = /\b(?:but|however|nhưng|nhung|tuy\s+nhiên|tuy\s+nhien)\b/i;
+const FILE_CREATE_ACTION = String.raw`(?:\b(?:create|add|new|tao|them)\b|tạo|thêm)`;
+const SOURCE_CREATE_ACTION = String.raw`(?:\b(?:create|add|build|implement|register|tao|them)\b|tạo|thêm|triển\s+khai|\btrien\s+khai\b|xây\s+dựng|\bxay\s+dung\b)`;
 
 function norm(value) {
   return String(value || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
@@ -24,19 +27,29 @@ function stripNegatedSourceCreationEvidence(value = '') {
 
 function explicitNewFileIntent(request = '') {
   const q = stripNegatedSourceCreationEvidence(request);
-  return /(?:\bcreate\b|\badd\b|\bnew\b|tạo|tao|thêm|them)[^\n]{0,70}(?:new\s+)?(?:source\s+)?(?:file|stylesheet|css\s+file|php\s+file|js\s+file|ts\s+file)|(?:file|stylesheet)[^\n]{0,70}(?:\bcreate\b|\badd\b|tạo|tao|thêm|them)|(?:file|tệp|tep)\s+(?:mới|moi)/i.test(q);
+  const target = String.raw`(?:new\s+)?(?:source\s+)?(?:file|stylesheet|css\s+file|php\s+file|js\s+file|ts\s+file)`;
+  const reverseTarget = String.raw`(?:file|stylesheet)[^\n]{0,70}${FILE_CREATE_ACTION}`;
+  const vietnameseNew = String.raw`(?:file|tệp|tep)\s+(?:mới|moi)\b`;
+  return new RegExp(
+    `${FILE_CREATE_ACTION}[^\\n]{0,70}${target}|${reverseTarget}|${vietnameseNew}`,
+    'i'
+  ).test(q);
 }
 
 function explicitCustomBricksSourceIntent(request = '') {
   const q = stripNegatedSourceCreationEvidence(request);
-  const action = '(?:create|add|build|implement|register|tạo|tao|thêm|them|triển\\s+khai|trien\\s+khai|xây\\s+dựng|xay\\s+dung)';
-  const source = '(?:custom\\s+(?:bricks\\s+)?element|bricks\\s+custom\\s+element|custom\\s+shortcode|shortcode)';
-  return new RegExp(`${action}[^\\n]{0,70}${source}|${source}[^\\n]{0,70}${action}|(?:new|mới|moi)[^\\n]{0,30}${source}`, 'i').test(q);
+  const source = String.raw`(?:custom\s+(?:bricks\s+)?element|bricks\s+custom\s+element|custom\s+shortcode|shortcode)`;
+  const explicitNew = String.raw`(?:\bnew\b|mới|\bmoi\b)`;
+  return new RegExp(
+    `${SOURCE_CREATE_ACTION}[^\\n]{0,70}${source}|${source}[^\\n]{0,70}${SOURCE_CREATE_ACTION}|${explicitNew}[^\\n]{0,30}${source}`,
+    'i'
+  ).test(q);
 }
 
 function explicitArchitectureSourceIntent(request = '') {
   const q = stripNegatedSourceCreationEvidence(request);
-  return /(?:\bcreate\b|\badd\b|\bbuild\b|tạo|tao|thêm|them|xây\s+dựng|xay\s+dung)[^\n]{0,70}(?:plugin|module|service|source\s+class|custom\s+(?:bricks\s+)?element|shortcode|migration\s+file|seed\s+file)/i.test(q);
+  const target = String.raw`(?:plugin|module|service|source\s+class|custom\s+(?:bricks\s+)?element|shortcode|migration\s+file|seed\s+file)`;
+  return new RegExp(`${SOURCE_CREATE_ACTION}[^\\n]{0,70}${target}`, 'i').test(q);
 }
 
 function projectRelativeExplicitPaths(request = '') {
@@ -95,7 +108,13 @@ function requestedFileBudget(prepared = {}) {
     reason = 'production-reuses-local-source';
   }
 
-  return { budget:proposed, reason, explicit_paths:explicitPaths, explicit_file:explicitFile, explicit_custom_source:explicitCustom };
+  return {
+    budget:proposed,
+    reason,
+    explicit_paths:explicitPaths,
+    explicit_file:explicitFile,
+    explicit_custom_source:explicitCustom
+  };
 }
 
 function buildHardRuleContract(prepared = {}) {
@@ -103,7 +122,10 @@ function buildHardRuleContract(prepared = {}) {
   const filePolicy = requestedFileBudget(prepared);
   const bricks = isBricksPrepared(prepared);
   const cssOwner = globalCssOwner(prepared);
-  const decisions = (prepared?.project_decisions || prepared?.project_rules || []).map(item => ({ key:String(item?.key || ''), value:String(item?.value || '') })).filter(item => item.key && item.value).slice(0,6);
+  const decisions = (prepared?.project_decisions || prepared?.project_rules || [])
+    .map(item => ({ key:String(item?.key || ''), value:String(item?.value || '') }))
+    .filter(item => item.key && item.value)
+    .slice(0,6);
 
   return {
     version:HARD_RULES_VERSION,
@@ -211,14 +233,28 @@ function decoratePrepared(result = {}, contract = {}) {
     new_source_files:Number(contract?.file_creation?.budget || 0),
     hard_project_rules:'enforced'
   };
-  const decoratedCard = { ...taskCard, version:Math.max(4, Number(taskCard.version) || 0), execution, constraints, hard_rules:contract };
+  const decoratedCard = {
+    ...taskCard,
+    version:Math.max(4, Number(taskCard.version) || 0),
+    execution,
+    constraints,
+    hard_rules:contract
+  };
   const guidance = [
     ...(result?.agent_contract?.guidance || []),
     `Hard file-creation budget: ${contract.file_creation.budget}. Budget 0 means modify/reuse existing owners only; do not create helper/migration/CSS/PHP files.`,
-    contract.owner_first.enforced ? `Hard owner-first: patch must include an evidence-backed owner (${contract.owner_first.paths.join(', ')}); do not create a parallel owner.` : 'Owner-first/reuse-first remains mandatory; new owner creation requires explicit source-creation intent.',
-    contract.native_bricks.enabled && !contract.native_bricks.allow_custom_source ? 'Hard native-Bricks rule: do not add a shortcode or custom Bricks Element source when native Bricks can own the requested UI.' : '',
-    contract.global_css.root_only_in_owner ? `Hard global-CSS rule: new :root/global tokens may only be added in ${contract.global_css.owner}.` : '',
-    contract.project_decisions.length ? 'Relevant project decisions in hard_project_rules.project_decisions are mandatory conventions for this task.' : ''
+    contract.owner_first.enforced
+      ? `Hard owner-first: patch must include an evidence-backed owner (${contract.owner_first.paths.join(', ')}); do not create a parallel owner.`
+      : 'Owner-first/reuse-first remains mandatory; new owner creation requires explicit source-creation intent.',
+    contract.native_bricks.enabled && !contract.native_bricks.allow_custom_source
+      ? 'Hard native-Bricks rule: do not add a shortcode or custom Bricks Element source when native Bricks can own the requested UI.'
+      : '',
+    contract.global_css.root_only_in_owner
+      ? `Hard global-CSS rule: new :root/global tokens may only be added in ${contract.global_css.owner}.`
+      : '',
+    contract.project_decisions.length
+      ? 'Relevant project decisions in hard_project_rules.project_decisions are mandatory conventions for this task.'
+      : ''
   ].filter(Boolean);
   return {
     ...result,
@@ -233,6 +269,13 @@ function createHardProjectRulesApi(api) {
   api.__hardProjectRulesWrapped = true;
   const tasks = new Map();
 
+  function rememberTask(taskId, state) {
+    const id = String(taskId || '');
+    if (!id) return;
+    tasks.set(id, state);
+    while (tasks.size > MAX_TASK_CONTRACTS) tasks.delete(tasks.keys().next().value);
+  }
+
   if (typeof api.prepareTask === 'function') {
     const rawPrepare = api.prepareTask.bind(api);
     api.prepareTask = async (...args) => {
@@ -240,7 +283,7 @@ function createHardProjectRulesApi(api) {
       if (prepared?.status !== 'ready' || !prepared?.task_id) return prepared;
       const contract = buildHardRuleContract(prepared);
       const decorated = decoratePrepared(prepared, contract);
-      tasks.set(String(prepared.task_id), { contract, task_card:decorated.task_card });
+      rememberTask(prepared.task_id, { contract, task_card:decorated.task_card });
       return decorated;
     };
   }
@@ -265,9 +308,24 @@ function createHardProjectRulesApi(api) {
       }
       const result = await rawComplete(taskId, patch, ...rest);
       if (!state) return result;
-      const decorated = { ...result, task_card:state.task_card, hard_project_rules:state.contract, hard_rules_check:{ ok:true } };
+      const decorated = {
+        ...result,
+        task_card:state.task_card,
+        hard_project_rules:state.contract,
+        hard_rules_check:{ ok:true }
+      };
       if (['completed','rolled_back'].includes(String(result?.status || ''))) tasks.delete(id);
       return decorated;
+    };
+  }
+
+  for (const method of ['finishWork','rollbackWork']) {
+    if (typeof api[method] !== 'function') continue;
+    const raw = api[method].bind(api);
+    api[method] = async (taskId, ...rest) => {
+      const result = await raw(taskId, ...rest);
+      tasks.delete(String(taskId || ''));
+      return result;
     };
   }
 
