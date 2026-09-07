@@ -110,6 +110,7 @@ jobs:
           ))
           $agent = $all -or (Hit @(
             'core/agent-runtime.js',
+            'core/hard-project-rules.js',
             'core/task-planner.js',
             'core/owner-resolver.js',
             'core/project-profile.js',
@@ -120,7 +121,8 @@ jobs:
             'core/wordpress-retrieval.js',
             'core/skill-runtime.js',
             'core/skill-policy.js',
-            'scripts/smoke-agent.cjs'
+            'scripts/smoke-agent.cjs',
+            'scripts/smoke-hard-project-rules.cjs'
           ))
           $brain = $all -or (Hit @(
             'core/brain.js',
@@ -150,10 +152,12 @@ jobs:
           ))
           $fastpath = $all -or (Hit @(
             'core/agent-runtime.js',
+            'core/hard-project-rules.js',
             'core/work-runtime.js',
             'core/project-scope.js',
             'core/task-policy.js',
-            'scripts/smoke-fastpath.cjs'
+            'scripts/smoke-fastpath.cjs',
+            'scripts/smoke-hard-project-rules.cjs'
           ))
           $regression = $all -or (Hit @(
             'core/approvals.js',
