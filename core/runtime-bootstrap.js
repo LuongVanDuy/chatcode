@@ -36,11 +36,14 @@ function installRuntimePatches() {
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');
   installGitLazyPatches();
-  // Final outer policy: once a target project is established, every project-aware
-  // read/write stays inside that target unless the user's task explicitly names
-  // a multi-project reference. Reference projects are read-only.
+  // Final scope policy keeps each task/session inside its project lane.
   const { installProjectScopePatches } = require('./project-scope');
   installProjectScopePatches();
+  // Outermost performance policy: coalesce duplicate in-flight reads/Git status,
+  // parallelize bounded read batches and expose aggregate latency counters without
+  // weakening any inner safety/scope/skill contract.
+  const { installFastExecutionPatches } = require('./fast-execution');
+  installFastExecutionPatches();
   return true;
 }
 

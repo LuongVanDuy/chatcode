@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.26**
+> Phiên bản hiện tại: **v1.0.27**
 
 ## Kiến trúc
 
@@ -27,8 +27,8 @@ ChatCode MCP Server
    │
    ├─ Safety / permissions / approvals
    ├─ Project Brain + framework detection
-   ├─ Fast Agent Path + Work Sessions
-   ├─ Trusted Terminal
+   ├─ Fast Agent Path + Fast Execution Engine
+   ├─ Work Sessions + Trusted Terminal
    ├─ Git operations
    ├─ Recovery / backups
    └─ Built-in Skill Runtime
@@ -77,7 +77,6 @@ prepare_task
    ├─ Project Brain context
    ├─ framework / WordPress context
    ├─ relevant source contents
-   ├─ Git baseline
    ├─ verification hints
    └─ applicable built-in skills
    │
@@ -88,17 +87,31 @@ AI tạo unified diff
 complete_task
    │
    ├─ apply patch transactionally
-   ├─ run verification
-   ├─ refresh Brain
-   ├─ collect Git diff/status
+   ├─ run scoped verification
+   ├─ refresh Brain khi cần
+   ├─ deploy changed files khi project có FTP contract
    └─ finalize Work Session
 ```
 
-Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`.
+Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`. Git là lazy theo mặc định trong coding path; status/diff chỉ được lấy khi luồng thực sự cần hoặc người dùng gọi Git rõ ràng.
 
 Nếu verification fail, task giữ nguyên trạng thái để AI tạo corrective patch với cùng `task_id` thay vì inspect lại từ đầu.
 
 Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnSave:true` có thể tự đồng bộ **chỉ các file của task vừa thay đổi** qua Trusted Terminal sau khi verification PASS. FTP fail được trả về `deploy_failed`, nên agent không được báo website đã cập nhật khi local code mới chỉ verify thành công.
+
+### Fast Execution Engine
+
+Từ v1.0.27, runtime giảm orchestration overhead của các task hằng ngày mà không hạ safety gate:
+
+- Tái sử dụng framework/WordPress/entrypoint metadata đã có trong `projectContext`, tránh gọi lại Project Brain summary không cần thiết.
+- Coalesce các `readFile` và Git status đang chạy trùng nhau trong cùng project.
+- `readFiles` độc lập chạy bounded-parallel nhưng vẫn giữ đúng thứ tự response và error theo từng file.
+- I/O độc lập trong inspect được overlap thay vì chờ tuần tự.
+- Syntax verification tự suy ra cho nhiều changed files chạy bounded-parallel; verify command do agent/user cung cấp vẫn tuần tự để giữ dependency/order semantics.
+- Mutation/terminal activity invalidate short-lived Git reuse để không dùng trạng thái cũ sau khi source thay đổi.
+- Telemetry chỉ ghi timing/counter tổng hợp, không đưa file content, command text hay credential vào log.
+
+Mục tiêu của Fast Execution Engine là giảm phần thời gian do ChatCode orchestration gây ra; thời gian suy luận của model và latency FTP/network vẫn là các thành phần riêng.
 
 ### Work Sessions & recovery
 
@@ -106,7 +119,7 @@ Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnS
 - Apply unified diff nhiều file theo transaction.
 - Preflight patch trước khi ghi.
 - Lưu recovery point cho file bị thay đổi.
-- Theo dõi changed files, commands và Git state.
+- Theo dõi changed files, commands và Git state khi cần.
 - Có thể rollback toàn bộ Work Session.
 - Verification có thể chạy tối đa nhiều lệnh phù hợp với task.
 - Work Session/task id luôn bị ràng buộc vào project đã tạo nó; việc project B chạy song song không cho session của A mutate sang B.
@@ -405,7 +418,7 @@ npm run test:notifications
 npm run test:tunnel
 ```
 
-CI Windows chạy các lớp kiểm tra này trước khi build/publish installer.
+CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:fastpath` bao gồm regression riêng cho Fast Execution Engine.
 
 ## Build Windows
 
@@ -428,7 +441,7 @@ Output nằm trong `dist/`.
 
 ## CI/CD
 
-Workflow `build-windows.yml` chạy trên `windows-latest` và thực hiện:
+Workflow `build-windows.yml` chạy trên Windows và thực hiện:
 
 1. Install dependencies với Node.js 24.
 2. Syntax check.
@@ -436,7 +449,7 @@ Workflow `build-windows.yml` chạy trên `windows-latest` và thực hiện:
 4. MCP protocol smoke test.
 5. Safety & Recovery tests.
 6. Trusted Workspace/Terminal tests.
-7. Codex-style editing và Fast Agent Path tests.
+7. Codex-style editing và Fast Agent Path/Fast Execution tests.
 8. Project Brain + WordPress Brain tests.
 9. WordPress + Bricks skill tests.
 10. Legacy 13-tool skill exposure test.
@@ -446,7 +459,7 @@ Workflow `build-windows.yml` chạy trên `windows-latest` và thực hiện:
 14. Smoke test remote MCP tunnel.
 15. Publish/update GitHub Release khi phù hợp.
 
-Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
+PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và release vẫn chạy full gate. Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
 
 ## Cấu trúc repository
 
@@ -477,7 +490,9 @@ Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`
 | `core/project-scope.js` | Per-project concurrent scope lanes, reference policy và Work Session/terminal holder binding. |
 | `core/brain.js` | Symbol/framework/dependency indexing. |
 | `core/wordpress.js` | WordPress-specific analysis. |
-| `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
+| `core/retrieval-scope.js` | Scope-aware inspect/retrieval cho Fast Agent. |
+| `core/fast-execution.js` | Coalesced/parallel local I/O và aggregate execution telemetry. |
+| `core/agent-runtime.js` | `prepare_task` / `complete_task` và scoped verification. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
 | `core/windows-terminal-guard.js` | Windows `cmd.exe` redirect guard cho inline code có `=>`. |
@@ -499,20 +514,22 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Local-first:** source code nằm trên máy người dùng; ChatCode chỉ expose project được chia sẻ.
 - **Least privilege:** quyền được cấu hình theo từng project.
 - **Recoverable mutations:** thay đổi quan trọng có recovery point hoặc Work Session rollback.
-- **Read before write:** agent được cung cấp context, Brain và baseline trước khi patch.
-- **Verify after write:** coding flow có verification và Git diff/status sau thay đổi.
+- **Read before write:** agent được cung cấp context và Brain trước khi patch.
+- **Verify after write:** coding flow có scoped verification sau thay đổi; Git chỉ được lấy khi cần.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
 - **Concurrent project isolation:** project A và B được phép chạy song song, nhưng mỗi task/Work Session/terminal holder chỉ được mutate project đã tạo holder đó.
+- **Fast without fake PASS:** tối ưu latency bằng cache/coalescing/parallelism có giới hạn; không bỏ safety hoặc biến test chưa chạy thành PASS.
 
 ## Release hiện tại
 
-**v1.0.26** thêm **verified terminal FTP deploy** dựa trên `.vscode/sftp.json`: chỉ file của task hiện tại được đồng bộ sau verification PASS, hỗ trợ upload/delete theo `watcher.autoDelete`, giữ credential bên trong terminal process và trả `deploy_failed` nếu remote chưa cập nhật. Bản này cũng sửa lỗi Windows Trusted Terminal có thể hiểu ký tự `>` trong PHP/code arrow `=>` thành output redirection và tạo file rác ở project root; inline PHP nguy cơ cao được chuyển sang PowerShell encoded transport, còn inline command không thể rewrite an toàn sẽ bị chặn trước `cmd.exe`.
+**v1.0.27** thêm **Fast Execution Engine**: giảm các Project Brain summary/read/Git call dư, coalesce I/O trùng, đọc file độc lập song song có giới hạn, overlap inspect I/O và chạy inferred syntax verification song song khi các check độc lập. Explicit verify commands vẫn tuần tự, mutation luôn invalidate short Git reuse, và telemetry chỉ chứa timing/counter tổng hợp. Mục tiêu là giảm orchestration overhead của ChatCode cho các micro-task mà không thay đổi project boundary, Work Session safety, Trusted Terminal hay FTP completion contract.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.27** | Fast Execution Engine: context reuse, coalesced/parallel I/O, overlapped inspect và bounded inferred verification. |
 | **v1.0.26** | Verified terminal FTP deploy + Windows `=>` redirect artifact guard. |
 | **v1.0.25** | Concurrent Project Scope Lanes: nhiều project/task/terminal chạy song song, lifecycle độc lập, session binding vẫn strict. |
 | **v1.0.24** | Browser Performance Mode: CPU HIGH active tab, warm RAM tabs, discrete-GPU preference, LAN/GPU diagnostics và explicit Windows QoS. |
@@ -524,6 +541,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.26**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.27**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
