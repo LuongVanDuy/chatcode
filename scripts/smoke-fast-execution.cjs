@@ -1,6 +1,7 @@
 const assert = require('assert/strict');
 const { createFastExecutionApi } = require('../core/fast-execution');
 const { createScopedInspect } = require('../core/retrieval-scope');
+const { createAgentRuntime } = require('../core/agent-runtime');
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -117,7 +118,55 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(fallback.telemetry.brain_overview_source, 'project-brain-fallback');
   assert.equal(projectBrainCalls, 1, 'legacy context shape must retain the projectBrain compatibility fallback');
 
-  console.log('Fast Execution PASS: coalesced Git/read I/O + parallel read batches + context metadata reuse + overlapped inspect I/O.');
+  const changed = ['a.js','b.js','c.js'].map(path => ({ path, operation:'modify' }));
+  const patch = changed.flatMap(item => [
+    `--- a/${item.path}`,
+    `+++ b/${item.path}`,
+    '@@ -1,1 +1,1 @@',
+    '-old',
+    '+new'
+  ]).concat('').join('\n');
+  let activeVerify = 0;
+  let maxActiveVerify = 0;
+  const runOrder = [];
+  const agentApi = {
+    workMeta:async id => ({ work_session_id:id, project_id:'p1', project:'Demo', workspace_mode:'safe', status:'active' }),
+    applyPatch:async () => ({ files:changed, changed_files:changed.map(item => item.path), recovery_points:[], git:null, brain:null }),
+    runTask:async (_project, command) => {
+      runOrder.push(`start:${command}`);
+      activeVerify++;
+      maxActiveVerify = Math.max(maxActiveVerify, activeVerify);
+      await sleep(18);
+      activeVerify--;
+      runOrder.push(`end:${command}`);
+      return { ok:true, code:0, stdout:'ok', stderr:'' };
+    },
+    workStatus:async id => ({ work_session_id:id, project_id:'p1', project:'Demo', workspace_mode:'safe', status:'active', changed_files:changed.map(item => item.path), recovery_points:[], current:{ git:null } })
+  };
+  const runtime = createAgentRuntime(agentApi, null);
+  const inferred = await runtime.completeTask('parallel-task', patch, [], { finalize:false });
+  assert.equal(inferred.status, 'ready_for_more');
+  assert.equal(inferred.telemetry.verification_strategy, 'parallel-safe-inferred');
+  assert.equal(inferred.telemetry.verification_parallel, true);
+  assert.equal(inferred.verification.length, 3);
+  assert.ok(maxActiveVerify >= 2, 'independent inferred syntax checks should overlap');
+
+  activeVerify = 0;
+  maxActiveVerify = 0;
+  runOrder.length = 0;
+  const explicitCommands = ['verify-one','verify-two','verify-three'];
+  const explicit = await runtime.completeTask('sequential-task', patch, explicitCommands, { finalize:false });
+  assert.equal(explicit.status, 'ready_for_more');
+  assert.equal(explicit.telemetry.verification_strategy, 'sequential-explicit');
+  assert.equal(explicit.telemetry.verification_parallel, false);
+  assert.equal(maxActiveVerify, 1, 'explicit verification commands must preserve sequential semantics');
+  assert.deepEqual(
+    runOrder.filter(item => item.startsWith('start:')).map(item => item.slice(6)),
+    explicitCommands,
+    'explicit verification order must be preserved'
+  );
+
+  console.log('Fast Execution PASS: coalesced I/O + context reuse + overlapped inspect + bounded inferred verification; explicit verify stays sequential.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
