@@ -32,6 +32,10 @@ function installRuntimePatches() {
   // Mandatory WordPress + Bricks policy must see both modern and legacy paths.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
+  // Hard Project Rules are stricter-only: they bind evidence-backed owners, keep
+  // new-file budgets explicit, prefer native Bricks, and keep :root in its global owner.
+  const { installHardProjectRulesPatches } = require('./hard-project-rules');
+  installHardProjectRulesPatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');
