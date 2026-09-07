@@ -102,6 +102,26 @@ function patchCreate(path, lines) {
   assert.equal(shortcodeCheck.ok, false);
   assert.ok(shortcodeCheck.violations.some(x => /Native Bricks is required/i.test(x)), 'implicit shortcode must be blocked on Bricks tasks');
 
+  // Negated source-creation language must never become an allowance.
+  const negatedFile = buildHardRuleContract(prepared('Không tạo file mới, chỉ sửa owner hiện tại.'));
+  assert.equal(negatedFile.file_creation.budget, 0, 'negated new-file request must stay at zero');
+  assert.equal(negatedFile.owner_first.enforced, true, 'negated new-file request must keep owner binding');
+  const negatedCustom = buildHardRuleContract(prepared('Do not add shortcode or custom Bricks element; use native Bricks only.'));
+  assert.equal(negatedCustom.file_creation.budget, 0, 'negated custom-source request must stay at zero');
+  assert.equal(negatedCustom.native_bricks.allow_custom_source, false, 'negated custom-source request must not authorize custom source');
+
+  // Merely mentioning an existing custom element is not permission to create another source owner.
+  const existingCustomMention = buildHardRuleContract(prepared('Fix padding in the existing custom Bricks element by 8px', {
+    execution_path:'DEEP',
+    task_card:{
+      ...base.task_card,
+      type:'BRICKS_BUILDER',
+      execution:{ path:'DEEP', patch_file_limit:24, allow_new_source_files:'existing owner first' }
+    }
+  }));
+  assert.equal(existingCustomMention.file_creation.budget, 0, 'existing custom element mention must not grant a new-file budget');
+  assert.equal(existingCustomMention.native_bricks.allow_custom_source, false);
+
   const explicitFilePrepared = prepared('Create new file `assets/css/promo.css` for the isolated promo stylesheet', {
     task_card:{
       ...base.task_card,
@@ -152,5 +172,5 @@ function patchCreate(path, lines) {
   assert.equal(completedCalls, 1);
   assert.equal(runtimeCompleted.hard_rules_check.ok, true);
 
-  console.log('Hard Project Rules PASS: owner-first + zero-default file budget + native Bricks + global CSS owner guards.');
+  console.log('Hard Project Rules PASS: owner-first + zero-default file budget + negation-safe native Bricks + global CSS owner guards.');
 })().catch(error => { console.error(error); process.exit(1); });
