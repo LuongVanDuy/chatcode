@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.27**
+> Phiên bản hiện tại: **v1.0.28**
 
 ## Kiến trúc
 
@@ -28,6 +28,7 @@ ChatCode MCP Server
    ├─ Safety / permissions / approvals
    ├─ Project Brain + framework detection
    ├─ Fast Agent Path + Fast Execution Engine
+   ├─ Hard Project Rules + owner/file budgets
    ├─ Work Sessions + Trusted Terminal
    ├─ Git operations
    ├─ Recovery / backups
@@ -86,6 +87,7 @@ AI tạo unified diff
    ▼
 complete_task
    │
+   ├─ hard-rule preflight
    ├─ apply patch transactionally
    ├─ run scoped verification
    ├─ refresh Brain khi cần
@@ -112,6 +114,21 @@ Từ v1.0.27, runtime giảm orchestration overhead của các task hằng ngày
 - Telemetry chỉ ghi timing/counter tổng hợp, không đưa file content, command text hay credential vào log.
 
 Mục tiêu của Fast Execution Engine là giảm phần thời gian do ChatCode orchestration gây ra; thời gian suy luận của model và latency FTP/network vẫn là các thành phần riêng.
+
+### Hard Project Rules
+
+Từ v1.0.28, các nguyên tắc owner-first/reuse-first quan trọng được thực thi ở runtime trước khi patch chạm filesystem:
+
+- Task targeted mặc định có **file-creation budget = 0**; budget 0 nghĩa là phải sửa/reuse owner hiện tại, không tự tạo helper CSS/PHP/JS, migration hoặc owner song song.
+- FAST không bao giờ được nới allowance cũ; Hard Project Rules chỉ siết thêm. DEEP cũng phải có source-creation intent rõ ràng mới được cấp budget tạo file.
+- Khi Owner Resolver có `CONFIRMED`/`DETECTED` enforce path, patch phải đi qua evidence-backed owner thay vì bỏ owner để tạo file khác.
+- Nếu user yêu cầu rõ file mới và có path cụ thể, budget chỉ cho phép đúng path đó; không tự sinh sibling/helper file.
+- Với project Bricks, UI task ưu tiên native Bricks; shortcode/custom Bricks Element source bị chặn nếu user không yêu cầu custom source rõ ràng.
+- Khi đã xác nhận global CSS owner, `:root`/global token mới chỉ được thêm trong owner đó.
+- Relevant project decisions được trả cùng `hard_project_rules` như convention bắt buộc cho task.
+- Vi phạm trả `TASK_SCOPE_VIOLATION` **trước `applyPatch`**, nên không tạo file rồi mới rollback/cleanup.
+
+Hard Project Rules không thay thế Safety, Project Scope, Work Session hay Skill Policy; nó là lớp stricter-only nằm trước mutation.
 
 ### Work Sessions & recovery
 
@@ -418,7 +435,7 @@ npm run test:notifications
 npm run test:tunnel
 ```
 
-CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:fastpath` bao gồm regression riêng cho Fast Execution Engine.
+CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:agent` và `test:fastpath` bao gồm regression riêng cho Hard Project Rules; `test:fastpath` cũng bao gồm Fast Execution Engine.
 
 ## Build Windows
 
@@ -449,7 +466,7 @@ Workflow `build-windows.yml` chạy trên Windows và thực hiện:
 4. MCP protocol smoke test.
 5. Safety & Recovery tests.
 6. Trusted Workspace/Terminal tests.
-7. Codex-style editing và Fast Agent Path/Fast Execution tests.
+7. Codex-style editing và Fast Agent Path/Fast Execution/Hard Project Rules tests.
 8. Project Brain + WordPress Brain tests.
 9. WordPress + Bricks skill tests.
 10. Legacy 13-tool skill exposure test.
@@ -492,6 +509,7 @@ PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và 
 | `core/wordpress.js` | WordPress-specific analysis. |
 | `core/retrieval-scope.js` | Scope-aware inspect/retrieval cho Fast Agent. |
 | `core/fast-execution.js` | Coalesced/parallel local I/O và aggregate execution telemetry. |
+| `core/hard-project-rules.js` | Owner-first, hard file-creation budget, native Bricks và global CSS pre-apply guards. |
 | `core/agent-runtime.js` | `prepare_task` / `complete_task` và scoped verification. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
@@ -515,6 +533,7 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Least privilege:** quyền được cấu hình theo từng project.
 - **Recoverable mutations:** thay đổi quan trọng có recovery point hoặc Work Session rollback.
 - **Read before write:** agent được cung cấp context và Brain trước khi patch.
+- **Owner first / reuse before create:** task targeted dùng evidence-backed owner hiện có; file/owner mới phải có explicit source-creation intent và hard budget.
 - **Verify after write:** coding flow có scoped verification sau thay đổi; Git chỉ được lấy khi cần.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
@@ -523,12 +542,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.27** thêm **Fast Execution Engine**: giảm các Project Brain summary/read/Git call dư, coalesce I/O trùng, đọc file độc lập song song có giới hạn, overlap inspect I/O và chạy inferred syntax verification song song khi các check độc lập. Explicit verify commands vẫn tuần tự, mutation luôn invalidate short Git reuse, và telemetry chỉ chứa timing/counter tổng hợp. Mục tiêu là giảm orchestration overhead của ChatCode cho các micro-task mà không thay đổi project boundary, Work Session safety, Trusted Terminal hay FTP completion contract.
+**v1.0.28** thêm **Hard Project Rules**: targeted task mặc định không được tạo source file mới, owner CONFIRMED/DETECTED trở thành binding trước mutation, Bricks UI ưu tiên native thay vì tự tạo shortcode/custom element, và `:root` mới chỉ được thêm trong global CSS owner đã xác nhận. User vẫn có thể yêu cầu rõ file/custom source mới; allowance khi đó hữu hạn và exact path được ràng buộc nếu prompt cung cấp. Rule vi phạm bị chặn trước `applyPatch`, không tạo file rồi mới cleanup.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.28** | Hard Project Rules: owner-first, zero-default file budget, native Bricks và global CSS owner guards. |
 | **v1.0.27** | Fast Execution Engine: context reuse, coalesced/parallel I/O, overlapped inspect và bounded inferred verification. |
 | **v1.0.26** | Verified terminal FTP deploy + Windows `=>` redirect artifact guard. |
 | **v1.0.25** | Concurrent Project Scope Lanes: nhiều project/task/terminal chạy song song, lifecycle độc lập, session binding vẫn strict. |
@@ -541,6 +561,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.27**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.28**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
