@@ -120,7 +120,7 @@ const explicitPatch = [
 assert.equal(validatePatchAgainstTaskCard(explicitCard, explicitPatch).ok, true, 'explicit-path file creation must pass Fast scope gate');
 
 const homeCard = buildTaskCard({ request:'Sửa width container trang chủ', inspect, projectProfile:profile, projectRules:[] });
-assert.equal(homeCard.version, 3);
+assert.equal(homeCard.version, 4);
 assert.equal(homeCard.execution.path, EXECUTION_PATHS.FAST);
 assert.equal(homeCard.owner.kind, 'homepage_css');
 assert.deepEqual(new Set(homeCard.owner.enforce_paths), new Set([
