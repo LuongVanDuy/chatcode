@@ -25,7 +25,7 @@ const PATH_LIMITS = Object.freeze({
   DEEP:Object.freeze({ context_files:6, patch_files:24, skill_chars:56000 })
 });
 
-const MICRO_FAST_LIMITS = Object.freeze({ context_files:3, patch_files:2, skill_chars:3600 });
+const MICRO_FAST_LIMITS = Object.freeze({ context_files:2, patch_files:2, skill_chars:2200 });
 
 function unique(values) {
   return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))];
@@ -117,15 +117,15 @@ function deepPathReasons(request, type = '') {
 
 function isMicroFastRequest(request) {
   const text = stripNegatedStoredStateEvidence(request);
-  if (!text || text.length > 170) return false;
-  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|refactor|redesign|migration|database|builder\s+(?:data|json|tree)|template|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
+  if (!text || text.length > 360) return false;
+  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|full\s+(?:audit|refactor|review)|refactor|redesign|migration|database|builder\s+(?:data|json|tree)|bricks\s+template|template\s+condition|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
+  if (/(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,80}(?:page|trang|template|element|cpt|database)/i.test(text)) return false;
 
   const explicitSmallChange = /\b\d+(?:\.\d+)?\s*(?:px|rem|em|%)\b|\b(?:slightly|small|minor|a\s+bit)\b|\bnhẹ\b|một\s+chút|khoảng\s+\d/i.test(text);
-  if (!explicitSmallChange) return false;
-
-  const styleAxis = /font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)/i.test(text);
-  const scopedTarget = /card|section|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action/i.test(text);
-  return styleAxis && scopedTarget;
+  const actionIntent = /\b(?:fix|adjust|change|update|align|reduce|increase|tweak|polish)\b|sửa|sua|chỉnh|chinh|tối\s+ưu|toi\s+uu|giảm|giam|tăng|tang|đổi|doi|căn|canh|cho\b|css\s+lại|style\s+lại/i.test(text);
+  const styleAxis = /\bcss\b|\blayout\b|giao\s+diện|giao\s+dien|font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)|align|căn|canh|grid|flex/i.test(text);
+  const scopedTarget = /homepage|home\s*page|trang\s+chủ|trang\s+chu|banner|category|danh\s+mục|breadcrumb|sidebar|card|section|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action/i.test(text);
+  return scopedTarget && styleAxis && (explicitSmallChange || actionIntent);
 }
 
 function executionLimits(request, executionPath) {
