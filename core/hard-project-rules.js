@@ -4,6 +4,8 @@ const { patchScopeFromUnifiedDiff, EXECUTION_PATHS } = require('./task-planner')
 
 const HARD_RULES_VERSION = 1;
 const MAX_EXPLICIT_NEW_FILES = 2;
+const NEGATED_SOURCE_CLAUSE_RE = /(?:\b(?:do\s+not|don't|dont|without|no|not|never)\b|\b(?:không|khong|đừng|dung)\b)[^.!?\n]{0,180}/gi;
+const CONTRAST_RE = /\b(?:but|however|nhưng|nhung|tuy\s+nhiên|tuy\s+nhien)\b/i;
 
 function norm(value) {
   return String(value || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
@@ -12,18 +14,26 @@ function norm(value) {
 function text(value) { return String(value || '').trim().toLowerCase(); }
 function unique(values) { return [...new Set((values || []).map(norm).filter(Boolean))]; }
 
+function stripNegatedSourceCreationEvidence(value = '') {
+  return text(value).replace(NEGATED_SOURCE_CLAUSE_RE, clause => {
+    const contrast = clause.search(CONTRAST_RE);
+    if (contrast < 0) return ' ';
+    return ` ${clause.slice(contrast)} `;
+  });
+}
+
 function explicitNewFileIntent(request = '') {
-  const q = text(request);
+  const q = stripNegatedSourceCreationEvidence(request);
   return /(?:\bcreate\b|\badd\b|\bnew\b|tạo|tao|thêm|them)[^\n]{0,70}(?:new\s+)?(?:source\s+)?(?:file|stylesheet|css\s+file|php\s+file|js\s+file|ts\s+file)|(?:file|stylesheet)[^\n]{0,70}(?:\bcreate\b|\badd\b|tạo|tao|thêm|them)|(?:file|tệp|tep)\s+(?:mới|moi)/i.test(q);
 }
 
 function explicitCustomBricksSourceIntent(request = '') {
-  const q = text(request);
+  const q = stripNegatedSourceCreationEvidence(request);
   return /custom\s+(?:bricks\s+)?element|bricks\s+custom\s+element|register[_\s-]?element|set_controls|\bshortcode\b|custom\s+shortcode/i.test(q);
 }
 
 function explicitArchitectureSourceIntent(request = '') {
-  const q = text(request);
+  const q = stripNegatedSourceCreationEvidence(request);
   return /(?:\bcreate\b|\badd\b|\bbuild\b|tạo|tao|thêm|them|xây\s+dựng|xay\s+dung)[^\n]{0,70}(?:plugin|module|service|source\s+class|custom\s+(?:bricks\s+)?element|shortcode|migration\s+file|seed\s+file)/i.test(q);
 }
 
@@ -274,6 +284,7 @@ function installHardProjectRulesPatches() {
 
 module.exports = {
   HARD_RULES_VERSION,
+  stripNegatedSourceCreationEvidence,
   explicitNewFileIntent,
   explicitCustomBricksSourceIntent,
   buildHardRuleContract,
