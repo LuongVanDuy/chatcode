@@ -76,6 +76,14 @@ function hasPersistedStateEvidence(request) {
   return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb|sql)\b|\$wpdb|database\s+table|\bwp_[a-z0-9_]+\s+table\b|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|post\s+meta|wp_options?|option\s+table|post\s+content[^\n]{0,50}(?:database|stored|persisted)|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)|bulk\s+(?:stored\s+)?records?/i.test(text);
 }
 
+function hasPersistedMutationIntent(request) {
+  const text = stripNegatedStoredStateEvidence(request);
+  if (/\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta/i.test(text)) return true;
+  const mutation = '(?:migrate|migration|repair|rewrite|rebuild|update|modify|change|delete|remove|move|sửa|sua|chỉnh|chinh|cập\\s+nhật|cap\\s+nhat|xóa|xoá|xoa|dọn|don)';
+  const stored = '(?:builder\\s+(?:data|json|tree)|bricks\\s+(?:builder\\s+)?(?:data|json|tree)|persisted\\s+(?:data|state)|stored\\s+(?:data|state|records?)|element\\s+id|parent\\s*\\/\\s*children)';
+  return new RegExp(`${mutation}[^\\n]{0,80}${stored}|${stored}[^\\n]{0,80}${mutation}`, 'i').test(text);
+}
+
 function isExplicitFilesystemTask(request) {
   if (!explicitUserPaths(request).length) return false;
   const text = normalizeText(request);
@@ -99,8 +107,6 @@ function hasProductionOperationIntent(request) {
     || /(?:deploy|upload|publish)[^\n]{0,80}(?:existing\s+build|existing\s+files?|without\s+code\s+change|only\s+these\s+files?|chỉ\s+deploy|chi\s+deploy)/i.test(text);
   if (directOperation) return true;
 
-  // Coding work may mention deploy/live verification as an execution detail. That must
-  // not convert the implementation itself into a production investigation.
   return !hasImplementationIntent(text);
 }
 
@@ -136,7 +142,7 @@ function deepPathReasons(request, type = '') {
   const add = (reason, re, source = text) => { if (re.test(source)) reasons.push(reason); };
 
   if (type === TASK_TYPES.PRODUCTION || hasProductionOperationIntent(request)) reasons.push('production-operation');
-  add('persisted-data-migration', /\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta|rollback[^\n]{0,50}(?:db|database|builder\s+(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+state)/i, evidenceText);
+  if (hasPersistedMutationIntent(request)) reasons.push('persisted-data-migration');
   add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm|records?)/i, evidenceText);
   add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
   add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+(?:data|json|tree)|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i, evidenceText);
@@ -455,6 +461,7 @@ module.exports = {
   BUILDER_DELIVERY_LIMITS,
   stripNegatedStoredStateEvidence,
   hasPersistedStateEvidence,
+  hasPersistedMutationIntent,
   hasProductionOperationIntent,
   isBuilderDeliveryRequest,
   classifyTask,
