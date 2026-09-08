@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.32**
+> Phiên bản hiện tại: **v1.0.26**
 
 ## Kiến trúc
 
@@ -27,9 +27,8 @@ ChatCode MCP Server
    │
    ├─ Safety / permissions / approvals
    ├─ Project Brain + framework detection
-   ├─ Fast Agent Path + Fast Execution Engine
-   ├─ Hard Project Rules + owner/file budgets
-   ├─ Work Sessions + Trusted Terminal
+   ├─ Fast Agent Path + Work Sessions
+   ├─ Trusted Terminal
    ├─ Git operations
    ├─ Recovery / backups
    └─ Built-in Skill Runtime
@@ -78,6 +77,7 @@ prepare_task
    ├─ Project Brain context
    ├─ framework / WordPress context
    ├─ relevant source contents
+   ├─ Git baseline
    ├─ verification hints
    └─ applicable built-in skills
    │
@@ -87,53 +87,18 @@ AI tạo unified diff
    ▼
 complete_task
    │
-   ├─ hard-rule preflight
    ├─ apply patch transactionally
-   ├─ run scoped verification
-   ├─ refresh Brain khi cần
-   ├─ deploy changed files khi project có FTP contract
+   ├─ run verification
+   ├─ refresh Brain
+   ├─ collect Git diff/status
    └─ finalize Work Session
 ```
 
-Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`. Git là lazy theo mặc định trong coding path; status/diff chỉ được lấy khi luồng thực sự cần hoặc người dùng gọi Git rõ ràng.
+Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`.
 
-Từ v1.0.32, native Bricks page/section/template/control delivery dùng lane `BUILDER_DELIVERY` có bounded context/patch budget thay vì tự động rơi vào DEEP. Bounded task chỉ có tối đa một diagnostic round và một corrective completion pass; PASS thì dừng ngay.
+Nếu verification fail, task giữ nguyên trạng thái để AI tạo corrective patch với cùng `task_id` thay vì inspect lại từ đầu.
 
 Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnSave:true` có thể tự đồng bộ **chỉ các file của task vừa thay đổi** qua Trusted Terminal sau khi verification PASS. FTP fail được trả về `deploy_failed`, nên agent không được báo website đã cập nhật khi local code mới chỉ verify thành công.
-
-### Fast Execution Engine
-
-Từ v1.0.27, runtime giảm orchestration overhead của các task hằng ngày mà không hạ safety gate:
-
-- Tái sử dụng framework/WordPress/entrypoint metadata đã có trong `projectContext`, tránh gọi lại Project Brain summary không cần thiết.
-- Coalesce các `readFile` và Git status đang chạy trùng nhau trong cùng project.
-- `readFiles` độc lập chạy bounded-parallel nhưng vẫn giữ đúng thứ tự response và error theo từng file.
-- I/O độc lập trong inspect được overlap thay vì chờ tuần tự.
-- Syntax verification tự suy ra cho nhiều changed files chạy bounded-parallel; verify command do agent/user cung cấp vẫn tuần tự để giữ dependency/order semantics.
-- Mutation/terminal activity invalidate short-lived Git reuse để không dùng trạng thái cũ sau khi source thay đổi.
-- Telemetry chỉ ghi timing/counter tổng hợp, không đưa file content, command text hay credential vào log.
-
-Mục tiêu của Fast Execution Engine là giảm phần thời gian do ChatCode orchestration gây ra; thời gian suy luận của model và latency FTP/network vẫn là các thành phần riêng.
-
-### Hard Project Rules
-
-Từ v1.0.28, các nguyên tắc owner-first/reuse-first quan trọng được thực thi ở runtime trước khi patch chạm filesystem. v1.0.31 bổ sung **Functional Ownership** để tránh biến các entry file chung thành monolith:
-
-- Chỉnh sửa nhỏ/targeted vẫn mặc định **file-creation budget = 0** và phải reuse owner phù hợp hiện có. Ví dụ sửa padding/header spacing không được tự tạo stylesheet mới.
-- Khi một chức năng/page/component mới thật sự được triển khai, owner hiện tại chỉ là entry/global chung như `functions.php`, `style.css`, `main.css`, `base.css` hoặc `global.css`, và chưa có scoped owner phù hợp, runtime có thể cấp **functional owner budget** có giới hạn thay vì ép toàn bộ code vào file chung.
-- `MICRO_UI` chỉ được tạo tối đa **1 scoped owner**; FAST thông thường tối đa **2 scoped owners** để hỗ trợ một cặp trách nhiệm hợp lý như code + stylesheet.
-- Nếu đã có owner đúng chức năng như `header.css`, `home.css`, `inc/templates/header.php`, `checkout.php`..., budget quay về 0 và owner đó phải được reuse.
-- `functions.php` nên giữ vai trò bootstrap/require/enqueue; `style.css` là metadata/minimal entry; `main.css`/global layer chỉ chứa token/base/site-wide. Header, Footer, Home, product/archive/checkout/account... được phép có owner riêng theo cấu trúc project.
-- Functional owner mới phải có tên ổn định theo page/component/module. Các file kiểu `*-fix`, `*-temp`, `*-v2`, `helper`, `home-section-3.css`, `site-parts.php` bị chặn để không đổi monolith thành file sprawl.
-- Yêu cầu rõ của user như “không tạo file mới” luôn thắng functional split.
-- Khi Owner Resolver có `CONFIRMED`/`DETECTED` scoped owner, patch phải đi qua evidence-backed owner thay vì bỏ owner để tạo file khác.
-- Nếu user yêu cầu rõ file mới và có path cụ thể, budget chỉ cho phép đúng path đó; không tự sinh sibling/helper file.
-- Với project Bricks, UI task ưu tiên native Bricks; shortcode/custom Bricks Element source bị chặn nếu user không yêu cầu custom source rõ ràng.
-- Khi đã xác nhận global CSS owner, `:root`/global token mới chỉ được thêm trong owner đó; component/page CSS phải nằm ở scoped owner tương ứng.
-- Relevant project decisions được trả cùng `hard_project_rules` như convention bắt buộc cho task.
-- Vi phạm trả `TASK_SCOPE_VIOLATION` **trước `applyPatch`**, nên không tạo file rồi mới rollback/cleanup.
-
-Hard Project Rules không thay thế Safety, Project Scope, Work Session hay Skill Policy; nó là lớp stricter owner/architecture guard nằm trước mutation.
 
 ### Work Sessions & recovery
 
@@ -141,7 +106,7 @@ Hard Project Rules không thay thế Safety, Project Scope, Work Session hay Ski
 - Apply unified diff nhiều file theo transaction.
 - Preflight patch trước khi ghi.
 - Lưu recovery point cho file bị thay đổi.
-- Theo dõi changed files, commands và Git state khi cần.
+- Theo dõi changed files, commands và Git state.
 - Có thể rollback toàn bộ Work Session.
 - Verification có thể chạy tối đa nhiều lệnh phù hợp với task.
 - Work Session/task id luôn bị ràng buộc vào project đã tạo nó; việc project B chạy song song không cho session của A mutate sang B.
@@ -211,7 +176,7 @@ ChatCode có thư viện skill tích hợp và đóng gói cùng ứng dụng.
 
 Skill hiện tại:
 
-**`wordpress-bricks` — WordPress + Bricks Native Delivery, version 5**
+**`wordpress-bricks` — WordPress + Bricks Native Delivery, version 2**
 
 Skill bao gồm rule và resource cho:
 
@@ -440,7 +405,7 @@ npm run test:notifications
 npm run test:tunnel
 ```
 
-CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:agent` và `test:fastpath` bao gồm regression riêng cho Hard Project Rules + Functional Ownership; `test:fastpath` cũng bao gồm Fast Execution Engine.
+CI Windows chạy các lớp kiểm tra này trước khi build/publish installer.
 
 ## Build Windows
 
@@ -463,19 +428,25 @@ Output nằm trong `dist/`.
 
 ## CI/CD
 
-Workflow `build-windows.yml` chạy trên Windows và thực hiện:
+Workflow `build-windows.yml` chạy trên `windows-latest` và thực hiện:
 
 1. Install dependencies với Node.js 24.
 2. Syntax check.
-3. Task-flow release gate.
-4. WordPress + Bricks release gate.
-5. Runtime regression/updater gate.
-6. Build NSIS installer.
-7. Verify `latest.yml` updater metadata.
-8. Smoke test remote MCP tunnel.
-9. Publish/update GitHub Release khi phù hợp.
+3. Browser Workspace smoke test.
+4. MCP protocol smoke test.
+5. Safety & Recovery tests.
+6. Trusted Workspace/Terminal tests.
+7. Codex-style editing và Fast Agent Path tests.
+8. Project Brain + WordPress Brain tests.
+9. WordPress + Bricks skill tests.
+10. Legacy 13-tool skill exposure test.
+11. Filesystem regression, Support, updater và notification tests.
+12. Build NSIS installer.
+13. Verify `latest.yml` updater metadata.
+14. Smoke test remote MCP tunnel.
+15. Publish/update GitHub Release khi phù hợp.
 
-PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và release vẫn chạy full gate. Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
+Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
 
 ## Cấu trúc repository
 
@@ -506,10 +477,7 @@ PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và 
 | `core/project-scope.js` | Per-project concurrent scope lanes, reference policy và Work Session/terminal holder binding. |
 | `core/brain.js` | Symbol/framework/dependency indexing. |
 | `core/wordpress.js` | WordPress-specific analysis. |
-| `core/retrieval-scope.js` | Scope-aware inspect/retrieval cho Fast Agent. |
-| `core/fast-execution.js` | Coalesced/parallel local I/O và aggregate execution telemetry. |
-| `core/hard-project-rules.js` | Owner-first, bounded Functional Ownership, native Bricks và global CSS pre-apply guards. |
-| `core/agent-runtime.js` | `prepare_task` / `complete_task` và scoped verification. |
+| `core/agent-runtime.js` | `prepare_task` / `complete_task`. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
 | `core/windows-terminal-guard.js` | Windows `cmd.exe` redirect guard cho inline code có `=>`. |
@@ -531,30 +499,20 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Local-first:** source code nằm trên máy người dùng; ChatCode chỉ expose project được chia sẻ.
 - **Least privilege:** quyền được cấu hình theo từng project.
 - **Recoverable mutations:** thay đổi quan trọng có recovery point hoặc Work Session rollback.
-- **Read before write:** agent được cung cấp context và Brain trước khi patch.
-- **Owner first / functional ownership:** sửa nhỏ reuse evidence-backed owner; chức năng mới chỉ được tách owner khi generic entry sẽ thành monolith, không có scoped owner phù hợp và vẫn nằm trong hard bounded budget.
-- **Thin global entrypoints:** `functions.php`/`style.css`/global CSS không phải nơi mặc định để nhét mọi feature; code/CSS theo page/component/module khi trách nhiệm thực sự độc lập.
-- **Verify after write:** coding flow có scoped verification sau thay đổi; Git chỉ được lấy khi cần.
+- **Read before write:** agent được cung cấp context, Brain và baseline trước khi patch.
+- **Verify after write:** coding flow có verification và Git diff/status sau thay đổi.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
 - **Concurrent project isolation:** project A và B được phép chạy song song, nhưng mỗi task/Work Session/terminal holder chỉ được mutate project đã tạo holder đó.
-- **Fast without fake PASS:** tối ưu latency bằng cache/coalescing/parallelism có giới hạn; không bỏ safety hoặc biến test chưa chạy thành PASS.
-- **Bounded completion:** `MICRO_UI` và `BUILDER_DELIVERY` không được mở recovery sidequest vô hạn; một diagnostic + một corrective pass là giới hạn mặc định.
 
 ## Release hiện tại
 
-**v1.0.32** tập trung vào **Lean/Boun​​ded Task Flow**: native Bricks delivery không còn tự động rơi vào DEEP chỉ vì prompt có `deploy/live/verify`; bounded task khóa lane, context/patch budget và recovery rounds; `complete_task` sở hữu verify + changed-files deploy và PASS là trạng thái kết thúc. Bricks skill đồng thời ưu tiên resolve/adopt template hiện có trước create để tránh duplicate, dùng short local naming như `main.css`, `home.css`, `home.php`, `.home-hero`, và giảm context budget. CI PR chuyển sang impacted tests, còn full Windows/release gate chỉ chạy trên `main`/release.
+**v1.0.26** thêm **verified terminal FTP deploy** dựa trên `.vscode/sftp.json`: chỉ file của task hiện tại được đồng bộ sau verification PASS, hỗ trợ upload/delete theo `watcher.autoDelete`, giữ credential bên trong terminal process và trả `deploy_failed` nếu remote chưa cập nhật. Bản này cũng sửa lỗi Windows Trusted Terminal có thể hiểu ký tự `>` trong PHP/code arrow `=>` thành output redirection và tạo file rác ở project root; inline PHP nguy cơ cao được chuyển sang PowerShell encoded transport, còn inline command không thể rewrite an toàn sẽ bị chặn trước `cmd.exe`.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
-| **v1.0.32** | Lean/Bounded Task Flow: Builder Delivery lane, bounded recovery, compact Bricks context, duplicate-safe template ownership, short local naming và selective PR CI. |
-| **v1.0.31** | Functional Ownership: giữ entry/global files mỏng, cho phép bounded scoped owner theo chức năng thay vì dồn code vào `functions.php`/`style.css`. |
-| **v1.0.30** | Micro UI Latency Guard: reference-image section prompts vào `MICRO_UI` + explicit orchestration stop rules. |
-| **v1.0.29** | Micro Task Latency: targeted CSS/layout dùng 2-file context + 2-file patch budget và compact skill context. |
-| **v1.0.28** | Hard Project Rules: owner-first, zero-default file budget, native Bricks và global CSS owner guards. |
-| **v1.0.27** | Fast Execution Engine: context reuse, coalesced/parallel I/O, overlapped inspect và bounded inferred verification. |
 | **v1.0.26** | Verified terminal FTP deploy + Windows `=>` redirect artifact guard. |
 | **v1.0.25** | Concurrent Project Scope Lanes: nhiều project/task/terminal chạy song song, lifecycle độc lập, session binding vẫn strict. |
 | **v1.0.24** | Browser Performance Mode: CPU HIGH active tab, warm RAM tabs, discrete-GPU preference, LAN/GPU diagnostics và explicit Windows QoS. |
@@ -566,6 +524,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.32**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.26**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.

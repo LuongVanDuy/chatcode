@@ -15,7 +15,6 @@ const {
 } = require('./task-planner');
 
 const MAX_VERIFY = 6;
-const MAX_PARALLEL_VERIFY = 3;
 const MAX_CONTEXT_FILES = 6;
 const MAX_TASK_CARDS = 200;
 const FAST_SKILL_CONTRACT = [
@@ -34,23 +33,6 @@ const FAST_SKILL_CONTRACT = [
 
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 function unique(values) { return [...new Set((values || []).filter(Boolean))]; }
-
-async function mapLimit(items, concurrency, worker) {
-  const list = Array.isArray(items) ? items : [];
-  if (!list.length) return [];
-  const results = new Array(list.length);
-  let cursor = 0;
-  async function run() {
-    while (true) {
-      const index = cursor++;
-      if (index >= list.length) return;
-      results[index] = await worker(list[index], index);
-    }
-  }
-  const count = Math.min(list.length, Math.max(1, Number(concurrency) || 1));
-  await Promise.all(Array.from({ length:count }, () => run()));
-  return results;
-}
 
 function inferredSyntaxCommands(files) {
   const commands = [];
@@ -161,19 +143,17 @@ function compactSkillsForFastPath(skills, charLimit = 6000) {
 }
 
 async function runBricksJsonVerification(api, projectId, files, inspect) {
-  const targets = [];
+  const results = [];
   for (const item of Array.isArray(files) ? files : []) {
-    if (targets.length >= 4 || String(item?.operation || '') === 'delete') continue;
+    if (results.length >= 4 || String(item?.operation || '') === 'delete') continue;
     const file = String(item?.path || item || '').replace(/\\/g,'/');
-    if (/\.json$/i.test(file)) targets.push(file);
-  }
-  const results = await mapLimit(targets, MAX_PARALLEL_VERIFY, async file => {
+    if (!/\.json$/i.test(file)) continue;
     const started = nowMs();
     try {
       const raw = await api.readFile(projectId, file);
       const validation = validateBricksJson(String(raw?.content || ''), inspect || {});
-      if (!validation.recognized) return null;
-      return {
+      if (!validation.recognized) continue;
+      results.push({
         kind:'bricks-json',
         command:`bricks-validate "${file}"`,
         file,
@@ -185,12 +165,12 @@ async function runBricksJsonVerification(api, projectId, files, inspect) {
         node_count:validation.node_count,
         spec:validation.spec,
         duration_ms:nowMs() - started
-      };
+      });
     } catch (error) {
-      return { kind:'bricks-json', command:`bricks-validate "${file}"`, file, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started };
+      results.push({ kind:'bricks-json', command:`bricks-validate "${file}"`, file, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started });
     }
-  });
-  return results.filter(Boolean);
+  }
+  return results;
 }
 
 function createAgentRuntime(api, store = null) {
@@ -221,24 +201,13 @@ function createAgentRuntime(api, store = null) {
       api.inspectProject(ref, text, inspectLimit)
     ]);
     const inspectMs = nowMs() - inspectStarted;
-
-    const hintsStarted = nowMs();
-    const hintsPromise = verificationHints(api, session.project_id, inspect);
-    const profileStarted = nowMs();
+    const hints = await verificationHints(api, session.project_id, inspect);
     const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
-    const profileMs = nowMs() - profileStarted;
-    const hints = await hintsPromise;
-    const hintsMs = nowMs() - hintsStarted;
     const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
-
-    const plannerStarted = nowMs();
     const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
-    const plannerMs = nowMs() - plannerStarted;
     const skillInspect = { ...inspect, project_profile:fullProjectProfile };
 
-    const skillsStarted = nowMs();
     const rawSkills = skillsForTask(skillInspect, text, taskCard);
-    const skillsMs = nowMs() - skillsStarted;
     rememberTaskCard(session.work_session_id, taskCard, { inspect:skillInspect, rawSkills });
     const skills = taskCard.execution.path === EXECUTION_PATHS.FAST
       ? compactSkillsForFastPath(rawSkills, taskCard.execution.skill_context_limit_chars)
@@ -289,41 +258,27 @@ function createAgentRuntime(api, store = null) {
         ]
       },
       baseline:session.baseline,
-      telemetry:{
-        total_ms:nowMs() - started,
-        inspect_ms:inspectMs,
-        filesystem_ms:Number(inspect?.telemetry?.filesystem_ms)||0,
-        brain_refresh_ms:Number(inspect?.telemetry?.brain_refresh_ms)||0,
-        git_ms:Number(inspect?.telemetry?.git_ms)||0,
-        verification_hints_ms:hintsMs,
-        profile_ms:profileMs,
-        planner_ms:plannerMs,
-        skills_ms:skillsMs,
-        brain_overview_source:inspect?.telemetry?.brain_overview_source || null,
-        overlapped_git:!!inspect?.telemetry?.overlapped_git
-      }
+      telemetry:{ total_ms:nowMs() - started, inspect_ms:inspectMs, filesystem_ms:Number(inspect?.telemetry?.filesystem_ms)||0, brain_refresh_ms:Number(inspect?.telemetry?.brain_refresh_ms)||0, git_ms:Number(inspect?.telemetry?.git_ms)||0 }
     };
   }
 
-  async function runVerification(projectId, taskId, workspaceMode, commands, { preferTaskRunner = false, parallel = false } = {}) {
-    const list = commands.slice(0, MAX_VERIFY);
-    const runOne = async command => {
+  async function runVerification(projectId, taskId, workspaceMode, commands, { preferTaskRunner = false } = {}) {
+    const results = [];
+    for (const command of commands.slice(0, MAX_VERIFY)) {
       const started = nowMs();
       try {
         let raw;
         if (!preferTaskRunner && workspaceMode === 'trusted' && typeof api.exec === 'function') {
           raw = await api.exec(projectId, command, { background:false, timeout_ms:120000, work_session_id:taskId });
-          return { command, ok:raw.status === 'completed' && Number(raw.exit_code) === 0, status:raw.status, exit_code:raw.exit_code, stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started };
+          results.push({ command, ok:raw.status === 'completed' && Number(raw.exit_code) === 0, status:raw.status, exit_code:raw.exit_code, stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started });
+        } else {
+          raw = await api.runTask(projectId, command);
+          results.push({ command, ok:!!raw.ok && Number(raw.code || 0) === 0, status:raw.ok ? 'completed' : 'failed', exit_code:Number(raw.code || 0), stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started });
         }
-        raw = await api.runTask(projectId, command);
-        return { command, ok:!!raw.ok && Number(raw.code || 0) === 0, status:raw.ok ? 'completed' : 'failed', exit_code:Number(raw.code || 0), stdout:String(raw.stdout || '').slice(-16000), stderr:String(raw.stderr || '').slice(-16000), duration_ms:nowMs() - started };
       } catch (error) {
-        return { command, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started };
+        results.push({ command, ok:false, status:'failed', error:normalizeError(error), duration_ms:nowMs() - started });
       }
-    };
-    if (parallel && list.length > 1) return mapLimit(list, MAX_PARALLEL_VERIFY, runOne);
-    const results = [];
-    for (const command of list) results.push(await runOne(command));
+    }
     return results;
   }
 
@@ -355,44 +310,13 @@ function createAgentRuntime(api, store = null) {
     const patchMs = nowMs() - patchStarted;
     const changed = applied.files || applied.changed_files || [];
     const commands = requestedCommands.length ? requestedCommands : inferredSyntaxCommands(changed);
-    const safeParallelVerification = requestedCommands.length === 0;
 
     const verifyStarted = nowMs();
-    let structuralVerification = [];
-    let commandVerification = [];
-    let structuralVerifyMs = 0;
-    let commandVerifyMs = 0;
-    if (safeParallelVerification) {
-      const structuralStarted = nowMs();
-      const commandStarted = structuralStarted;
-      [structuralVerification, commandVerification] = await Promise.all([
-        runBricksJsonVerification(api, projectId, changed, taskContext?.inspect || {}).then(result => {
-          structuralVerifyMs = nowMs() - structuralStarted;
-          return result;
-        }),
-        runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:true, parallel:true }).then(result => {
-          commandVerifyMs = nowMs() - commandStarted;
-          return result;
-        })
-      ]);
-    } else {
-      const structuralStarted = nowMs();
-      structuralVerification = await runBricksJsonVerification(api, projectId, changed, taskContext?.inspect || {});
-      structuralVerifyMs = nowMs() - structuralStarted;
-      const commandStarted = nowMs();
-      commandVerification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:false, parallel:false });
-      commandVerifyMs = nowMs() - commandStarted;
-    }
+    const structuralVerification = await runBricksJsonVerification(api, projectId, changed, taskContext?.inspect || {});
+    const commandVerification = await runVerification(projectId, id, before.workspace_mode, commands, { preferTaskRunner:requestedCommands.length === 0 });
     const verification = [...structuralVerification, ...commandVerification];
     const verifyMs = nowMs() - verifyStarted;
     const verificationPassed = verification.every(item => item.ok);
-    const verificationTelemetry = {
-      verify_ms:verifyMs,
-      structural_verify_ms:structuralVerifyMs,
-      command_verify_ms:commandVerifyMs,
-      verification_parallel:safeParallelVerification,
-      verification_strategy:safeParallelVerification ? 'parallel-safe-inferred' : 'sequential-explicit'
-    };
 
     if (!verificationPassed) {
       if (rollbackOnFailure) {
@@ -406,7 +330,7 @@ function createAgentRuntime(api, store = null) {
           verification, verification_passed:false, changed_files:applied.changed_files || [], patch:applied,
           rollback:rolled,
           next_action:'Task đã rollback vì verification fail. Gọi prepare_task nếu muốn thử lại từ baseline.',
-          telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, ...verificationTelemetry, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
+          telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
         };
       }
       const current = await api.workStatus(id);
@@ -419,7 +343,7 @@ function createAgentRuntime(api, store = null) {
         git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
         next_action:'Giữ nguyên task_id và execution path. Tạo corrective unified diff nhỏ trong cùng scope rồi gọi complete_task lại; chỉ rollback_work nếu muốn hủy toàn bộ task.',
-        telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, ...verificationTelemetry, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
+        telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
       };
     }
 
@@ -433,7 +357,7 @@ function createAgentRuntime(api, store = null) {
         changed_files:current.changed_files || applied.changed_files || [], git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
         next_action:'Task vẫn active và giữ nguyên execution path. Có thể gọi complete_task thêm hoặc finish_work.',
-        telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, ...verificationTelemetry, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
+        telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
       };
     }
 
@@ -460,7 +384,7 @@ function createAgentRuntime(api, store = null) {
       project_rules:projectRules,
       session:finished,
       agent_contract:{ preferred_calls:2, completed_in_call:2, result:'done' },
-      telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, ...verificationTelemetry, finalize_ms:finalizeMs, brain_refresh_ms:Number(finished?.brain?.refresh_ms || applied?.brain?.refresh_ms)||0, git_ms:0 }
+      telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:finalizeMs, brain_refresh_ms:Number(finished?.brain?.refresh_ms || applied?.brain?.refresh_ms)||0, git_ms:0 }
     };
   }
 
@@ -487,6 +411,5 @@ module.exports = {
   verificationHints,
   inferredSyntaxCommands,
   compactSkillsForFastPath,
-  runBricksJsonVerification,
-  mapLimit
+  runBricksJsonVerification
 };

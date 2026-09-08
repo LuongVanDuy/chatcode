@@ -1,3 +1,4 @@
+const path = require('path');
 const { ownershipMap, explicitUserPaths } = require('./owner-resolver');
 
 const TASK_TYPES = Object.freeze({
@@ -7,18 +8,9 @@ const TASK_TYPES = Object.freeze({
   PRODUCTION:'PRODUCTION'
 });
 
-// One execution model only. FAST remains as a compatibility alias for callers
-// compiled against <=1.0.32; no DEEP path exists anymore.
 const EXECUTION_PATHS = Object.freeze({
-  BOUNDED:'BOUNDED',
-  FAST:'BOUNDED'
-});
-
-const EXECUTION_LANES = Object.freeze({
-  MICRO_UI:'MICRO_UI',
-  BUILDER_DELIVERY:'BUILDER_DELIVERY',
-  STANDARD:'STANDARD',
-  FAST:'STANDARD'
+  FAST:'FAST',
+  DEEP:'DEEP'
 });
 
 const TYPE_READ_LIMIT = Object.freeze({
@@ -28,11 +20,12 @@ const TYPE_READ_LIMIT = Object.freeze({
   PRODUCTION:6
 });
 
-const BASE_LIMITS = Object.freeze({ context_files:4, patch_files:4, skill_chars:6000 });
-const PATH_LIMITS = Object.freeze({ BOUNDED:BASE_LIMITS, FAST:BASE_LIMITS });
-const MICRO_FAST_LIMITS = Object.freeze({ context_files:2, patch_files:2, skill_chars:2200 });
-const BUILDER_DELIVERY_LIMITS = Object.freeze({ context_files:4, patch_files:4, skill_chars:6500 });
-const STATEFUL_LIMITS = Object.freeze({ context_files:6, patch_files:6, skill_chars:9000 });
+const PATH_LIMITS = Object.freeze({
+  FAST:Object.freeze({ context_files:4, patch_files:4, skill_chars:6000 }),
+  DEEP:Object.freeze({ context_files:6, patch_files:24, skill_chars:56000 })
+});
+
+const MICRO_FAST_LIMITS = Object.freeze({ context_files:3, patch_files:2, skill_chars:3600 });
 
 function unique(values) {
   return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))];
@@ -75,157 +68,124 @@ function hasPersistedStateEvidence(request) {
   return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb|sql)\b|\$wpdb|database\s+table|\bwp_[a-z0-9_]+\s+table\b|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|post\s+meta|wp_options?|option\s+table|post\s+content[^\n]{0,50}(?:database|stored|persisted)|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)|bulk\s+(?:stored\s+)?records?/i.test(text);
 }
 
-function hasPersistedMutationIntent(request) {
-  const text = stripNegatedStoredStateEvidence(request);
-  if (/\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta/i.test(text)) return true;
-  const mutation = '(?:migrate|migration|repair|rewrite|rebuild|update|modify|change|delete|remove|move|sửa|sua|chỉnh|chinh|cập\\s+nhật|cap\\s+nhat|xóa|xoá|xoa|dọn|don)';
-  const stored = '(?:builder\\s+(?:data|json|tree)|bricks\\s+(?:builder\\s+)?(?:data|json|tree)|persisted\\s+(?:data|state)|stored\\s+(?:data|state|records?)|element\\s+id|parent\\s*\\/\\s*children)';
-  return new RegExp(`${mutation}[^\\n]{0,80}${stored}|${stored}[^\\n]{0,80}${mutation}`, 'i').test(text);
-}
-
 function isExplicitFilesystemTask(request) {
   if (!explicitUserPaths(request).length) return false;
-  return /\b(?:create|add|write|edit|modify|update|delete|remove|rename|move|rollback|temporary|temp|file|tạo|tao|thêm|them|ghi|sửa|sua|chỉnh|chinh|xóa|xoá|xoa|đổi\s+tên|doi\s+ten|di\s+chuyển|di\s+chuyen|tạm|tam)\b/i.test(normalizeText(request));
-}
-
-function hasImplementationIntent(request) {
-  return /(?:\b(?:fix|adjust|change|update|build|create|add|implement|polish|style|edit|modify)\b|sửa|sua|chỉnh|chinh|tạo|tao|thêm|them|triển\s+khai|trien\s+khai|làm|lam)[^\n]{0,140}(?:section|page|trang|template|element|header|footer|hero|banner|card|menu|layout|css|php|javascript|js|bricks|builder|component|feature|chức\s+năng|chuc\s+nang)/i.test(normalizeText(request));
-}
-
-function hasProductionOperationIntent(request) {
   const text = normalizeText(request);
-  const productionSignal = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
-  if (!productionSignal) return false;
-  if (/(?:\b(?:debug|troubleshoot|configure|setup|repair|inspect|check|test|fix)\b|kiểm\s+tra|kiem\s+tra|cấu\s+hình|cau\s+hinh|sửa|sua)[^\n]{0,45}(?:ftp|sftp|hosting|server|cdn|deployment|deploy\s+pipeline)|(?:ftp|sftp|hosting|server|cdn|deployment\s+pipeline)[^\n]{0,45}(?:error|fail|broken|config|permission|timeout|lỗi|loi)/i.test(text)) return true;
-  if (/^(?:please\s+|hãy\s+|hay\s+)?(?:deploy|deployment|upload|publish|sync|ftp|sftp|clear\s+cache|purge\s+cdn)\b/i.test(text)) return true;
-  return !hasImplementationIntent(text);
-}
-
-function isBuilderDeliveryRequest(request) {
-  const text = stripNegatedStoredStateEvidence(request);
-  return /builder[-\s]?editable|builder\s+controls?|set_controls|\brepeater\b|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|native\s+bricks|bricks\s+(?:page|template|element)|reusable\s+(?:bricks\s+)?(?:section|template)|(?:page|trang)[^\n]{0,70}(?:native\s+bricks|bricks\s+builder)|(?:native\s+bricks|bricks\s+builder)[^\n]{0,70}(?:page|trang)/i.test(text);
+  return /\b(?:create|add|write|edit|modify|update|delete|remove|rename|move|rollback|temporary|temp|file|tạo|tao|thêm|them|ghi|sửa|sua|chỉnh|chinh|xóa|xoá|xoa|đổi\s+tên|doi\s+ten|di\s+chuyển|di\s+chuyen|tạm|tam)\b/i.test(text);
 }
 
 function classifyTask(request, inspect = {}) {
   const text = normalizeText(request);
   const evidenceText = stripNegatedStoredStateEvidence(request);
-  if (hasProductionOperationIntent(request)) return TASK_TYPES.PRODUCTION;
+
+  const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
+  if (production) return TASK_TYPES.PRODUCTION;
+
   if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
-  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
   if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
   if (hasBricks(inspect) && builderIntent) return TASK_TYPES.BRICKS_BUILDER;
 
   const dataMutation = /(?:modify|update|change|repair|delete|remove|sửa|sua|chỉnh|chinh|cập\s+nhật|cap\s+nhat|di\s+chuyển|di\s+chuyen|xóa|xoá|xoa|dọn|don)[^\n]{0,32}(?:builder\s+(?:data|json|tree)|dữ\s+liệu|du\s+lieu|wp_options?|option|post\s+meta|records?)|(?:builder\s+(?:data|json|tree)|dữ\s+liệu|du\s+lieu|wp_options?|option|post\s+meta|records?)[^\n]{0,36}(?:repair|update|change|delete|remove|xóa|xoá|xoa|dọn|don)/i.test(evidenceText);
-  return dataMutation ? TASK_TYPES.DATA : TASK_TYPES.FAST_UI;
+  if (dataMutation) return TASK_TYPES.DATA;
+
+  return TASK_TYPES.FAST_UI;
 }
 
-// Compatibility name retained for callers; these are risk flags, not an execution path.
 function deepPathReasons(request, type = '') {
   const text = normalizeText(request);
   const evidenceText = stripNegatedStoredStateEvidence(request);
   const reasons = [];
   const add = (reason, re, source = text) => { if (re.test(source)) reasons.push(reason); };
-  if (type === TASK_TYPES.PRODUCTION || hasProductionOperationIntent(request)) reasons.push('production-operation');
-  if (hasPersistedMutationIntent(request)) reasons.push('persisted-data-mutation');
-  add('bulk-data', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm|records?)/i, evidenceText);
-  add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
-  add('destructive-write', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+(?:data|json|tree)|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i, evidenceText);
-  add('broad-scope', /full\s+(?:audit|refactor|review)|(?:audit|refactor|review)[^\n]{0,50}(?:entire|whole|all)\s+(?:project|site|code)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|tái\s+cấu\s+trúc\s+toàn\s+bộ/i);
-  return unique(reasons);
-}
 
-function riskProfile(request, type, reasons = deepPathReasons(request, type)) {
-  const has = reason => reasons.includes(reason);
-  const risk = {
-    persisted_data:type === TASK_TYPES.DATA || has('persisted-data-mutation'),
-    production:type === TASK_TYPES.PRODUCTION || has('production-operation'),
-    woocommerce_state:has('woocommerce-state'),
-    destructive:has('destructive-write'),
-    bulk_data:has('bulk-data'),
-    broad_scope:has('broad-scope')
-  };
-  const capabilities = ['scoped_read','scoped_patch','scoped_verify'];
-  if (risk.persisted_data) capabilities.push('persisted_write','recovery_point');
-  if (risk.production) capabilities.push('production_io');
-  if (risk.woocommerce_state) capabilities.push('woocommerce_state');
-  if (risk.destructive) capabilities.push('destructive_write','recovery_point');
-  return { ...risk, capabilities:unique(capabilities) };
+  if (type === TASK_TYPES.PRODUCTION) reasons.push('production-operation');
+  add('production-operation', /\b(?:ftp|sftp|production|deploy|deployment|hosting|server)\b|website\s+live|live\s+(?:site|website|frontend)/i);
+  add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
+  add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
+  add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,90}(?:(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks))|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks)/i);
+  add('persisted-data-migration', /\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta|rollback[^\n]{0,50}(?:db|database|builder\s+(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+state)/i, evidenceText);
+  add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm|records?)/i, evidenceText);
+  add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
+  add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+(?:data|json|tree)|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i, evidenceText);
+  add('explicit-broad-scope', /full\s+(?:audit|refactor|review)|(?:audit|refactor|review)[^\n]{0,50}(?:entire|whole|all)\s+(?:project|site|code)|quét\s+(?:lại\s+)?toàn\s+bộ|rà\s+soát\s+toàn\s+bộ|tái\s+cấu\s+trúc\s+toàn\s+bộ/i);
+
+  return unique(reasons);
 }
 
 function isMicroFastRequest(request) {
   const text = stripNegatedStoredStateEvidence(request);
-  if (!text || text.length > 360) return false;
-  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|full\s+(?:audit|refactor|review)|refactor|redesign|migration|database|builder\s+(?:data|json|tree)|bricks\s+template|template\s+condition|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
-  if (/(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,80}(?:page|trang|template|element|cpt|database)/i.test(text)) return false;
+  if (!text || text.length > 170) return false;
+  if (/toàn\s+bộ|toàn\s+site|site[-\s]?wide|global|refactor|redesign|migration|database|builder\s+(?:data|json|tree)|template|woocommerce|checkout|cart|order|ftp|sftp|deploy/i.test(text)) return false;
+
   const explicitSmallChange = /\b\d+(?:\.\d+)?\s*(?:px|rem|em|%)\b|\b(?:slightly|small|minor|a\s+bit)\b|\bnhẹ\b|một\s+chút|khoảng\s+\d/i.test(text);
-  const actionIntent = /\b(?:fix|adjust|change|update|align|reduce|increase|tweak|polish)\b|sửa|sua|chỉnh|chinh|tối\s+ưu|toi\s+uu|giảm|giam|tăng|tang|đổi|doi|căn|canh|cho\b|css\s+lại|style\s+lại/i.test(text);
-  const styleAxis = /\bcss\b|\blayout\b|giao\s+diện|giao\s+dien|font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)|align|căn|canh|grid|flex/i.test(text);
-  const scopedTarget = /homepage|home\s*page|trang\s+chủ|trang\s+chu|banner|category|danh\s+mục|breadcrumb|sidebar|card|section|block|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action|hero/i.test(text);
-  const referenceUiIntent = /(?:\b(?:build|add|create|make)\b|thêm|them|tạo|tao|triển\s+khai|trien\s+khai|làm|lam)[^\n]{0,100}(?:section|block|layout|banner|card|menu|tab|hero)|(?:section|block|layout|banner|card|menu|tab|hero)[^\n]{0,100}(?:như|giống|giong|theo)\s+(?:ảnh|anh|mẫu|mau|mockup|screenshot)|(?:như|giống|giong|theo)\s+(?:ảnh|anh|mẫu|mau|mockup|screenshot)/i.test(text);
-  return scopedTarget && ((styleAxis && (explicitSmallChange || actionIntent)) || referenceUiIntent);
+  if (!explicitSmallChange) return false;
+
+  const styleAxis = /font(?:-size)?|spacing|padding|margin|\bgap\b|height|width|border(?:-radius)?|radius|color|màu|khoảng\s+cách|chiều\s+(?:cao|rộng)/i.test(text);
+  const scopedTarget = /card|section|container|button|nút|title|heading|mobile|desktop|product|sản\s*phẩm|header|footer|image|ảnh|input|tab|menu|action/i.test(text);
+  return styleAxis && scopedTarget;
 }
 
-function executionLane(request, type = '') {
-  if (isMicroFastRequest(request) && !isBuilderDeliveryRequest(request)) return EXECUTION_LANES.MICRO_UI;
-  if (type === TASK_TYPES.BRICKS_BUILDER || isBuilderDeliveryRequest(request)) return EXECUTION_LANES.BUILDER_DELIVERY;
-  return EXECUTION_LANES.STANDARD;
-}
-
-function executionLimits(request, type = '', reasons = []) {
-  if (isMicroFastRequest(request) && !isBuilderDeliveryRequest(request)) return MICRO_FAST_LIMITS;
-  if (type === TASK_TYPES.BRICKS_BUILDER || isBuilderDeliveryRequest(request)) return BUILDER_DELIVERY_LIMITS;
-  if (type === TASK_TYPES.DATA || type === TASK_TYPES.PRODUCTION || reasons.length) return STATEFUL_LIMITS;
-  return BASE_LIMITS;
+function executionLimits(request, executionPath) {
+  if (executionPath === EXECUTION_PATHS.FAST && isMicroFastRequest(request)) return MICRO_FAST_LIMITS;
+  return PATH_LIMITS[executionPath];
 }
 
 function preflightExecutionPath(request) {
-  const hintedType = hasProductionOperationIntent(request)
-    ? TASK_TYPES.PRODUCTION
-    : hasPersistedStateEvidence(request)
-      ? TASK_TYPES.DATA
-      : isBuilderDeliveryRequest(request)
-        ? TASK_TYPES.BRICKS_BUILDER
-        : TASK_TYPES.FAST_UI;
-  const reasons = deepPathReasons(request, hintedType);
-  return { path:EXECUTION_PATHS.BOUNDED, lane:executionLane(request, hintedType), reasons, risk:riskProfile(request, hintedType, reasons), limits:executionLimits(request, hintedType, reasons) };
+  const reasons = deepPathReasons(request, '');
+  const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
+  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
 }
 
 function classifyExecutionPath(request, type) {
   const reasons = deepPathReasons(request, type);
-  return { path:EXECUTION_PATHS.BOUNDED, lane:executionLane(request, type), reasons, risk:riskProfile(request, type, reasons), limits:executionLimits(request, type, reasons) };
+  const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
+  return { path:executionPath, reasons, limits:executionLimits(request, executionPath) };
 }
 
 function targetLabel(request) {
-  const text = normalizeText(request), parts = [];
+  const text = normalizeText(request);
+  const parts = [];
   const add = (label, re) => { if (re.test(text)) parts.push(label); };
   add('homepage', /homepage|home\s*page|trang\s+chủ|trang\s+chu/);
-  add('header', /\bheader\b/); add('footer', /\bfooter\b/);
+  add('header', /\bheader\b/);
+  add('footer', /\bfooter\b/);
   add('product card', /product\s+card|card\s+sản\s*phẩm|thẻ\s+sản\s*phẩm/);
   add('featured products', /featured\s+products?|sản\s*phẩm\s+nổi\s+bật/);
-  add('archive', /\barchive\b|taxonomy/); add('single product', /single\s+product|chi\s+tiết\s+sản\s*phẩm/);
-  add('checkout', /checkout|thanh\s+toán/); add('CPT', /\bcpt\b|custom\s+post\s+type/);
-  add('migration', /migration|migrate|di\s+chuyển\s+dữ\s+liệu/); add('import', /\bimport\b|nhập\s+dữ\s+liệu/);
-  add('font', /\bfont\b|typography|phông\s+chữ/); add('container', /\bcontainer\b|\bwidth\b|chiều\s+rộng/); add('section', /\bsection\b/);
-  return parts.length ? unique(parts).slice(0,3).join(' / ') : String(request || '').trim().replace(/\s+/g, ' ').slice(0,160) || 'task';
+  add('archive', /\barchive\b|taxonomy/);
+  add('single product', /single\s+product|chi\s+tiết\s+sản\s*phẩm/);
+  add('checkout', /checkout|thanh\s+toán/);
+  add('CPT', /\bcpt\b|custom\s+post\s+type/);
+  add('migration', /migration|migrate|di\s+chuyển\s+dữ\s+liệu/);
+  add('import', /\bimport\b|nhập\s+dữ\s+liệu/);
+  add('font', /\bfont\b|typography|phông\s+chữ/);
+  add('container', /\bcontainer\b|\bwidth\b|chiều\s+rộng/);
+  add('section', /\bsection\b/);
+  if (parts.length) return unique(parts).slice(0,3).join(' / ');
+  return String(request || '').trim().replace(/\s+/g, ' ').slice(0,160) || 'task';
 }
 
 function scoreFile(item, index, request, type) {
-  const rel = String(item?.path || item?.file || item || '').replace(/\\/g, '/'), lower = rel.toLowerCase();
+  const rel = String(item?.path || item?.file || item || '').replace(/\\/g, '/');
+  const lower = rel.toLowerCase();
   let score = Math.max(0, 20 - index * 2);
   for (const token of requestTokens(request)) if (lower.includes(token)) score += 4;
+
   if (type === TASK_TYPES.FAST_UI) {
     if (/\.(?:css|scss|sass|less)$/.test(lower)) score += 10;
     if (/header|footer|home|product|card|style|frontend/.test(lower)) score += 3;
   } else if (type === TASK_TYPES.BRICKS_BUILDER) {
-    if (/bricks|element|template|header|footer|archive|single|builder|featured/.test(lower)) score += 9;
+    if (/bricks|element|template|header|footer|archive|single|builder/.test(lower)) score += 9;
     if (/\.php$/.test(lower)) score += 3;
   } else if (type === TASK_TYPES.DATA) {
     if (/seed|migration|migrate|post-type|cpt|import|data|database|setup|installer/.test(lower)) score += 10;
     if (/\.php$/.test(lower)) score += 3;
-  } else if (type === TASK_TYPES.PRODUCTION && /deploy|ftp|sftp|cache|asset|enqueue|functions\.php/.test(lower)) score += 8;
+  } else if (type === TASK_TYPES.PRODUCTION) {
+    if (/deploy|ftp|sftp|cache|asset|enqueue|functions\.php/.test(lower)) score += 8;
+  }
+
   return { path:rel, score, role:String(item?.role || ''), reasons:Array.isArray(item?.reasons) ? item.reasons.slice(0,3).map(String) : [] };
 }
 
@@ -244,10 +204,16 @@ function selectRelevantRules(projectRules, request, type) {
   if (type === TASK_TYPES.BRICKS_BUILDER) ['bricks','builder','template','element','control','editable'].forEach(x => tokens.add(x));
   if (type === TASK_TYPES.DATA) ['cpt','data','seed','migration','product','database'].forEach(x => tokens.add(x));
   if (type === TASK_TYPES.PRODUCTION) ['production','deploy','ftp','source','cache'].forEach(x => tokens.add(x));
+
   const ranked = [];
   for (const rule of Array.isArray(projectRules) ? projectRules : []) {
-    const key = normalizeText(rule?.key), value = normalizeText(rule?.value); let score = 0;
-    for (const token of tokens) { if (key.includes(token)) score += 4; if (value.includes(token)) score += 1; }
+    const key = normalizeText(rule?.key);
+    const value = normalizeText(rule?.value);
+    let score = 0;
+    for (const token of tokens) {
+      if (key.includes(token)) score += 4;
+      if (value.includes(token)) score += 1;
+    }
     if (/builder|owner|renderer|global|css|layout|product|source|deploy/.test(key)) score += 1;
     if (score > 0) ranked.push({ key:String(rule.key), value:String(rule.value), score });
   }
@@ -294,54 +260,43 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
   const ownerCandidates = selectOwnerCandidates(inspect, request, type, limit);
   const resolved = ownershipMap({ request, inspect, projectProfile, fallbackCandidates:ownerCandidates, taskType:type });
   const relevantRules = selectRelevantRules(projectRules, request, type);
-  const policy = typePolicy(type), primary = resolved.primary || null;
+  const policy = typePolicy(type);
+  const primary = resolved.primary || null;
   const verification = unique([...verificationFromHints(verificationHints), ...policy.verify]).slice(0,8);
-  const allowNewFile = explicitNewFileRequest(request);
+  const allowNewFile = execution.path === EXECUTION_PATHS.FAST && explicitNewFileRequest(request);
   const explicitPaths = unique(explicitUserPaths(request));
   const expectedFiles = explicitPaths.length
     ? explicitPaths.slice(0,limit)
-    : unique([primary?.path, ...(resolved.companion_paths || []), ...ownerCandidates.map(item => item.path)]).slice(0,limit);
-  const microUi = execution.lane === EXECUTION_LANES.MICRO_UI;
-  const builderDelivery = execution.lane === EXECUTION_LANES.BUILDER_DELIVERY;
+    : unique([
+        primary?.path,
+        ...(resolved.companion_paths || []),
+        ...ownerCandidates.map(item => item.path)
+      ]).slice(0,limit);
 
   return {
-    version:5,
+    version:3,
     type,
     execution:{
-      path:EXECUTION_PATHS.BOUNDED,
-      lane:execution.lane,
+      path:execution.path,
       reasons:execution.reasons,
-      risk:execution.risk,
       context_file_limit:execution.limits.context_files,
       patch_file_limit:execution.limits.patch_files,
       skill_context_limit_chars:execution.limits.skill_chars,
-      allow_new_source_files:allowNewFile ? 1 : 0,
-      allow_delete:execution.risk.destructive === true,
-      latency_guard:{
-        preferred_calls:2,
-        discovery_round_limit:1,
-        dependency_hop_limit:1,
-        extra_read_limit:resolved.requires_owner_read ? 1 : 0,
-        verification_round_limit:1,
-        diagnostic_round_limit:1,
-        corrective_patch_round_limit:1,
-        final_verification_round_limit:1,
-        allow_git_inspection:false,
-        allow_manual_ftp:false,
-        allow_browser_live_verify:false,
-        allow_database_diagnostics:false,
-        allow_snapshot_diagnostics:false,
-        auto_deploy_changed_files:true,
-        failure_unlocks_scoped_diagnostic:true,
-        stop_after_scope_verify:true
-      },
-      escalation:'No execution-path escalation. Risk flags unlock only the minimum capability required by this task; they never unlock unbounded discovery or recovery.'
+      allow_new_source_files:execution.path === EXECUTION_PATHS.DEEP ? 'existing owner first' : allowNewFile ? 1 : 0,
+      allow_delete:execution.path === EXECUTION_PATHS.DEEP,
+      escalation:'fixed for this task; do not self-promote FAST to DEEP. Re-plan only when concrete evidence makes the current path unsafe.'
     },
     target:targetLabel(request),
     owner:{
-      status:primary?.status || 'unknown', kind:primary?.kind || null, primary_path:primary?.path || null, primary_symbol:primary?.symbol || null,
-      confidence:primary?.confidence || 0, candidates:ownerCandidates.map(item => item.path).slice(0,limit), companions:(resolved.companion_paths || []).slice(0,3),
-      enforce_paths:(resolved.enforce_paths || []).slice(0,3), requires_read:!!resolved.requires_owner_read,
+      status:primary?.status || 'unknown',
+      kind:primary?.kind || null,
+      primary_path:primary?.path || null,
+      primary_symbol:primary?.symbol || null,
+      confidence:primary?.confidence || 0,
+      candidates:ownerCandidates.map(item => item.path).slice(0,limit),
+      companions:(resolved.companion_paths || []).slice(0,3),
+      enforce_paths:(resolved.enforce_paths || []).slice(0,3),
+      requires_read:!!resolved.requires_owner_read,
       basis:primary ? `${primary.source}: ${(primary.evidence || []).join('; ') || 'existing ownership evidence'}` : 'no owner evidence in current task context'
     },
     ownership_map:(resolved.entries || []).slice(0,8),
@@ -352,14 +307,9 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
     decision_keys:relevantRules.map(rule => rule.key),
     constraints:{
       expected_read_limit:limit,
-      new_source_files:allowNewFile ? 1 : 0,
-      scope_expansion:'blocked by default; one scoped diagnostic is unlocked only after a concrete completion failure',
-      owner_resolution:primary?.status || 'unknown',
-      workflow:microUi
-        ? 'MICRO_UI: prepare_task -> patch -> complete_task -> STOP. No broad rediscovery, manual FTP, Git, browser/live, DB or snapshot sidequests.'
-        : builderDelivery
-          ? 'BUILDER_DELIVERY: prepare_task -> one native Bricks patch -> complete_task -> STOP. One scoped diagnostic + one corrective pass only after concrete failure.'
-          : 'BOUNDED: owner-first change -> complete_task -> STOP. Risk capabilities change what may be touched, never how long the task may loop.'
+      new_source_files:execution.path === EXECUTION_PATHS.FAST ? (allowNewFile ? 1 : 0) : 'existing owner first',
+      scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only',
+      owner_resolution:primary?.status || 'unknown'
     }
   };
 }
@@ -372,58 +322,68 @@ function normalizePatchPath(value) {
 }
 
 function patchScopeFromUnifiedDiff(patch) {
-  const lines = String(patch || '').split(/\r?\n/), files = [];
+  const lines = String(patch || '').split(/\r?\n/);
+  const files = [];
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].startsWith('--- ')) continue;
     const before = normalizePatchPath(lines[i].slice(4).split('\t')[0]);
     let j = i + 1;
     while (j < lines.length && !lines[j].startsWith('+++ ') && !lines[j].startsWith('--- ')) j++;
     if (j >= lines.length || !lines[j].startsWith('+++ ')) continue;
-    const after = normalizePatchPath(lines[j].slice(4).split('\t')[0]), file = after || before;
-    if (file) files.push({ path:file, operation:!before ? 'create' : !after ? 'delete' : 'modify' });
+    const after = normalizePatchPath(lines[j].slice(4).split('\t')[0]);
+    const file = after || before;
+    if (!file) continue;
+    files.push({ path:file, operation:!before ? 'create' : !after ? 'delete' : 'modify' });
     i = j;
   }
-  const byPath = new Map(); for (const item of files) byPath.set(item.path, item); return [...byPath.values()];
+  const byPath = new Map();
+  for (const item of files) byPath.set(item.path, item);
+  return [...byPath.values()];
 }
 
 function validatePatchAgainstTaskCard(taskCard, patch) {
-  const files = patchScopeFromUnifiedDiff(patch), execution = taskCard?.execution || {};
-  if (!taskCard) return { ok:true, files, violations:[], unexpected_files:[] };
-  const violations = [], limit = Math.max(1, Number(execution.patch_file_limit) || BASE_LIMITS.patch_files);
-  if (files.length > limit) violations.push(`BOUNDED patch touches ${files.length} files; limit is ${limit}`);
-  const creates = files.filter(item => item.operation === 'create'), deletes = files.filter(item => item.operation === 'delete');
+  const files = patchScopeFromUnifiedDiff(patch);
+  const execution = taskCard?.execution || {};
+  if (!taskCard || execution.path !== EXECUTION_PATHS.FAST) return { ok:true, files, violations:[], unexpected_files:[] };
+
+  const violations = [];
+  const limit = Math.max(1, Number(execution.patch_file_limit) || PATH_LIMITS.FAST.patch_files);
+  if (files.length > limit) violations.push(`FAST patch touches ${files.length} files; limit is ${limit}`);
+
+  const creates = files.filter(item => item.operation === 'create');
+  const deletes = files.filter(item => item.operation === 'delete');
   const newLimit = Number(execution.allow_new_source_files) || 0;
-  if (creates.length > newLimit) violations.push(`BOUNDED patch creates ${creates.length} files; allowed is ${newLimit}`);
-  if (deletes.length && execution.allow_delete !== true) violations.push('BOUNDED patch may not delete files without destructive-write capability');
+  if (creates.length > newLimit) violations.push(`FAST patch creates ${creates.length} files; allowed is ${newLimit}`);
+  if (deletes.length && execution.allow_delete !== true) violations.push('FAST patch may not delete files');
+
   if (taskCard.type === TASK_TYPES.FAST_UI) {
-    const statePaths = files.filter(item => /(?:^|\/)(?:migrations?|seed(?:ing)?|installer|database)(?:\/|[-_.])/i.test(item.path));
-    if (statePaths.length) violations.push(`FAST_UI patch entered state ownership: ${statePaths.map(item => item.path).join(', ')}`);
+    const deepOnlyPaths = files.filter(item => /(?:^|\/)(?:migrations?|seed(?:ing)?|installer|database)(?:\/|[-_.])/i.test(item.path));
+    if (deepOnlyPaths.length) violations.push(`FAST_UI patch entered data/migration ownership: ${deepOnlyPaths.map(item => item.path).join(', ')}`);
   }
+
   const expected = new Set((taskCard.expected_files || []).map(item => String(item).replace(/\\/g, '/')));
   const unexpected = expected.size ? files.filter(item => !expected.has(item.path)).map(item => item.path) : [];
-  if (files.length && expected.size && files.every(item => !expected.has(item.path))) violations.push('Patch abandons all ranked owner candidates; stop instead of rediscovering a different owner');
+  if (files.length && expected.size && files.every(item => !expected.has(item.path))) {
+    violations.push('FAST patch abandons all ranked owner candidates; re-plan before changing a different owner');
+  }
+
   const enforcePaths = new Set((taskCard?.owner?.enforce_paths || []).map(item => String(item).replace(/\\/g, '/')));
-  if (files.length && enforcePaths.size && files.every(item => !enforcePaths.has(item.path))) violations.push(`Patch bypasses resolved ${taskCard.owner.kind || 'owner'}: ${[...enforcePaths].join(', ')}`);
+  if (files.length && enforcePaths.size && files.every(item => !enforcePaths.has(item.path))) {
+    violations.push(`FAST patch bypasses resolved ${taskCard.owner.kind || 'owner'}: ${[...enforcePaths].join(', ')}`);
+  }
+
   return { ok:violations.length === 0, files, violations, unexpected_files:unexpected };
 }
 
 module.exports = {
   TASK_TYPES,
   EXECUTION_PATHS,
-  EXECUTION_LANES,
   TYPE_READ_LIMIT,
   PATH_LIMITS,
-  MICRO_FAST_LIMITS,
-  BUILDER_DELIVERY_LIMITS,
   stripNegatedStoredStateEvidence,
   hasPersistedStateEvidence,
-  hasPersistedMutationIntent,
-  hasProductionOperationIntent,
-  isBuilderDeliveryRequest,
   classifyTask,
   deepPathReasons,
-  riskProfile,
-  isMicroFastRequest,
   preflightExecutionPath,
   classifyExecutionPath,
   targetLabel,

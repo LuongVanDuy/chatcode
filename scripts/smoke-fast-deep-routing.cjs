@@ -2,10 +2,8 @@ const assert = require('assert/strict');
 const {
   TASK_TYPES,
   EXECUTION_PATHS,
-  EXECUTION_LANES,
   preflightExecutionPath,
   buildTaskCard,
-  classifyTask,
   patchScopeFromUnifiedDiff,
   validatePatchAgainstTaskCard
 } = require('../core/task-planner');
@@ -29,97 +27,204 @@ const inspect = {
     { path:'wp-content/themes/fixture-child/elements/featured-products.php', score:90, content:'<?php' },
     { path:'wp-content/themes/fixture-child/inc/product/post-type.php', score:85, content:'<?php' },
     { path:'wp-content/themes/fixture-child/inc/templates/header.php', score:80, content:'<?php' },
-    { path:'wp-content/themes/fixture-child/functions.php', score:70, content:'<?php' }
+    { path:'wp-content/themes/fixture-child/functions.php', score:75, content:'<?php' }
   ],
-  relevant_relations:[],
-  top_symbols:[],
+  relevant_relations:Array.from({ length:60 }, (_,i) => ({ source:`a${i}`, target:`b${i}` })),
+  top_symbols:Array.from({ length:50 }, (_,i) => ({ name:`symbol${i}` })),
   git:null
 };
 
-assert.equal(EXECUTION_PATHS.DEEP, undefined, 'DEEP execution path must not exist');
-assert.equal(EXECUTION_PATHS.BOUNDED, 'BOUNDED');
+const rules = [
+  { key:'global-css-owner', value:'Global tokens stay in assets/css/main.css.' },
+  { key:'builder-content-editable', value:'Normal Bricks content must remain editable in Builder.' },
+  { key:'checkout-null-policy', value:'Checkout null values become empty strings.' }
+];
 
-const longKhai = preflightExecutionPath('Tiếp theo, vẫn ở trang home build cho tôi section như ảnh nhé ảnh và text thay thế được, tạm thời dùng chung 1 ảnh id 4923');
-assert.equal(longKhai.path, EXECUTION_PATHS.BOUNDED);
-assert.equal(longKhai.lane, EXECUTION_LANES.MICRO_UI);
-assert.equal(longKhai.limits.context_files, 2);
-assert.equal(longKhai.limits.patch_files, 2);
+assert.equal(preflightExecutionPath('Sửa font và width container trang chủ').path, EXECUTION_PATHS.FAST);
+const microPreflight = preflightExecutionPath('Giảm spacing product card trên mobile 8px');
+assert.equal(microPreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(microPreflight.limits.context_files, 3);
+assert.equal(microPreflight.limits.patch_files, 2);
+assert.equal(microPreflight.limits.skill_chars, 3600);
+assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Migrate Bricks Builder JSON tree and keep stable element IDs').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Update WordPress option wp_options records with rollback').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Run SQL with $wpdb against a database table').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Bulk import toàn bộ sản phẩm').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Fix WooCommerce checkout flow').path, EXECUTION_PATHS.DEEP);
+assert.equal(preflightExecutionPath('Upload file qua FTP và verify production').path, EXECUTION_PATHS.DEEP);
 
-const mimoHome = preflightExecutionPath('Build native Bricks Home page section with editable slider, deploy changed files and verify live frontend.');
-assert.equal(mimoHome.path, EXECUTION_PATHS.BOUNDED);
-assert.equal(mimoHome.lane, EXECUTION_LANES.BUILDER_DELIVERY);
-assert.equal(mimoHome.limits.context_files, 4);
-assert.equal(mimoHome.limits.patch_files, 4);
+const explicitPath = 'wp-content/themes/bricks-child/.chatcodex-1.0.16-smoke.txt';
+const explicitRequest = `Tạo đúng một file tạm tại \`${explicitPath}\`, ghi một dòng \`CHATCODEX_1_0_16_OK\`, verify rồi rollback. Không sửa database, Builder data, PHP, CSS, JavaScript, plugin hoặc file khác.`;
+const explicitPreflight = preflightExecutionPath(explicitRequest);
+assert.equal(explicitPreflight.path, EXECUTION_PATHS.FAST, 'negated database/Builder data must not turn explicit filesystem work into DEEP');
+assert.equal(explicitPreflight.reasons.includes('persisted-data-migration'), false);
+const explicitCard = buildTaskCard({ request:explicitRequest, inspect, projectRules:rules });
+assert.equal(explicitCard.type, TASK_TYPES.FAST_UI);
+assert.equal(explicitCard.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(explicitCard.execution.reasons.length, 0);
+assert.equal(explicitCard.execution.allow_new_source_files, 1);
+assert.equal(explicitCard.owner.kind, 'explicit_path');
+assert.equal(explicitCard.owner.primary_path, explicitPath);
+assert.equal(explicitCard.owner.confidence, 1);
+assert.deepEqual(explicitCard.owner.candidates, []);
+assert.equal(explicitCard.owner.requires_read, false);
+assert.deepEqual(explicitCard.expected_files, [explicitPath]);
 
-const persisted = preflightExecutionPath('Migrate persisted Bricks Builder data/templates and preserve element IDs');
-assert.equal(persisted.path, EXECUTION_PATHS.BOUNDED);
-assert.equal(persisted.risk.persisted_data, true);
-assert.ok(persisted.risk.capabilities.includes('persisted_write'));
-assert.ok(persisted.limits.context_files <= 6);
-assert.ok(persisted.limits.patch_files <= 6);
-assert.ok(persisted.limits.skill_chars <= 9000);
-
-const production = preflightExecutionPath('Debug FTP deployment failure on production server');
-assert.equal(production.path, EXECUTION_PATHS.BOUNDED);
-assert.equal(production.risk.production, true);
-assert.ok(production.risk.capabilities.includes('production_io'));
-
-const woo = preflightExecutionPath('Fix WooCommerce checkout order state migration');
-assert.equal(woo.path, EXECUTION_PATHS.BOUNDED);
-assert.equal(woo.risk.woocommerce_state, true);
-assert.equal(woo.risk.persisted_data, true);
-
-assert.equal(classifyTask('Verify Bricks tree integrity without changing persisted data', inspect), TASK_TYPES.FAST_UI);
-assert.equal(classifyTask('Make this Bricks section easy to duplicate/edit in Builder', inspect), TASK_TYPES.BRICKS_BUILDER);
-
-const mimoGoal = 'User explicitly wants the existing Mimosa Hotel implementation renamed away from old mimo-hotel-* naming. Update source owners consistently and migrate persisted Bricks Builder data/templates. Preserve IDs/relationships/user edits and deploy.';
-const mimo = buildTaskCard({ request:mimoGoal, inspect });
-assert.equal(mimo.execution.path, EXECUTION_PATHS.BOUNDED);
-assert.ok(mimo.execution.latency_guard, 'every task must be bounded');
-assert.equal(mimo.execution.latency_guard.diagnostic_round_limit, 1);
-assert.equal(mimo.execution.latency_guard.corrective_patch_round_limit, 1);
-assert.equal(mimo.execution.latency_guard.stop_after_scope_verify, true);
-assert.equal(mimo.execution.risk.persisted_data, true);
-assert.ok(mimo.execution.patch_file_limit <= 6);
-assert.ok(mimo.execution.skill_context_limit_chars <= 9000);
-assert.doesNotMatch(mimo.constraints.workflow, /DEEP/i);
-
-const builder = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect });
-assert.equal(builder.type, TASK_TYPES.BRICKS_BUILDER);
-assert.equal(builder.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
-assert.equal(builder.execution.patch_file_limit, 4);
-
-function patchFor(paths) {
-  return paths.map((file, i) => [
-    `--- a/${file}`,
-    `+++ b/${file}`,
-    '@@ -1,1 +1,1 @@',
-    `-old${i}`,
-    `+new${i}`
-  ].join('\n')).join('\n');
+for (const prompt of [
+  `Create \`${explicitPath}\` then rollback; do not modify database.`,
+  `Create \`${explicitPath}\`; do not modify Builder data.`,
+  `Tạo \`${explicitPath}\`; không sửa database.`,
+  `Tạo \`${explicitPath}\`; không đụng Builder data.`
+]) {
+  const card = buildTaskCard({ request:prompt, inspect, projectRules:rules });
+  assert.equal(card.type, TASK_TYPES.FAST_UI, prompt);
+  assert.equal(card.execution.path, EXECUTION_PATHS.FAST, prompt);
+  assert.equal(card.execution.reasons.includes('persisted-data-migration'), false, prompt);
 }
 
-const stateCard = buildTaskCard({ request:'Migrate persisted Bricks Builder data', inspect:{ ...inspect, relevant_files:[] } });
-const sevenFiles = Array.from({ length:7 }, (_, i) => `inc/migration-${i}.php`);
-assert.equal(patchScopeFromUnifiedDiff(patchFor(sevenFiles)).length, 7);
-const stateScope = validatePatchAgainstTaskCard(stateCard, patchFor(sevenFiles));
-assert.equal(stateScope.ok, false);
-assert.ok(stateScope.violations.some(item => /limit is 6/.test(item)), 'stateful work must still have a hard patch budget');
+const realBuilderMigration = buildTaskCard({ request:'Migrate Bricks Builder JSON tree, preserve element IDs and rollback persisted state safely', inspect, projectRules:rules });
+assert.equal(realBuilderMigration.type, TASK_TYPES.DATA);
+assert.equal(realBuilderMigration.execution.path, EXECUTION_PATHS.DEEP);
+assert.ok(realBuilderMigration.execution.reasons.includes('persisted-data-migration'));
+const realOptionMigration = buildTaskCard({ request:'Update WordPress option records in wp_options and verify stored values', inspect, projectRules:rules });
+assert.equal(realOptionMigration.type, TASK_TYPES.DATA);
+assert.equal(realOptionMigration.execution.path, EXECUTION_PATHS.DEEP);
+assert.ok(realOptionMigration.execution.reasons.includes('persisted-data-migration'));
+
+const fast = buildTaskCard({ request:'Sửa font và width container trang chủ', inspect, projectRules:rules });
+assert.equal(fast.type, TASK_TYPES.FAST_UI);
+assert.equal(fast.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(fast.execution.context_file_limit, 4);
+assert.equal(fast.execution.patch_file_limit, 4);
+assert.equal(fast.execution.allow_new_source_files, 0);
+assert.equal(fast.execution.allow_delete, false);
+assert.ok(fast.expected_files.length <= 4);
+
+const micro = buildTaskCard({ request:'Giảm spacing product card trên mobile 8px', inspect, projectRules:rules });
+assert.equal(micro.type, TASK_TYPES.FAST_UI);
+assert.equal(micro.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(micro.execution.context_file_limit, 3);
+assert.equal(micro.execution.patch_file_limit, 2);
+assert.equal(micro.execution.skill_context_limit_chars, 3600);
+assert.ok(micro.expected_files.length <= 3);
+
+const simpleCpt = buildTaskCard({ request:'Đăng ký CPT sản phẩm catalog không WooCommerce trong owner hiện tại', inspect, projectRules:rules });
+assert.equal(simpleCpt.type, TASK_TYPES.DATA);
+assert.equal(simpleCpt.execution.path, EXECUTION_PATHS.FAST, 'simple CPT code registration should not automatically become Deep');
+
+const builderDeep = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect, projectRules:rules });
+assert.equal(builderDeep.type, TASK_TYPES.BRICKS_BUILDER);
+assert.equal(builderDeep.execution.path, EXECUTION_PATHS.DEEP);
+assert.ok(builderDeep.execution.reasons.includes('builder-schema'));
+
+const prodDeep = buildTaskCard({ request:'Upload đúng file qua FTP và kiểm tra live production', inspect, projectRules:rules });
+assert.equal(prodDeep.type, TASK_TYPES.PRODUCTION);
+assert.equal(prodDeep.execution.path, EXECUTION_PATHS.DEEP);
+
+const oneFilePatch = [
+  '--- a/wp-content/themes/fixture-child/assets/css/home.css',
+  '+++ b/wp-content/themes/fixture-child/assets/css/home.css',
+  '@@ -1 +1 @@',
+  '-.hero{}',
+  '+.hero{padding:20px}',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(fast, oneFilePatch).ok, true);
+
+const explicitFilePatch = [
+  '--- /dev/null',
+  `+++ b/${explicitPath}`,
+  '@@ -0,0 +1 @@',
+  '+CHATCODEX_1_0_16_OK',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(explicitCard, explicitFilePatch).ok, true, 'explicit requested file create must pass FAST scope gate');
+
+const newFilePatch = [
+  '--- /dev/null',
+  '+++ b/wp-content/themes/fixture-child/assets/css/extra.css',
+  '@@ -0,0 +1 @@',
+  '+.x{}',
+  ''
+].join('\n');
+assert.deepEqual(patchScopeFromUnifiedDiff(newFilePatch), [{ path:'wp-content/themes/fixture-child/assets/css/extra.css', operation:'create' }]);
+assert.equal(validatePatchAgainstTaskCard(fast, newFilePatch).ok, false, 'FAST must block unrequested new source files');
+
+const deletePatch = [
+  '--- a/wp-content/themes/fixture-child/assets/css/home.css',
+  '+++ /dev/null',
+  '@@ -1 +0,0 @@',
+  '-.hero{}',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(fast, deletePatch).ok, false, 'FAST must block delete');
+assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, 'DEEP relies on existing safety/approval rules instead of Fast limits');
 
 (async () => {
+  const seenLimits = [];
+  let applyCalls = 0;
   const store = {
-    getProject:() => ({ id:'p1', name:'fixture' }),
-    read:() => ({ projects:[] })
+    getProject:() => ({ id:'p1', name:'fixture', projectRules:rules }),
+    read:() => ({ projects:[{ id:'p1', projectRules:rules }] }),
+    write:() => {},
+    normalizeProjectRules:value => value
   };
-  const runtime = createAgentRuntime({
-    startWork:async () => ({ work_session_id:'mimo-task', project_id:'p1', workspace_mode:'trusted', baseline:{} }),
-    inspectProject:async () => inspect,
-    readFile:async () => { throw new Error('unexpected extra read'); }
-  }, store);
-  const prepared = await runtime.prepareTask('p1', mimoGoal, 8);
-  assert.equal(prepared.execution_path, EXECUTION_PATHS.BOUNDED);
-  assert.ok(prepared.task_card.execution.latency_guard);
-  assert.ok(prepared.task_card.execution.skill_context_limit_chars <= 9000);
-  assert.equal(prepared.agent_contract.next_tool, 'complete_task');
-  console.log('Bounded routing PASS: no DEEP path; UI, Bricks, persisted data, Woo and production all use one bounded flow.');
-})().catch(error => { console.error(error); process.exit(1); });
+  const api = {
+    startWork:async () => ({ work_session_id:`work-${seenLimits.length + 1}`, project_id:'p1', workspace_mode:'safe', baseline:{} }),
+    inspectProject:async (_ref,_request,limit) => { seenLimits.push(limit); return inspect; },
+    readFile:async () => { throw new Error('Fast WordPress prepare should not probe package.json'); },
+    workMeta:async id => ({ work_session_id:id, project_id:'p1', workspace_mode:'safe', status:'active' }),
+    applyPatch:async () => { applyCalls++; throw new Error('scope violation must be rejected before mutation'); }
+  };
+  const runtime = createAgentRuntime(api, store);
+
+  const preparedFast = await runtime.prepareTask('p1', 'Sửa font và width container trang chủ', 8);
+  assert.equal(preparedFast.execution_path, EXECUTION_PATHS.FAST);
+  assert.equal(seenLimits[0], 4, 'Fast prepare must inspect at most four ranked files');
+  assert.ok(preparedFast.context.relevant_files.length <= 4);
+  assert.ok(preparedFast.context.relevant_relations.length <= 32);
+  assert.ok(preparedFast.skills.every(skill => skill.resource_context.fast_compact === true));
+  assert.ok(JSON.stringify(preparedFast.skills).length < 6000, 'Fast skill contract should stay below the target context budget');
+  assert.ok(preparedFast.project_rules.some(rule => rule.key === 'global-css-owner'));
+  assert.equal(preparedFast.project_rules.some(rule => rule.key === 'checkout-null-policy'), false, 'Fast task should inject only relevant decisions');
+
+  await assert.rejects(
+    runtime.completeTask(preparedFast.task_id, newFilePatch, []),
+    error => error && error.code === 'TASK_SCOPE_VIOLATION'
+  );
+  assert.equal(applyCalls, 0, 'scope violation must not reach applyPatch');
+
+  const preparedMicro = await runtime.prepareTask('p1', 'Giảm spacing product card trên mobile 8px', 8);
+  assert.equal(preparedMicro.execution_path, EXECUTION_PATHS.FAST);
+  assert.equal(seenLimits[1], 3, 'Micro Fast prepare must inspect at most three ranked files');
+  assert.ok(preparedMicro.context.relevant_files.length <= 3);
+  assert.ok(preparedMicro.context.relevant_relations.length <= 18);
+  assert.ok(preparedMicro.context.top_symbols.length <= 14);
+  assert.equal(preparedMicro.task_card.execution.patch_file_limit, 2);
+  assert.equal(preparedMicro.task_card.execution.skill_context_limit_chars, 3600);
+  assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
+
+  const preparedExplicit = await runtime.prepareTask('p1', explicitRequest, 8);
+  assert.equal(preparedExplicit.execution_path, EXECUTION_PATHS.FAST);
+  assert.equal(preparedExplicit.task_card.type, TASK_TYPES.FAST_UI);
+  assert.equal(preparedExplicit.task_card.owner.kind, 'explicit_path');
+  assert.equal(preparedExplicit.task_card.owner.primary_path, explicitPath);
+  assert.equal(preparedExplicit.task_card.owner.confidence, 1);
+  assert.deepEqual(preparedExplicit.task_card.expected_files, [explicitPath]);
+  assert.equal(preparedExplicit.task_card.execution.reasons.includes('persisted-data-migration'), false);
+  assert.ok(preparedExplicit.skills.every(skill => !skill.domains.includes('data') && !skill.domains.includes('bricks')));
+
+  const preparedDeep = await runtime.prepareTask('p1', 'Thêm Builder controls và repeater cho Featured Products', 8);
+  assert.equal(preparedDeep.execution_path, EXECUTION_PATHS.DEEP);
+  assert.equal(seenLimits[3], 6, 'Deep prepare may use the six-file WordPress context cap');
+  assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
+  assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
+
+  console.log('Fast/Deep routing smoke test: PASS (negation-aware explicit file FAST + real migration DEEP + compact graph + scope gate)');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
