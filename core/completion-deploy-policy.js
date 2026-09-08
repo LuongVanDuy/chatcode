@@ -180,7 +180,7 @@ function createCompletionDeployPolicyApi(api) {
             ...guidance,
             'Mọi coding task dùng cùng một bounded flow. Risk/capability chỉ quyết định dữ liệu được phép chạm, không mở thêm execution mode.',
             'Không gọi prepare_task lần hai cho cùng task. complete_task sở hữu patch, scoped verify và configured changed-files deploy.',
-            'Trước concrete failure: không manual exec/write/apply_patch/Git sidequest. Sau failure chỉ mở tối đa một scoped exec diagnostic và một corrective complete_task.',
+            'Trước concrete failure: không manual exec/write/apply_patch/Git-write sidequest. Sau failure chỉ mở tối đa một scoped exec diagnostic và một corrective complete_task.',
             'PASS thì STOP ngay.'
           ]
         }
@@ -298,9 +298,9 @@ function createCompletionDeployPolicyApi(api) {
     };
   }
 
-  // Hard sidequest gate. Reads/status remain available; mutation/terminal/Git paths
-  // must go through complete_task while a prepared task is healthy.
-  for (const method of ['exec','writeFile','deleteFile','renameFile','applyPatch','applyAndVerify','runTask','gitStage','gitCommit','gitStatus','gitDiff']) {
+  // Hard sidequest gate. Read-only status/diff calls remain available because
+  // work/session guards use them before complete_task enters its internal bypass.
+  for (const method of ['exec','writeFile','deleteFile','renameFile','applyPatch','applyAndVerify','runTask','gitStage','gitCommit']) {
     installSidequestGate(method);
   }
 
