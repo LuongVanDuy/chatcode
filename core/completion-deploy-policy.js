@@ -54,6 +54,7 @@ function createCompletionDeployPolicyApi(api) {
   const recovery = new Map();
   const activeByProject = new Map();
   const projectKeysByTask = new Map();
+  const internalTasks = new Set();
 
   function remember(taskId, state) {
     const id = String(taskId || '');
@@ -88,6 +89,7 @@ function createCompletionDeployPolicyApi(api) {
     for (const key of projectKeysByTask.get(id) || []) {
       if (activeByProject.get(key)?.task_id === id) activeByProject.delete(key);
     }
+    internalTasks.delete(id);
     projectKeysByTask.delete(id);
     recovery.delete(id);
   }
@@ -99,6 +101,7 @@ function createCompletionDeployPolicyApi(api) {
   function sidequestBlocked(method, ref) {
     const active = activeForProject(ref);
     if (!active || !recovery.has(active.task_id)) return null;
+    if (internalTasks.has(active.task_id)) return { allowed:true, internal:true, active, state:recovery.get(active.task_id) };
     const state = recovery.get(active.task_id);
     if (method === 'exec' && state.diagnostic_open && state.diagnostic_rounds_used < MAX_DIAGNOSTIC_ROUNDS && !state.exhausted) {
       state.diagnostic_rounds_used += 1;
@@ -216,6 +219,7 @@ function createCompletionDeployPolicyApi(api) {
     }
 
     let rawResult;
+    if (bounded) internalTasks.add(id);
     try {
       rawResult = await originalComplete(...args);
     } catch (error) {
@@ -238,6 +242,8 @@ function createCompletionDeployPolicyApi(api) {
         };
       }
       throw error;
+    } finally {
+      if (bounded) internalTasks.delete(id);
     }
 
     const result = completionWithDeployStatus(rawResult);
@@ -280,9 +286,15 @@ function createCompletionDeployPolicyApi(api) {
   if (typeof api.rollbackWork === 'function') {
     const originalRollback = api.rollbackWork.bind(api);
     api.rollbackWork = async (taskId, ...args) => {
-      const result = await originalRollback(taskId, ...args);
-      clearActive(taskId);
-      return result;
+      const id = String(taskId || '');
+      internalTasks.add(id);
+      try {
+        const result = await originalRollback(taskId, ...args);
+        clearActive(id);
+        return result;
+      } finally {
+        internalTasks.delete(id);
+      }
     };
   }
 
