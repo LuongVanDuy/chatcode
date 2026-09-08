@@ -205,6 +205,7 @@ function routeSkillDomains(request, inspect = null, taskCard = null) {
 
   let domains = [];
   if (data) domains = ['data', ...(bricks ? ['bricks'] : wordpress ? ['wordpress'] : [])];
+  else if (taskType === 'BRICKS_BUILDER') domains = ['bricks', ...(media ? ['media'] : ui ? ['ui'] : woo ? ['woocommerce'] : [])];
   else if (media) domains = ['media', ...(ui ? ['ui'] : bricks ? ['bricks'] : [])];
   else if (woo) domains = ['woocommerce', ...(ui ? ['ui'] : bricks ? ['bricks'] : [])];
   else if (bricks) domains = ['bricks', ...(ui ? ['ui'] : [])];
