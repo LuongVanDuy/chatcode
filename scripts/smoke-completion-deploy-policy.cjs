@@ -37,6 +37,49 @@ const {
   assert.equal(wrapped.status, 'deploy_failed');
   assert.equal(wrapped.ok, false);
 
+  let prepareCalls = 0;
+  let lifecycleCompleteCalls = 0;
+  const lifecycleApi = createCompletionDeployPolicyApi({
+    prepareTask:async (project, request) => {
+      prepareCalls++;
+      return {
+        ok:true,
+        status:'ready',
+        task_id:`${project}-task-${prepareCalls}`,
+        request,
+        task_card:{ execution:{ path:'DEEP', latency_guard:null } },
+        agent_contract:{ guidance:[] }
+      };
+    },
+    completeTask:async () => {
+      lifecycleCompleteCalls++;
+      return { ok:true, status:'completed', session:{}, agent_contract:{ result:'done' } };
+    },
+    rollbackWork:async () => ({ ok:true, status:'rolled_back' })
+  });
+
+  const firstPrepare = await lifecycleApi.prepareTask('mimo.duyanhweb.org', 'Migrate persisted Bricks classes');
+  assert.equal(firstPrepare.task_id, 'mimo.duyanhweb.org-task-1');
+  assert.equal(firstPrepare.recovery_budget.corrective_patch_round_limit, 1, 'DEEP/high-risk task must also be bounded');
+  assert.ok(firstPrepare.agent_contract.guidance.some(line => /Mọi coding task đều dùng bounded flow/.test(line)));
+
+  const repeatedPrepare = await lifecycleApi.prepareTask('mimo.duyanhweb.org', 'Runtime still shows old classes; diagnose again');
+  assert.equal(repeatedPrepare.status, 'active_task_reused');
+  assert.equal(repeatedPrepare.task_id, firstPrepare.task_id);
+  assert.equal(repeatedPrepare.reused_active_task, true);
+  assert.equal(prepareCalls, 1, 'repeated prepare on one active project must not open another work session');
+  assert.match(repeatedPrepare.next_action, /Không mở work session mới/);
+
+  const otherProject = await lifecycleApi.prepareTask('longkhai.com', 'Build a section');
+  assert.equal(otherProject.task_id, 'longkhai.com-task-2');
+  assert.equal(prepareCalls, 2, 'different project can still prepare concurrently');
+
+  await lifecycleApi.completeTask(firstPrepare.task_id, 'patch');
+  assert.equal(lifecycleCompleteCalls, 1);
+  const afterComplete = await lifecycleApi.prepareTask('mimo.duyanhweb.org', 'New user task after completion');
+  assert.equal(afterComplete.task_id, 'mimo.duyanhweb.org-task-3');
+  assert.equal(prepareCalls, 3, 'completed task must release project prepare lock');
+
   let recoveryCalls = 0;
   let rolledBack = false;
   const recoveryApi = createCompletionDeployPolicyApi({
@@ -44,7 +87,7 @@ const {
       ok:true,
       status:'ready',
       task_id:'bounded-1',
-      task_card:{ execution:{ latency_guard:{ diagnostic_round_limit:1, corrective_patch_round_limit:1 } } },
+      task_card:{ execution:{ latency_guard:null } },
       agent_contract:{ guidance:[] }
     }),
     completeTask:async () => {
@@ -70,6 +113,11 @@ const {
   assert.equal(correctiveFailure.recovery_budget.exhausted, true);
   assert.equal(recoveryCalls, 2, 'initial + one corrective pass only');
 
+  const reusedExhausted = await recoveryApi.prepareTask('p1', 'Prepare again after corrective failure');
+  assert.equal(reusedExhausted.status, 'active_task_reused');
+  assert.equal(reusedExhausted.task_id, 'bounded-1');
+  assert.match(reusedExhausted.next_action, /hết recovery budget/);
+
   await assert.rejects(
     recoveryApi.completeTask('bounded-1', 'patch-3'),
     error => error?.code === 'TASK_SCOPE_VIOLATION' && /Recovery budget/.test(error.message)
@@ -79,5 +127,5 @@ const {
   await recoveryApi.rollbackWork('bounded-1');
   assert.equal(rolledBack, true);
 
-  console.log('Completion deploy policy PASS: deploy status is authoritative and bounded tasks allow only one corrective pass.');
+  console.log('Completion deploy policy PASS: all coding tasks are bounded and repeated prepare reuses the active task instead of opening a new session.');
 })().catch(error => { console.error(error); process.exit(1); });
