@@ -52,9 +52,10 @@ function createCompletionDeployPolicyApi(api) {
       const prepared = await originalPrepare(...args);
       if (prepared?.status !== 'ready' || !prepared?.task_id) return prepared;
       const id = String(prepared.task_id);
-      const state = { verification_failures:0, corrective_passes_used:0, exhausted:false };
-      remember(id, state);
       const bounded = !!prepared?.task_card?.execution?.latency_guard;
+      const state = { verification_failures:0, corrective_passes_used:0, exhausted:false };
+      if (bounded) remember(id, state);
+      else recovery.delete(id);
       return {
         ...prepared,
         recovery_budget:bounded ? recoveryShape(state) : null,
@@ -76,8 +77,8 @@ function createCompletionDeployPolicyApi(api) {
   const originalComplete = api.completeTask.bind(api);
   api.completeTask = async (...args) => {
     const id = String(args[0] || '');
-    const state = recovery.get(id) || { verification_failures:0, corrective_passes_used:0, exhausted:false };
-    const bounded = !!state && recovery.has(id);
+    const bounded = recovery.has(id);
+    const state = bounded ? recovery.get(id) : null;
 
     if (bounded && state.exhausted) {
       throw chatError('TASK_SCOPE_VIOLATION', 'Recovery budget của task đã hết. Không áp dụng thêm patch tự động.', {
