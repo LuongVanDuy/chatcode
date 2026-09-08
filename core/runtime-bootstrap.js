@@ -32,22 +32,15 @@ function installRuntimePatches() {
   // Mandatory WordPress + Bricks policy must see both modern and legacy paths.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
-  // Hard Project Rules are stricter-only: they bind evidence-backed owners, keep
-  // new-file budgets explicit, prefer native Bricks, and keep :root in its global owner.
-  const { installHardProjectRulesPatches } = require('./hard-project-rules');
-  installHardProjectRulesPatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');
   installGitLazyPatches();
-  // Final scope policy keeps each task/session inside its project lane.
+  // Final outer policy: once a target project is established, every project-aware
+  // read/write stays inside that target unless the user's task explicitly names
+  // a multi-project reference. Reference projects are read-only.
   const { installProjectScopePatches } = require('./project-scope');
   installProjectScopePatches();
-  // Outermost performance policy: coalesce duplicate in-flight reads/Git status,
-  // parallelize bounded read batches and expose aggregate latency counters without
-  // weakening any inner safety/scope/skill contract.
-  const { installFastExecutionPatches } = require('./fast-execution');
-  installFastExecutionPatches();
   return true;
 }
 

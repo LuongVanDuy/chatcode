@@ -18,22 +18,6 @@ function explicitExpansionFlags(query) {
   return Object.entries(flags).filter(([, enabled]) => enabled).map(([name]) => name);
 }
 
-function contextOverview(context) {
-  if (!context || !Array.isArray(context.frameworks) || !Array.isArray(context.framework_names)) return null;
-  if (!Object.prototype.hasOwnProperty.call(context, 'primary_language') || !context.wordpress) return null;
-  const topSymbols = (context.topSymbols || context.top_symbols || (context.files || []).flatMap(file =>
-    (file?.symbols || []).map(symbol => ({ ...symbol, path:symbol?.path || file.path, language:symbol?.language || file.language }))
-  )).slice(0, 40);
-  return {
-    frameworks:context.frameworks,
-    framework_names:context.framework_names,
-    primary_language:context.primary_language,
-    entrypoints:context.entrypoints || [],
-    wordpress:context.wordpress,
-    topSymbols
-  };
-}
-
 async function readRelevantFiles(api, projectId, files = []) {
   return Promise.all((Array.isArray(files) ? files : []).map(async item => {
     try {
@@ -50,31 +34,14 @@ function createScopedInspect(api, store) {
   return async function inspectProject(ref, query, limit = 8) {
     const started = nowMs();
     const project = store.getProject(ref);
-    const telemetry = {
-      total_ms:0,
-      filesystem_ms:0,
-      brain_refresh_ms:0,
-      git_ms:0,
-      explicit_search_ms:0,
-      brain_overview_source:'project-context',
-      overlapped_git:true
-    };
+    const telemetry = { total_ms:0, filesystem_ms:0, brain_refresh_ms:0, git_ms:0, explicit_search_ms:0 };
     const rankedLimit = Math.min(16, Math.max(3, Number(limit) || 8));
 
-    // Git is independent from Brain/content retrieval. Start it immediately so the
-    // process runs underneath Project Brain ranking and file reads instead of after them.
-    const gitStarted = nowMs();
-    const gitPromise = api.gitStatus(project.id)
-      .then(result => ({ result, duration_ms:nowMs() - gitStarted }))
-      .catch(error => ({ result:{ ok:false, stderr:String(error?.message || error || 'Git status failed') }, duration_ms:nowMs() - gitStarted }));
-
     const brainStart = nowMs();
-    const context = await api.projectContext(project.id, query, rankedLimit);
-    let overview = contextOverview(context);
-    if (!overview) {
-      telemetry.brain_overview_source = 'project-brain-fallback';
-      overview = await api.projectBrain(project.id);
-    }
+    const [context, overview] = await Promise.all([
+      api.projectContext(project.id, query, rankedLimit),
+      api.projectBrain(project.id)
+    ]);
     telemetry.brain_refresh_ms = nowMs() - brainStart;
 
     let candidates = context.files || [];
@@ -103,9 +70,9 @@ function createScopedInspect(api, store) {
     const relevantFiles = await readRelevantFiles(api, project.id, retrieval.files);
     telemetry.filesystem_ms = nowMs() - fsStart;
 
-    const gitResolved = await gitPromise;
-    telemetry.git_ms = gitResolved.duration_ms;
-    const gitStatus = gitResolved.result;
+    const gitStart = nowMs();
+    const gitStatus = await api.gitStatus(project.id);
+    telemetry.git_ms = nowMs() - gitStart;
     const git = gitStatus.ok
       ? { is_repository:true, status:gitStatus.stdout, stderr:gitStatus.stderr || '' }
       : (/not a git repository/i.test(gitStatus.stderr || '')
@@ -144,4 +111,4 @@ function installRetrievalScopePatches() {
   };
 }
 
-module.exports = { contextOverview, mergeCandidates, explicitExpansionFlags, readRelevantFiles, createScopedInspect, installRetrievalScopePatches };
+module.exports = { mergeCandidates, explicitExpansionFlags, readRelevantFiles, createScopedInspect, installRetrievalScopePatches };

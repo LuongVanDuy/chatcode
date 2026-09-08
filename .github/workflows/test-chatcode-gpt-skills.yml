@@ -3,147 +3,242 @@ name: Test ChatCode GPT skills
 on:
   workflow_dispatch:
   push:
-    branches: [main]
     paths:
       - 'CHATCODE-GPT/**'
-      - 'core/**'
+      - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
+      - 'core/skill-policy.js'
+      - 'core/project-scope.js'
+      - 'core/project-profile.js'
+      - 'core/owner-resolver.js'
+      - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
+      - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
+      - 'core/retrieval-scope.js'
+      - 'core/wordpress-retrieval.js'
+      - 'core/runtime-bootstrap.js'
+      - 'core/builtin-skills-project.js'
+      - 'main.js'
+      - 'preload.js'
       - 'renderer/**'
-      - 'scripts/smoke-*.cjs'
-      - 'scripts/smoke-*.mjs'
+      - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
+      - 'scripts/smoke-owner-resolver.cjs'
+      - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
+      - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
+      - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
+      - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
   pull_request:
-    branches: [main]
     paths:
       - 'CHATCODE-GPT/**'
-      - 'core/**'
+      - 'core/skill-runtime.js'
+      - 'core/ui-knowledge.js'
+      - 'core/bricks-spec.js'
+      - 'core/bricks-validator.js'
+      - 'core/skill-policy.js'
+      - 'core/project-scope.js'
+      - 'core/project-profile.js'
+      - 'core/owner-resolver.js'
+      - 'core/agent-runtime.js'
+      - 'core/task-planner.js'
+      - 'core/git-lazy.js'
+      - 'core/brain.js'
+      - 'core/brain-scope.js'
+      - 'core/projects.js'
+      - 'core/store.js'
+      - 'core/support.js'
+      - 'core/task-policy.js'
+      - 'core/work-runtime.js'
+      - 'core/retrieval-scope.js'
+      - 'core/wordpress-retrieval.js'
+      - 'core/runtime-bootstrap.js'
+      - 'core/builtin-skills-project.js'
+      - 'main.js'
+      - 'preload.js'
       - 'renderer/**'
-      - 'scripts/smoke-*.cjs'
-      - 'scripts/smoke-*.mjs'
+      - 'mcp-server.mjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-project-profile.cjs'
+      - 'scripts/smoke-owner-resolver.cjs'
+      - 'scripts/smoke-task-planner.cjs'
+      - 'scripts/smoke-fast-deep-routing.cjs'
+      - 'scripts/smoke-git-lazy.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-wordpress-brain-scope.cjs'
+      - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-bricks-spec.cjs'
+      - 'scripts/smoke-renderer-foundation.cjs'
+      - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
+      - 'scripts/smoke-wordpress-bricks-focus-discipline.cjs'
+      - 'scripts/smoke-wordpress-retrieval-scope.cjs'
+      - 'scripts/smoke-project-scope.cjs'
+      - 'scripts/benchmark-v109.cjs'
       - 'package.json'
       - '.github/workflows/test-chatcode-gpt-skills.yml'
 
-concurrency:
-  group: skill-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  targeted:
+  wordpress-bricks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Detect impacted groups
-        id: scope
-        shell: bash
+      - name: Syntax check Stage 8 + Skill v5 + Bricks Spec + current renderer
+        run: |
+          node --check core/skill-runtime.js
+          node --check core/ui-knowledge.js
+          node --check core/bricks-spec.js
+          node --check core/bricks-validator.js
+          node --check core/skill-policy.js
+          node --check core/project-scope.js
+          node --check core/project-profile.js
+          node --check core/owner-resolver.js
+          node --check core/agent-runtime.js
+          node --check core/task-planner.js
+          node --check core/git-lazy.js
+          node --check core/brain.js
+          node --check core/brain-scope.js
+          node --check core/projects.js
+          node --check core/store.js
+          node --check core/support.js
+          node --check core/task-policy.js
+          node --check core/work-runtime.js
+          node --check core/retrieval-scope.js
+          node --check core/wordpress-retrieval.js
+          node --check core/runtime-bootstrap.js
+          node --check main.js
+          node --check preload.js
+          node --check renderer/current-runtime.js
+          node --check mcp-server.mjs
+          node --check scripts/smoke-agent.cjs
+          node --check scripts/smoke-project-profile.cjs
+          node --check scripts/smoke-owner-resolver.cjs
+          node --check scripts/smoke-task-planner.cjs
+          node --check scripts/smoke-fast-deep-routing.cjs
+          node --check scripts/smoke-git-lazy.cjs
+          node --check scripts/smoke-regression.cjs
+          node --check scripts/smoke-wordpress-brain-scope.cjs
+          node --check scripts/smoke-wordpress-bricks-skill.cjs
+          node --check scripts/smoke-bricks-spec.cjs
+          node --check scripts/smoke-renderer-foundation.cjs
+          node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
+          node --check scripts/smoke-wordpress-bricks-focus-discipline.cjs
+          node --check scripts/smoke-wordpress-retrieval-scope.cjs
+          node --check scripts/smoke-project-scope.cjs
+          node --check scripts/benchmark-v109.cjs
+      - name: Renderer single-entry foundation regression
+        run: npm run test:renderer-foundation
+      - name: Git lazy explicit-only regression
+        run: node scripts/smoke-git-lazy.cjs
+      - name: Project Profile facts and decisions
+        run: node scripts/smoke-project-profile.cjs
+      - name: Owner Resolver evidence and owner-set scope
+        run: node scripts/smoke-owner-resolver.cjs
+      - name: WordPress Brain metadata/content scope
+        run: node scripts/smoke-wordpress-brain-scope.cjs
+      - name: Task Planner scoped Task Card
+        run: node scripts/smoke-task-planner.cjs
+      - name: Fast/Deep execution routing and scope gate
+        run: node scripts/smoke-fast-deep-routing.cjs
+      - name: Fast Agent compact context, decisions and auto verify
+        run: npm run test:agent
+      - name: Safe task and PHP/Laragon regression
+        run: npm run test:regression
+      - name: WordPress + Bricks skill contract
+        run: npm run test:wordpress-bricks-skill
+      - name: Bricks Spec Engine and deterministic validator
+        run: npm run test:bricks-spec
+      - name: Builder editability and page asset ownership
+        run: node scripts/smoke-wordpress-bricks-builder-editability.cjs
+      - name: Focused external reference and file discipline
+        run: node scripts/smoke-wordpress-bricks-focus-discipline.cjs
+      - name: Scope-first WordPress retrieval
+        run: node scripts/smoke-wordpress-retrieval-scope.cjs
+      - name: Project scope lock
+        run: node scripts/smoke-project-scope.cjs
+      - name: Stage 8 historical workflow benchmark
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BENCHMARK_OUTPUT: benchmark-v109.json
+        run: npm run benchmark:v109
+      - name: Upload Stage 8 benchmark metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-v109-benchmark
+          path: benchmark-v109.json
+          if-no-files-found: error
+
+  release-windows:
+    if: ${{ github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[skill-only]') }}
+    needs: wordpress-bricks
+    runs-on: windows-latest
+    env:
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - name: Build Windows installer
+        run: npm run dist:win
+      - name: Verify updater metadata
+        shell: pwsh
         run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            for key in planner agent skill bricks project desktop; do echo "$key=true" >> "$GITHUB_OUTPUT"; done
-            echo "full=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          printf '%s\n' "$files"
-          hit() { grep -Eiq "$1" <<< "$files"; }
-          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
-
-          planner=false; agent=false; skill=false; bricks=false; project=false; desktop=false
-          hit '^(core/(task-planner|owner-resolver|hard-project-rules|project-profile)\.js|scripts/smoke-(task-planner|fast-deep-routing|owner-resolver|hard-project-rules|functional-ownership)\.cjs)$' && planner=true
-          hit '^(core/(agent-runtime|completion-deploy-policy|work-runtime|ftp-deploy|fast-execution)\.js|scripts/smoke-(agent|completion-deploy-policy|ftp-deploy|fast-execution)\.cjs)$' && agent=true
-          hit '^(CHATCODE-GPT/|core/(skill-runtime|skill-policy|ui-knowledge)\.js|scripts/smoke-wordpress-bricks-(skill|builder-editability|focus-discipline)\.cjs)$' && skill=true
-          hit '^(core/(bricks-spec|bricks-validator)\.js|scripts/smoke-bricks-spec\.cjs)$' && bricks=true
-          hit '^(core/(project-scope|brain|brain-scope|wordpress-retrieval|retrieval-scope|wordpress)\.js|scripts/smoke-(project-scope|wordpress-brain-scope|wordpress-retrieval-scope|project-profile)\.cjs)$' && project=true
-          hit '^(renderer/|core/updater\.js|scripts/smoke-(renderer-foundation|updater)\.cjs)$' && desktop=true
-
-          # Shared runtime changes get the directly adjacent groups only; no historical benchmark or installer on PR.
-          hit '^(core/(runtime-bootstrap|safety-tools|projects|store)\.js|package\.json|\.github/workflows/test-chatcode-gpt-skills\.yml)$' && planner=true && agent=true && project=true
-
-          out planner "$planner"
-          out agent "$agent"
-          out skill "$skill"
-          out bricks "$bricks"
-          out project "$project"
-          out desktop "$desktop"
-          out full false
-
-      - name: Syntax check changed source
-        shell: bash
+          $version = node -p "require('./package.json').version"
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $installer) { throw "Không tìm thấy installer v$version." }
+          if (-not (Test-Path "dist\\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml cho auto update.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-gpt-skill-windows
+          path: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
+      - name: Publish updater GitHub Release
+        shell: pwsh
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -E '\.(js|cjs|mjs)$' || true)"
-          else
-            files="$(git ls-files '*.js' '*.cjs' '*.mjs')"
-          fi
-          while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
-            node --check "$file"
-          done <<< "$files"
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $installer = Get-ChildItem "dist\\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
+          $latest = Get-Item "dist\\latest.yml"
+          $assets = @($installer.FullName, $latest.FullName)
+          $blockmaps = Get-ChildItem "dist\\*.blockmap" -ErrorAction SilentlyContinue
+          foreach ($item in $blockmaps) { $assets += $item.FullName }
 
-      - name: Planner and ownership regressions
-        if: ${{ steps.scope.outputs.planner == 'true' }}
-        run: |
-          node scripts/smoke-owner-resolver.cjs
-          node scripts/smoke-task-planner.cjs
-          node scripts/smoke-fast-deep-routing.cjs
-          node scripts/smoke-hard-project-rules.cjs
-          node scripts/smoke-functional-ownership.cjs
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $tag đã tồn tại; hãy bump version trước khi phát hành skill."
+          }
 
-      - name: Fast Agent and bounded completion regressions
-        if: ${{ steps.scope.outputs.agent == 'true' }}
-        run: |
-          node scripts/smoke-agent.cjs
-          node scripts/smoke-completion-deploy-policy.cjs
-
-      - name: WordPress Bricks skill regressions
-        if: ${{ steps.scope.outputs.skill == 'true' }}
-        run: |
-          node scripts/smoke-wordpress-bricks-skill.cjs
-          node scripts/smoke-wordpress-bricks-builder-editability.cjs
-          node scripts/smoke-wordpress-bricks-focus-discipline.cjs
-
-      - name: Bricks spec regressions
-        if: ${{ steps.scope.outputs.bricks == 'true' }}
-        run: node scripts/smoke-bricks-spec.cjs
-
-      - name: Project scope and retrieval regressions
-        if: ${{ steps.scope.outputs.project == 'true' }}
-        run: |
-          node scripts/smoke-project-profile.cjs
-          node scripts/smoke-wordpress-brain-scope.cjs
-          node scripts/smoke-wordpress-retrieval-scope.cjs
-          node scripts/smoke-project-scope.cjs
-
-      - name: Desktop and updater regressions
-        if: ${{ steps.scope.outputs.desktop == 'true' }}
-        run: |
-          node scripts/smoke-renderer-foundation.cjs
-          node scripts/smoke-updater.cjs
-
-      - name: Full skill gate extras
-        if: ${{ steps.scope.outputs.full == 'true' }}
-        run: |
-          node scripts/smoke-git-lazy.cjs
-          node scripts/smoke-regression.cjs
-
-      - name: Lean CI summary
-        run: |
-          echo "PR gate is impact-based. Historical benchmark and Windows installer are release-gate work, not per-commit work."
+          gh release create $tag @assets --target $env:GITHUB_SHA --title "ChatCode Cá Nhân $tag" --generate-notes --latest
+          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag." }

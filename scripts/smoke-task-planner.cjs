@@ -47,9 +47,9 @@ const fast = buildTaskCard({
   verificationHints:[{ command_template:'php -l "{file}"' }]
 });
 assert.equal(fast.type, TASK_TYPES.FAST_UI);
-assert.equal(fast.constraints.expected_read_limit, 2);
+assert.equal(fast.constraints.expected_read_limit, 4);
 assert.equal(fast.constraints.new_source_files, 0);
-assert.ok(fast.expected_files.length <= 2);
+assert.ok(fast.expected_files.length <= 4);
 assert.ok(fast.owner.primary_path.endsWith('assets/css/home.css'), `unexpected owner candidate: ${fast.owner.primary_path}`);
 assert.ok(fast.out_of_scope.some(item => /refactor/i.test(item)));
 assert.ok(fast.decision_keys.includes('global-css-owner'));
@@ -87,11 +87,10 @@ assert.ok(production.out_of_scope.some(item => /cache clearing/.test(item)));
   }, store);
   const prepared = await runtime.prepareTask('p1', 'Sửa font và width container ở trang chủ', 8);
   assert.equal(prepared.task_card.type, TASK_TYPES.FAST_UI);
-  assert.equal(prepared.task_card.constraints.expected_read_limit, 2);
-  assert.equal(prepared.task_card.execution.skill_context_limit_chars, 2200);
+  assert.equal(prepared.task_card.constraints.expected_read_limit, 4);
   assert.equal(extraReads, 0, 'Task Planner must reuse inspected context instead of reading more files');
   assert.ok(prepared.agent_contract.guidance.some(line => /task_card/.test(line)));
-  console.log('Task Planner smoke test: PASS (4 task types + 2-file micro UI owner/scope card + zero extra reads)');
+  console.log('Task Planner smoke test: PASS (4 task types + compact owner/scope card + zero extra reads)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
