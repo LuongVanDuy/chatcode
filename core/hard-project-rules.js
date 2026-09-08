@@ -95,7 +95,7 @@ function functionalScope(request = '') {
   if (header) return 'header';
   if (footer) return 'footer';
   const scopes = [
-    ['home', /homepage|home\s*page|trang\s+chủ|trang\s+chu|front\s*page/i],
+    ['home', /\bhome\b|homepage|home\s*page|trang\s+chủ|trang\s+chu|front\s*page/i],
     ['checkout', /\bcheckout\b|thanh\s+toán|thanh\s+toan/i],
     ['cart', /\bcart\b|giỏ\s+hàng|gio\s+hang/i],
     ['single-product', /single\s+product|product\s+detail|chi\s+tiết\s+sản\s*phẩm|chi\s+tiet\s+san\s*pham/i],
