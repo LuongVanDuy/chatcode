@@ -1,56 +1,38 @@
 # Compact core checklist
 
-Loaded for every WordPress + Bricks task. Keep it short; one domain resource supplies task-specific detail.
+Loaded for every WordPress + Bricks task. Keep only cross-task rules here; domain packs own details.
 
 ## Before editing
 
-- Lock to the user-named target. Another project is read-only only when explicitly named as reference/copy/migration source.
-- Inspect real current state; do not guess owners, template IDs, Builder trees, media assignments, menus, Woo pages, prefixes or paths.
-- Search/Brain before reads. Read child-theme/project-owned code first; widen to Bricks/Woo/WP core only on concrete evidence.
-- Keep external references scoped: when the user names a reference site/domain, use it first and do not broad-search unrelated websites for substitutes/inspiration unless that source is unavailable or the user asks for wider research.
-- Existing owner before new file. Normal edit new-file budget is zero.
-- Prefer Bricks native structure/dynamic data/API before a custom Bricks element. Normal container/grid/image/icon/text/button/slider/query-loop composition is not a custom-element gap.
-- Preserve Builder/user edits and shared renderers/data sources.
+- Lock to the user-named target/project.
+- Use current project evidence; do not guess owner, template ID, Builder tree, media ID or path.
+- Search/Brain first, then read project-owned code. Open Bricks/Woo/WP core only for a concrete missing dependency.
+- Existing scoped owner wins. Normal edit creates zero files.
+- Prefer native Bricks structure/dynamic data before custom source.
+- Preserve unrelated Builder/user edits and shared renderers.
 
-## Naming and prefix
+## Naming
 
-Use the discovered project prefix only where collision/storage/security identity matters: global PHP symbols, hooks/AJAX/nonces/asset handles, option/meta keys, custom element names and optionally one component root CSS class. Do not prefix private/local identifiers, labels, repeater keys, filenames or every descendant class.
+Keep local names short. The theme/project folder already supplies project identity.
 
-## Media and icons
-
-- Reference media must resolve by semantic slot and reference component: `slot -> selector/context -> source URL -> attachment ID -> allow_reuse`.
-- Default `allow_reuse=false`; unresolved media remains unresolved. Do not silently reuse the first/closest image.
-- Verify repeated items for accidental duplicate attachment IDs.
-- Functional icons use Bricks Icon/icon controls or verified already-loaded icon classes. Brand marks/logos/certifications use real media/SVG assets.
-- Do not inject `<i>` markup into ordinary text or keep large SVG data URIs in PHP.
+- Files/classes: `home.css`, `home.php`, `.home-hero`, not brand-prefixed local names.
+- Prefix only real collision/storage boundaries: public PHP symbols, hooks/handles, option/meta keys, custom element names.
+- Do not create per-section/helper/fix/v2 owner files.
 
 ## During editing
 
-- Make the smallest targeted patch; owner sets may include a page/component owner plus a legitimate global companion such as `main.css`.
-- Follow symbols/includes/hooks only when more source is needed; expand retrieval one tier at a time.
-- Do not split a small feature into setup/helper/migration file families.
+- Make the smallest owner-scoped patch.
 - A normal code/layout/template change is not a migration.
-- Real persisted-data changes preserve Bricks IDs/relations/order and use recovery when material.
-- One-time setup must terminate: explicit setup/admin/WP-CLI or guarded versioned migration, then no-op. It must not keep doing seed/import/template/media work on normal frontend `init`/`wp` requests.
-- Reuse site-wide tokens only in the global CSS owner; page/component CSS owns its scope.
+- One-time setup must become a no-op after success.
+- Before creating a Bricks template, resolve/adopt the existing intended template by stable ID/marker, type and conditions.
+- Global tokens stay in the global CSS owner; page/component rules stay local.
 
-## Terminal FTP sync
+## Completion
 
-- If `.vscode/sftp.json` exists and `uploadOnSave:true`, verified Work Session/Fast Agent completion must sync only current-task changed files by Trusted Terminal; never use VS Code/Ctrl+S.
-- Treat returned `ftp_deploy` as source of truth and never duplicate a successful sync. For direct/legacy writes with no `ftp_deploy`, run one terminal sync after verification.
-- Credentials stay inside the terminal process: never read/echo/persist the password in model context. Remote target is `remotePath + project-relative path`; task-deleted files are removed remotely only when `watcher.autoDelete:true`.
+- `complete_task` owns scoped syntax/structural verification and configured changed-files FTP deploy.
+- Do not duplicate successful FTP, Git, browser, DB or snapshot work manually.
+- Verify only touched scope and direct dependencies.
+- If verification passes, stop.
+- If bounded verification fails, use only the allowed scoped recovery budget; do not start a broad sidequest.
 
-## Before reporting done
-
-Validate touched scope only:
-
-- PHP/JS syntax when executable;
-- Bricks tree/template/conditions and Builder controls when touched;
-- responsive UI when touched;
-- no duplicate template/data/component/media assignment introduced;
-- no unnecessary new source owner/custom element/migration;
-- no one-time setup still performing work on frontend requests;
-- configured FTP sync succeeded when `ftp_deploy` is present; otherwise report its exact skip/failure;
-- no live DB/FTP/frontend claim unless a capable connected tool verified it.
-
-If a required check cannot run, state the limitation instead of implying PASS.
+If a required check cannot run, report that limitation rather than implying PASS.
