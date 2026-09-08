@@ -28,6 +28,17 @@ function parseHeader(line) {
   return { oldStart:+m[1], oldCount:m[2] == null ? 1 : +m[2], newStart:+m[3], newCount:m[4] == null ? 1 : +m[4] };
 }
 
+function isFileHeaderBoundary(lines, index) {
+  return String(lines[index] || '').startsWith('--- ')
+    && String(lines[index + 1] || '').startsWith('+++ ')
+    && String(lines[index + 2] || '').startsWith('@@');
+}
+
+function isHunkBoundary(lines, index) {
+  const line = String(lines[index] || '');
+  return line.startsWith('@@') || line.startsWith('diff --git ') || isFileHeaderBoundary(lines, index);
+}
+
 function parseUnifiedDiff(value) {
   const raw = String(value || '');
   if (!raw.trim()) throw chatError('PATCH_CONFLICT', 'Unified diff đang trống.');
@@ -50,24 +61,34 @@ function parseUnifiedDiff(value) {
     if (!file) throw chatError('PATCH_CONFLICT', 'Hunk xuất hiện trước file header.', { line:i + 1 });
     const header = parseHeader(line);
     if (!header) throw chatError('PATCH_CONFLICT', 'Hunk header không hợp lệ.', { line:i + 1, header:line.slice(0,160) });
-    const hunk = { ...header, lines:[], noNewline:false };
+    const hunk = {
+      ...header,
+      declaredOldCount:header.oldCount,
+      declaredNewCount:header.newCount,
+      countAdjusted:false,
+      lines:[],
+      noNewline:false
+    };
     file.hunks.push(hunk);
-    let oldSeen = 0, newSeen = 0;
-    while (oldSeen < header.oldCount || newSeen < header.newCount) {
-      i++;
-      if (i >= lines.length) throw chatError('PATCH_CONFLICT', 'Unified diff kết thúc trước khi hunk đủ số dòng.', { hunk:file.hunks.length });
-      const hline = lines[i];
-      if (hline === '\\ No newline at end of file') { hunk.noNewline = true; continue; }
+
+    let cursor = i + 1;
+    while (cursor < lines.length && !isHunkBoundary(lines, cursor)) {
+      const hline = lines[cursor];
+      if (hline === '\\ No newline at end of file') { hunk.noNewline = true; cursor++; continue; }
+      if (hline === '' && cursor === lines.length - 1) { cursor++; break; }
       const type = hline[0];
-      if (![' ', '+', '-'].includes(type)) throw chatError('PATCH_CONFLICT', 'Dòng hunk không hợp lệ.', { line:i + 1, content:hline.slice(0,160) });
-      const text = hline.slice(1);
-      if (type === ' ') { oldSeen++; newSeen++; }
-      else if (type === '-') oldSeen++;
-      else newSeen++;
-      if (oldSeen > header.oldCount || newSeen > header.newCount) throw chatError('PATCH_CONFLICT', 'Hunk chứa nhiều dòng hơn header khai báo.', { hunk:file.hunks.length, old_seen:oldSeen, new_seen:newSeen });
-      hunk.lines.push({ type, text });
+      if (![' ', '+', '-'].includes(type)) throw chatError('PATCH_CONFLICT', 'Dòng hunk không hợp lệ.', { line:cursor + 1, content:hline.slice(0,160) });
+      hunk.lines.push({ type, text:hline.slice(1) });
+      cursor++;
     }
-    if (lines[i + 1] === '\\ No newline at end of file') { hunk.noNewline = true; i++; }
+
+    if (!hunk.lines.length) throw chatError('PATCH_CONFLICT', 'Hunk không có dòng nội dung.', { hunk:file.hunks.length });
+    const oldActual = hunk.lines.filter(row => row.type !== '+').length;
+    const newActual = hunk.lines.filter(row => row.type !== '-').length;
+    hunk.countAdjusted = oldActual !== header.oldCount || newActual !== header.newCount;
+    hunk.oldCount = oldActual;
+    hunk.newCount = newActual;
+    i = cursor - 1;
   }
 
   if (!files.length) throw chatError('PATCH_CONFLICT', 'Không tìm thấy file header ---/+++ trong unified diff.');
