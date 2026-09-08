@@ -15,6 +15,7 @@ const EXECUTION_PATHS = Object.freeze({
 
 const EXECUTION_LANES = Object.freeze({
   MICRO_UI:'MICRO_UI',
+  BUILDER_DELIVERY:'BUILDER_DELIVERY',
   FAST:'FAST',
   DEEP:'DEEP'
 });
@@ -32,6 +33,7 @@ const PATH_LIMITS = Object.freeze({
 });
 
 const MICRO_FAST_LIMITS = Object.freeze({ context_files:2, patch_files:2, skill_chars:2200 });
+const BUILDER_DELIVERY_LIMITS = Object.freeze({ context_files:4, patch_files:4, skill_chars:6500 });
 
 function unique(values) {
   return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))];
@@ -74,22 +76,54 @@ function hasPersistedStateEvidence(request) {
   return /\b(?:database|db|migration|migrate|seed|seeding|reseed|wpdb|sql)\b|\$wpdb|database\s+table|\bwp_[a-z0-9_]+\s+table\b|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|post\s+meta|wp_options?|option\s+table|post\s+content[^\n]{0,50}(?:database|stored|persisted)|dữ\s+liệu\s+(?:builder|database)|du\s+lieu\s+(?:builder|database)|bulk\s+(?:stored\s+)?records?/i.test(text);
 }
 
+function hasPersistedMutationIntent(request) {
+  const text = stripNegatedStoredStateEvidence(request);
+  if (/\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta/i.test(text)) return true;
+  const mutation = '(?:migrate|migration|repair|rewrite|rebuild|update|modify|change|delete|remove|move|sửa|sua|chỉnh|chinh|cập\\s+nhật|cap\\s+nhat|xóa|xoá|xoa|dọn|don)';
+  const stored = '(?:builder\\s+(?:data|json|tree)|bricks\\s+(?:builder\\s+)?(?:data|json|tree)|persisted\\s+(?:data|state)|stored\\s+(?:data|state|records?)|element\\s+id|parent\\s*\\/\\s*children)';
+  return new RegExp(`${mutation}[^\\n]{0,80}${stored}|${stored}[^\\n]{0,80}${mutation}`, 'i').test(text);
+}
+
 function isExplicitFilesystemTask(request) {
   if (!explicitUserPaths(request).length) return false;
   const text = normalizeText(request);
   return /\b(?:create|add|write|edit|modify|update|delete|remove|rename|move|rollback|temporary|temp|file|tạo|tao|thêm|them|ghi|sửa|sua|chỉnh|chinh|xóa|xoá|xoa|đổi\s+tên|doi\s+ten|di\s+chuyển|di\s+chuyen|tạm|tam)\b/i.test(text);
 }
 
+function hasImplementationIntent(request) {
+  const text = normalizeText(request);
+  return /(?:\b(?:fix|adjust|change|update|build|create|add|implement|polish|style|edit|modify)\b|sửa|sua|chỉnh|chinh|tạo|tao|thêm|them|triển\s+khai|trien\s+khai|làm|lam)[^\n]{0,140}(?:section|page|trang|template|element|header|footer|hero|banner|card|menu|layout|css|php|javascript|js|bricks|builder|component|feature|chức\s+năng|chuc\s+nang)/i.test(text);
+}
+
+function hasProductionOperationIntent(request) {
+  const text = normalizeText(request);
+  const productionSignal = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
+  if (!productionSignal) return false;
+
+  const infraOperation = /(?:\b(?:debug|troubleshoot|configure|setup|repair|inspect|check|test|fix)\b|kiểm\s+tra|kiem\s+tra|cấu\s+hình|cau\s+hình|sửa|sua)[^\n]{0,45}(?:ftp|sftp|hosting|server|cdn|deployment|deploy\s+pipeline)|(?:ftp|sftp|hosting|server|cdn|deployment\s+pipeline)[^\n]{0,45}(?:error|fail|broken|config|permission|timeout|lỗi|loi)/i.test(text);
+  if (infraOperation) return true;
+
+  const directOperation = /^(?:please\s+|hãy\s+|hay\s+)?(?:deploy|deployment|upload|publish|sync|ftp|sftp|clear\s+cache|purge\s+cdn)\b/i.test(text)
+    || /(?:deploy|upload|publish)[^\n]{0,80}(?:existing\s+build|existing\s+files?|without\s+code\s+change|only\s+these\s+files?|chỉ\s+deploy|chi\s+deploy)/i.test(text);
+  if (directOperation) return true;
+
+  return !hasImplementationIntent(text);
+}
+
+function isBuilderDeliveryRequest(request) {
+  const text = stripNegatedStoredStateEvidence(request);
+  return /builder[-\s]?editable|builder\s+controls?|set_controls|\brepeater\b|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|native\s+bricks|bricks\s+(?:page|template|element)|reusable\s+(?:bricks\s+)?(?:section|template)|(?:page|trang)[^\n]{0,70}(?:native\s+bricks|bricks\s+builder)|(?:native\s+bricks|bricks\s+builder)[^\n]{0,70}(?:page|trang)/i.test(text);
+}
+
 function classifyTask(request, inspect = {}) {
   const text = normalizeText(request);
   const evidenceText = stripNegatedStoredStateEvidence(request);
 
-  const production = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
-  if (production) return TASK_TYPES.PRODUCTION;
+  if (hasProductionOperationIntent(request)) return TASK_TYPES.PRODUCTION;
 
   if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
-  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
   if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
@@ -107,12 +141,8 @@ function deepPathReasons(request, type = '') {
   const reasons = [];
   const add = (reason, re, source = text) => { if (re.test(source)) reasons.push(reason); };
 
-  if (type === TASK_TYPES.PRODUCTION) reasons.push('production-operation');
-  add('production-operation', /\b(?:ftp|sftp|production|deploy|deployment|hosting|server)\b|website\s+live|live\s+(?:site|website|frontend)/i);
-  add('bricks-template', /bricks\s+template|(?:header|footer|archive|single)[^\n]{0,50}template|template[^\n]{0,50}(?:header|footer|archive|single)|template\s+condition/i);
-  add('builder-schema', /custom\s+(?:bricks\s+)?element|builder\s+controls?|set_controls|\brepeater\b|builder[-\s]?editable/i);
-  add('builder-page-write', /(?:create|build|tạo|tao|triển\s+khai)[^\n]{0,90}(?:(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks))|(?:native\s+bricks|bricks)[^\n]{0,50}(?:page|trang)|(?:page|trang)[^\n]{0,50}(?:native\s+bricks|bricks)/i);
-  add('persisted-data-migration', /\b(?:migration|migrate|wpdb|sql)\b|\$wpdb|database\s+table|builder\s+(?:data|json|tree)|bricks\s+(?:builder\s+)?(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+(?:data|state|records?)|element\s+id|parent\s*\/\s*children|compare-and-set|wp_options?|update_option|add_option|delete_option|update_post_meta|post\s+meta|rollback[^\n]{0,50}(?:db|database|builder\s+(?:data|json|tree)|persisted\s+(?:data|state)|stored\s+state)/i, evidenceText);
+  if (type === TASK_TYPES.PRODUCTION || hasProductionOperationIntent(request)) reasons.push('production-operation');
+  if (hasPersistedMutationIntent(request)) reasons.push('persisted-data-migration');
   add('bulk-or-seed', /\b(?:seed|seeding|reseed)\b|bulk\s+(?:import|update|create|delete)|(?:import|nhập\s+dữ\s+liệu)[^\n]{0,80}(?:all|bulk|toàn\s+bộ|products?|sản\s*phẩm|records?)/i, evidenceText);
   add('woocommerce-state', /(?:woocommerce|\bwoo\b)?[^\n]{0,30}\b(?:checkout|cart|order)\b|giỏ\s+hàng|thanh\s+toán|đơn\s+hàng/i);
   add('destructive-data-repair', /(?:delete|remove|drop|truncate|cleanup|repair|xóa|xoá|dọn)[^\n]{0,90}(?:duplicate|database|record|post|template|builder\s+(?:data|json|tree)|persisted\s+data)|(?:duplicate|trùng)[^\n]{0,90}(?:delete|remove|cleanup|repair|xóa|xoá|dọn)/i, evidenceText);
@@ -135,26 +165,30 @@ function isMicroFastRequest(request) {
   return scopedTarget && ((styleAxis && (explicitSmallChange || actionIntent)) || referenceUiIntent);
 }
 
-function executionLimits(request, executionPath) {
-  if (executionPath === EXECUTION_PATHS.FAST && isMicroFastRequest(request)) return MICRO_FAST_LIMITS;
+function executionLimits(request, executionPath, type = '') {
+  if (executionPath === EXECUTION_PATHS.FAST && isMicroFastRequest(request) && !isBuilderDeliveryRequest(request)) return MICRO_FAST_LIMITS;
+  if (executionPath === EXECUTION_PATHS.FAST && (type === TASK_TYPES.BRICKS_BUILDER || isBuilderDeliveryRequest(request))) return BUILDER_DELIVERY_LIMITS;
   return PATH_LIMITS[executionPath];
 }
 
-function executionLane(request, executionPath) {
+function executionLane(request, executionPath, type = '') {
   if (executionPath === EXECUTION_PATHS.DEEP) return EXECUTION_LANES.DEEP;
-  return isMicroFastRequest(request) ? EXECUTION_LANES.MICRO_UI : EXECUTION_LANES.FAST;
+  if (isMicroFastRequest(request) && !isBuilderDeliveryRequest(request)) return EXECUTION_LANES.MICRO_UI;
+  if (type === TASK_TYPES.BRICKS_BUILDER || isBuilderDeliveryRequest(request)) return EXECUTION_LANES.BUILDER_DELIVERY;
+  return EXECUTION_LANES.FAST;
 }
 
 function preflightExecutionPath(request) {
-  const reasons = deepPathReasons(request, '');
+  const hintedType = isBuilderDeliveryRequest(request) ? TASK_TYPES.BRICKS_BUILDER : '';
+  const reasons = deepPathReasons(request, hintedType);
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, lane:executionLane(request, executionPath), reasons, limits:executionLimits(request, executionPath) };
+  return { path:executionPath, lane:executionLane(request, executionPath, hintedType), reasons, limits:executionLimits(request, executionPath, hintedType) };
 }
 
 function classifyExecutionPath(request, type) {
   const reasons = deepPathReasons(request, type);
   const executionPath = reasons.length ? EXECUTION_PATHS.DEEP : EXECUTION_PATHS.FAST;
-  return { path:executionPath, lane:executionLane(request, executionPath), reasons, limits:executionLimits(request, executionPath) };
+  return { path:executionPath, lane:executionLane(request, executionPath, type), reasons, limits:executionLimits(request, executionPath, type) };
 }
 
 function targetLabel(request) {
@@ -285,9 +319,11 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
         ...ownerCandidates.map(item => item.path)
       ]).slice(0,limit);
   const microUi = execution.lane === EXECUTION_LANES.MICRO_UI;
+  const builderDelivery = execution.lane === EXECUTION_LANES.BUILDER_DELIVERY;
+  const boundedDelivery = microUi || builderDelivery;
 
   return {
-    version:4,
+    version:5,
     type,
     execution:{
       path:execution.path,
@@ -298,17 +334,22 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
       skill_context_limit_chars:execution.limits.skill_chars,
       allow_new_source_files:execution.path === EXECUTION_PATHS.DEEP ? 'existing owner first' : allowNewFile ? 1 : 0,
       allow_delete:execution.path === EXECUTION_PATHS.DEEP,
-      latency_guard:microUi ? {
+      latency_guard:boundedDelivery ? {
         preferred_calls:2,
         discovery_round_limit:1,
         dependency_hop_limit:1,
         extra_read_limit:resolved.requires_owner_read ? 1 : 0,
         verification_round_limit:1,
+        diagnostic_round_limit:1,
+        corrective_patch_round_limit:1,
+        final_verification_round_limit:1,
         allow_git_inspection:false,
         allow_manual_ftp:false,
         allow_browser_live_verify:false,
         allow_database_diagnostics:false,
         allow_snapshot_diagnostics:false,
+        auto_deploy_changed_files:true,
+        failure_unlocks_scoped_diagnostic:true,
         stop_after_scope_verify:true,
         escalation_requires_concrete_failure:true
       } : null,
@@ -339,10 +380,12 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
       scope_expansion:execution.path === EXECUTION_PATHS.FAST ? 'blocked by default; re-plan only on concrete evidence' : 'evidence-driven only',
       owner_resolution:primary?.status || 'unknown',
       workflow:microUi
-        ? 'MICRO_UI: use prepare_task context -> patch -> complete_task. No broad rediscovery, DB/snapshot diagnostics, manual FTP, Git inspection or browser/CDP live verification unless a concrete failure makes that specific step necessary.'
-        : execution.path === EXECUTION_PATHS.FAST
-          ? 'FAST: use ranked context and owner first, then complete_task with scoped verification.'
-          : 'DEEP: evidence-driven investigation only.'
+        ? 'MICRO_UI: use prepare_task context -> patch -> complete_task. complete_task owns scoped verify and configured changed-file FTP deploy. No broad rediscovery, manual FTP, Git, browser/live, DB or snapshot diagnostics unless complete_task returns a concrete failure.'
+        : builderDelivery
+          ? 'BUILDER_DELIVERY: use prepare_task -> one bounded native Bricks patch -> complete_task. complete_task owns syntax/structural verification and configured changed-file FTP deploy. If verification fails, use at most one scoped diagnostic and one corrective patch, then stop.'
+          : execution.path === EXECUTION_PATHS.FAST
+            ? 'FAST: use ranked context and owner first, then complete_task with scoped verification; configured changed-file FTP deploy happens during completion.'
+            : 'DEEP: evidence-driven investigation only.'
     }
   };
 }
@@ -414,8 +457,13 @@ module.exports = {
   EXECUTION_LANES,
   TYPE_READ_LIMIT,
   PATH_LIMITS,
+  MICRO_FAST_LIMITS,
+  BUILDER_DELIVERY_LIMITS,
   stripNegatedStoredStateEvidence,
   hasPersistedStateEvidence,
+  hasPersistedMutationIntent,
+  hasProductionOperationIntent,
+  isBuilderDeliveryRequest,
   classifyTask,
   deepPathReasons,
   isMicroFastRequest,

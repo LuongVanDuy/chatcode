@@ -1,134 +1,133 @@
-# Child-theme code organization & CSS ownership
+# Child-theme ownership & naming
 
-Use this resource when creating, renaming, reorganizing, or refactoring child-theme files/assets. Follow a clean existing project convention first; otherwise use the ownership model below.
+Use this only for file/layout ownership decisions. Prefer the project's clean existing convention; otherwise use the compact defaults below.
 
-## Preferred WordPress + Bricks child-theme architecture
+## Default shape
 
-For new/clean projects, or intentional cleanup, prefer this shape **only when those responsibilities exist**:
+Create only responsibilities that actually exist:
 
 ```text
 bricks-child/
-├─ functions.php                 # bootstrap/enqueue only
+├─ functions.php          # thin require/enqueue entry only
 ├─ inc/
-│  ├─ core/
-│  │  ├─ helpers.php             # shared helpers
-│  │  └─ templates.php           # shared Bricks template create/update/discovery helpers
-│  ├─ setup/
-│  │  ├─ media.php
-│  │  └─ menus.php
-│  └─ templates/
-│     ├─ header.php
-│     ├─ footer.php
-│     └─ single-product.php
-├─ elements/
-│  ├─ product-support.php
-│  └─ ...
+│  ├─ init.php            # shared setup when needed
+│  ├─ home.php            # Home-specific logic
+│  ├─ header.php          # Header-specific logic when separate
+│  └─ footer.php          # Footer-specific logic when separate
 └─ assets/css/
-   ├─ main.css                   # ONLY tokens/base/global
-   ├─ header-footer.css
-   └─ single-product.css
+   ├─ main.css            # global tokens/base/shared site rules
+   ├─ home.css            # Home composition
+   └─ header-footer.css   # only when Header/Footer need a separate lifecycle
 ```
 
-Canonical owners: `inc/core/helpers.php`, `inc/core/templates.php`, `inc/setup/media.php`, `inc/setup/menus.php`, `inc/templates/header.php`, `inc/templates/footer.php`, `inc/templates/single-product.php`, `elements/product-support.php`.
+Do not scaffold empty folders/files to match this tree.
 
-Ownership:
-
-- `functions.php` is the **thin entrypoint**: bootstrap/require modules and enqueue assets; no large feature/template/migration/helper implementations.
-- `inc/core/helpers.php`: genuinely shared helpers. Feature-specific helpers stay with their owner.
-- `inc/core/templates.php`: shared Bricks template discovery/create/update helpers, not one-off template content or arbitrary migrations.
-- `inc/setup/`: registrations/setup such as media and menus.
-- `inc/templates/`: template-specific code. Prefer `inc/templates/header.php` to vague `inc/setup/site-parts.php` when Header is the actual owner.
-- `elements/`: reusable custom Bricks Elements only when a reusable/native-gap responsibility is proven.
-- `assets/css/main.css`: only global tokens/base/site-wide rules; page/template/component CSS stays scoped.
-- This is **not a scaffold checklist**. Do not create empty files/folders merely to complete the tree.
-- Small tightly coupled responsibilities may remain together until a real separate owner exists.
-
-## File naming
-
-Use short functional names such as `helpers.php`, `templates.php`, `media.php`, `menus.php`, `header.php`, `footer.php`, `single-product.php`, `product-support.php`, `main.css`, `header-footer.css`, `single-product.css`, `home.css`.
-
-Avoid vague defaults such as `site-chrome`, `site-parts`, `misc`, `stuff`, `common2`, `new`, `final`, `latest`, `v2`; do not prefix with `bricks-` merely because Bricks is used. Inspect current owners before creating parallel modules.
-
-## File creation budget: existing owner first
-
-A normal change should usually create **zero new source files**.
+## Existing owner first
 
 ```text
-search current owner
--> clean owner exists: edit it
--> established functional module fits: use it
--> genuinely independent/reusable responsibility: create one clear owner
--> multiple new files only for proven separate lifecycles
+find current scoped owner
+→ clean owner exists: edit it
+→ only generic entry exists and responsibility is stable: create one short scoped owner
+→ create another file only when lifecycle is genuinely independent
 ```
 
-Do not create setup/helper/parts files merely to avoid editing an existing clean owner. Do not pair a normal feature with `*-migration.php`, or split one feature into `site-parts.php`, `site-parts-migration.php`, `site-parts-setup.php`. Initial implementation plus small tightly coupled setup may share one functional owner. Reuse a clean existing module even if its name differs from the preferred new-project tree.
+A normal edit should create zero files. Do not create `*-setup.php`, `*-helper.php`, `*-migration.php`, `*-v2.php` or per-section files just to avoid editing a clean owner.
 
-## Global CSS belongs to the global layer
+## Short functional names
+
+The theme/project folder already supplies project identity. Do not repeat brand/site names in every local file.
+
+Prefer:
 
 ```text
-style.css                    -> metadata/minimal entry
-assets/css/main.css          -> global tokens/base
-assets/css/header-footer.css -> header/footer only
-page/component CSS           -> own scope
+main.css
+home.css
+overview.css
+contact.css
+checkout.css
+single-product.css
+
+init.php
+home.php
+overview.php
+header.php
+footer.php
+templates.php
 ```
 
-Global `:root`, typography/base, helpers, shell/gutters and site-wide values belong in `main.css`, `base.css`, `variables.css`, or the established equivalent. Component/page CSS must not own unrelated globals. Keep load order explicit and, when moving rules, update enqueues and remove duplicates atomically.
-
-## Page CSS: group page-owned sections instead of file-per-section sprawl
-
-If sections exist only on one page, that page stylesheet owns them:
+Avoid:
 
 ```text
-assets/css/home.css
-/* Section 1 — Hero */
-/* Section 2 — Featured products */
-/* Section 3 — Product groups */
-/* Section 4 — About tabs */
+mimosa-hotel-home.css
+mimosa-hotel-shell.css
+mimosa-hotel-home.php
+home-section-2.css
+home-slider-helper.php
+site-parts.php
+site-chrome.php
+home-v2.css
 ```
 
-Do not create `home-section-2.css`, `home-section-3.css`, `home-section-4.css` only because there are multiple sections. Use `home.css`, `about.css`, `contact.css`, `recruitment.css`, etc. Split only when a component becomes truly reusable across pages/templates. Shared `product-card.css`/`post-card.css` stays with the shared item; page CSS owns only page composition.
+`main`/`init` are valid shared-owner names. `shell`, `parts`, `misc`, `helper`, `new`, `final`, `latest`, `v2`, `section-1` are not default architectural names.
 
-JavaScript does **not** have to mirror CSS file grouping. Independent behavior may stay in files such as `home-product-groups.js`; small coupled behavior may remain in `home.js`.
+Keep ordinary basenames to roughly 1–3 semantic tokens. Add a project/brand prefix only when a real collision boundary requires it.
 
-## Reusable item layouts are the default
+## CSS naming
 
-Normal repeated product/post presentation has one shared implementation across archive, taxonomy, related, featured, search, homepage and sliders unless a deliberate variant is requested.
+Local CSS classes should describe page/component responsibility, not repeat the project name.
 
-- Search for an existing renderer/helper/partial/Bricks component/custom element first.
-- Query/data and presentation are separate concerns: query/wrapper may differ while the item stays shared.
-- Keep shared item CSS with the shared component.
-- Grid/list/slider wrappers may differ without redefining the item.
-- Consolidate duplicates while preserving current output and Builder edits.
+Prefer:
 
-## Quick acceptance
+```css
+.home-hero {}
+.home-slider {}
+.overview-intro {}
+.product-card {}
+```
+
+Avoid:
+
+```css
+.mimosa-hotel-home-hero {}
+.mimosa-hotel-overview-intro {}
+.mimosa-hotel-home-hero-slider-inner-content {}
+```
+
+Keep ordinary local classes to roughly 1–3 semantic parts. Prefix only collision/global boundaries such as public PHP symbols, hook/asset handles, option/meta keys, custom Bricks Element names, or a proven shared component namespace.
+
+## CSS ownership
+
+```text
+style.css         -> theme metadata/minimal entry
+main.css          -> :root, typography/base, global tokens/shared rules
+home.css          -> all Home-only sections
+about.css         -> all About-only sections
+component.css     -> only if reused across multiple pages/templates
+```
+
+Do not create one stylesheet per page section. Do not put page-only rules in `main.css`. Keep shared product/post card presentation in one shared owner.
+
+## Acceptance
 
 PASS:
 
 ```text
-functions.php                    # thin bootstrap/enqueue entry
-inc/core/templates.php           # shared Bricks template helpers
-inc/setup/menus.php              # menu registration/setup
-inc/templates/header.php         # Header-specific owner
-inc/templates/footer.php         # Footer-specific owner
-elements/product-support.php     # reusable custom Bricks element
-assets/css/main.css              # global tokens/base
-assets/css/header-footer.css     # Header/Footer presentation
-assets/css/single-product.css    # Single Product presentation
-assets/css/home.css              # homepage composition
+functions.php
+inc/init.php
+inc/home.php
+assets/css/main.css
+assets/css/home.css
 ```
 
 FAIL:
 
 ```text
-functions.php                    # large feature/template dump
-assets/css/header-footer.css     # site-wide :root tokens
+functions.php             # feature dump
+assets/css/main.css       # page-specific dump
+mimosa-hotel-home.php     # redundant project prefix
+home-section-1.php
 home-section-2.css
-home-section-3.css
-home-section-4.css               # page-only file sprawl
-site-parts.php
-site-parts-migration.php         # vague pair created for one normal feature
-archive-product-item.php
-featured-product-item.php        # duplicate normal card
+home-slider-helper.php
 ```
 
-Goal: **thin bootstrap; shared core helpers; scoped setup; template code in `inc/templates`; reusable Bricks elements in `elements`; global CSS stays global; page sections stay in the page layer; ordinary edits extend existing owners instead of creating file sprawl.**
+Goal: **few owners, short names, clear lifecycle, thin entrypoints, no brand-prefix repetition, no file-per-section sprawl.**

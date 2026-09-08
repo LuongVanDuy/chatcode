@@ -42,6 +42,8 @@ const rules = [
 ];
 
 const longKhaiReferencePrompt = 'Tiếp theo, vẫn ở trang home build cho tôi section như ảnh nhé ảnh và text thay thế được, tạm thời dùng chung 1 ảnh id 4923';
+const mimoHomeExpandedPrompt = "Implement the first Home section for `/mimosa-hotel/` based on the supplied TrangTrang reference screenshot. Requirements: change both existing Mimosa Hotel header and footer logos to attachment ID 714; correct header architecture so the header is transparent, 135px tall, overlaying the top of the Home hero/slider (the image must belong to the slider section, not header background); create the first Home section as a native Bricks banner slider using new banner image attachment ID 715 for the initial slide, Builder-editable, with overlay/content/arrows styled close to reference. Keep Vietnamese UI/text. Use ChatCode v1.0.31 flow: thin bootstrap, functional owners, no shortcode/custom Bricks element, no parent/core/plugin edits, preserve existing Builder edits outside targeted logo/header structure/home first section. Create only minimal owner files if needed (e.g. dedicated home setup/content owner + dedicated home CSS), do not dump into functions.php/style.css. Header/footer existing component CSS owner is `assets/css/mimosa-hotel-shell.css`; existing one-time shell setup owner is `inc/mimosa-hotel-shell.php`. Verify Bricks tree integrity, responsive behavior, and deploy only touched files to FTP.";
+const mimoOverviewExpandedPrompt = "Implement the Mimosa Hotel Overview page based on the user's two reference screenshots. Use native Bricks. Create a reusable native Bricks section/template for the top overview slider (not a custom PHP Bricks element/shortcode), using image attachment ID 715 for the first slide and keeping it easy to duplicate/edit in Builder. Build the Overview page with exactly two main sections: 1) full-width hero/overview slider with transparent existing header overlay, compact slide dots, image ID 715, no separate header background; 2) a more distinctive editorial text/introduction section inspired by the second screenshot, using current Mimosa Hotel Vietnamese brand content and the existing Be Vietnam Pro/global design tokens. Preserve existing homepage and unrelated Builder content. Prefer /mimosa-hotel/overview/ as the Overview page and update the Mimosa Hotel header 'TỔNG QUAN' link to that page if appropriate. Reuse current functional owners; no custom Bricks element source if native template/section works. Verify Builder structure/editability, responsive layout, and live frontend after deploy.";
 
 assert.equal(preflightExecutionPath('Sửa hành vi frontend tìm kiếm sản phẩm trong owner hiện tại').path, EXECUTION_PATHS.FAST);
 const microPreflight = preflightExecutionPath('Giảm spacing product card trên mobile 8px');
@@ -53,17 +55,28 @@ assert.equal(microPreflight.limits.skill_chars, 2200);
 const longKhaiHomePreflight = preflightExecutionPath('CSS lại layout trang Home, chỉnh banner và danh mục cho gọn hơn');
 assert.equal(longKhaiHomePreflight.path, EXECUTION_PATHS.FAST);
 assert.equal(longKhaiHomePreflight.lane, EXECUTION_LANES.MICRO_UI);
-assert.equal(longKhaiHomePreflight.limits.context_files, 2);
-assert.equal(longKhaiHomePreflight.limits.patch_files, 2);
-assert.equal(longKhaiHomePreflight.limits.skill_chars, 2200);
 const longKhaiReferencePreflight = preflightExecutionPath(longKhaiReferencePrompt);
 assert.equal(longKhaiReferencePreflight.path, EXECUTION_PATHS.FAST);
 assert.equal(longKhaiReferencePreflight.lane, EXECUTION_LANES.MICRO_UI, 'reference-image section build must enter Micro UI without requiring CSS/layout wording');
-assert.equal(longKhaiReferencePreflight.limits.context_files, 2);
-assert.equal(longKhaiReferencePreflight.limits.patch_files, 2);
-assert.equal(longKhaiReferencePreflight.limits.skill_chars, 2200);
-assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.DEEP);
-assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.DEEP);
+
+for (const prompt of [mimoHomeExpandedPrompt, mimoOverviewExpandedPrompt]) {
+  const route = preflightExecutionPath(prompt);
+  assert.equal(route.path, EXECUTION_PATHS.FAST, 'implementation request must not become DEEP merely because acceptance wording mentions deploy/live');
+  assert.equal(route.lane, EXECUTION_LANES.BUILDER_DELIVERY);
+  assert.equal(route.reasons.includes('production-operation'), false);
+  assert.equal(route.limits.context_files, 4);
+  assert.equal(route.limits.patch_files, 4);
+  assert.equal(route.limits.skill_chars, 6500);
+}
+
+const headerPreflight = preflightExecutionPath('Tạo Bricks Header template mới');
+assert.equal(headerPreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(headerPreflight.lane, EXECUTION_LANES.FAST, 'preflight must not assume Bricks project evidence from wording alone');
+const headerCard = buildTaskCard({ request:'Tạo Bricks Header template mới', inspect, projectRules:rules });
+assert.equal(headerCard.type, TASK_TYPES.BRICKS_BUILDER);
+assert.equal(headerCard.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY, 'after inspect confirms Bricks, template delivery must use bounded Builder lane');
+assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.FAST);
+assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').lane, EXECUTION_LANES.BUILDER_DELIVERY);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Migrate Bricks Builder JSON tree and keep stable element IDs').path, EXECUTION_PATHS.DEEP);
 assert.equal(preflightExecutionPath('Update WordPress option wp_options records with rollback').path, EXECUTION_PATHS.DEEP);
@@ -132,24 +145,45 @@ assert.equal(micro.execution.latency_guard.preferred_calls, 2);
 assert.equal(micro.execution.latency_guard.discovery_round_limit, 1);
 assert.equal(micro.execution.latency_guard.dependency_hop_limit, 1);
 assert.equal(micro.execution.latency_guard.verification_round_limit, 1);
+assert.equal(micro.execution.latency_guard.diagnostic_round_limit, 1);
+assert.equal(micro.execution.latency_guard.corrective_patch_round_limit, 1);
 assert.equal(micro.execution.latency_guard.allow_git_inspection, false);
 assert.equal(micro.execution.latency_guard.allow_manual_ftp, false);
 assert.equal(micro.execution.latency_guard.allow_browser_live_verify, false);
 assert.equal(micro.execution.latency_guard.allow_database_diagnostics, false);
 assert.equal(micro.execution.latency_guard.allow_snapshot_diagnostics, false);
+assert.equal(micro.execution.latency_guard.auto_deploy_changed_files, true);
 assert.equal(micro.execution.latency_guard.stop_after_scope_verify, true);
 assert.match(micro.constraints.workflow, /prepare_task context -> patch -> complete_task/);
 assert.ok(micro.expected_files.length <= 2);
+
+for (const prompt of [mimoHomeExpandedPrompt, mimoOverviewExpandedPrompt]) {
+  const builderDelivery = buildTaskCard({ request:prompt, inspect, projectRules:rules });
+  assert.equal(builderDelivery.type, TASK_TYPES.BRICKS_BUILDER);
+  assert.equal(builderDelivery.execution.path, EXECUTION_PATHS.FAST);
+  assert.equal(builderDelivery.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
+  assert.equal(builderDelivery.execution.context_file_limit, 4);
+  assert.equal(builderDelivery.execution.patch_file_limit, 4);
+  assert.equal(builderDelivery.execution.skill_context_limit_chars, 6500);
+  assert.equal(builderDelivery.execution.latency_guard.diagnostic_round_limit, 1);
+  assert.equal(builderDelivery.execution.latency_guard.corrective_patch_round_limit, 1);
+  assert.equal(builderDelivery.execution.latency_guard.final_verification_round_limit, 1);
+  assert.equal(builderDelivery.execution.latency_guard.allow_manual_ftp, false);
+  assert.equal(builderDelivery.execution.latency_guard.auto_deploy_changed_files, true);
+  assert.equal(builderDelivery.execution.latency_guard.stop_after_scope_verify, true);
+  assert.match(builderDelivery.constraints.workflow, /BUILDER_DELIVERY/);
+}
 
 const simpleCpt = buildTaskCard({ request:'Đăng ký CPT sản phẩm catalog không WooCommerce trong owner hiện tại', inspect, projectRules:rules });
 assert.equal(simpleCpt.type, TASK_TYPES.DATA);
 assert.equal(simpleCpt.execution.path, EXECUTION_PATHS.FAST, 'simple CPT code registration should not automatically become Deep');
 
-const builderDeep = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect, projectRules:rules });
-assert.equal(builderDeep.type, TASK_TYPES.BRICKS_BUILDER);
-assert.equal(builderDeep.execution.path, EXECUTION_PATHS.DEEP);
-assert.equal(builderDeep.execution.lane, EXECUTION_LANES.DEEP);
-assert.ok(builderDeep.execution.reasons.includes('builder-schema'));
+const builderDelivery = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect, projectRules:rules });
+assert.equal(builderDelivery.type, TASK_TYPES.BRICKS_BUILDER);
+assert.equal(builderDelivery.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(builderDelivery.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
+assert.equal(builderDelivery.execution.context_file_limit, 4);
+assert.equal(builderDelivery.execution.patch_file_limit, 4);
 
 const prodDeep = buildTaskCard({ request:'Upload đúng file qua FTP và kiểm tra live production', inspect, projectRules:rules });
 assert.equal(prodDeep.type, TASK_TYPES.PRODUCTION);
@@ -192,7 +226,7 @@ const deletePatch = [
   ''
 ].join('\n');
 assert.equal(validatePatchAgainstTaskCard(fast, deletePatch).ok, false, 'FAST must block delete');
-assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, 'DEEP relies on existing safety/approval rules instead of Fast limits');
+assert.equal(validatePatchAgainstTaskCard(builderDelivery, newFilePatch).ok, false, 'Builder Delivery still obeys owner/new-file scope limits');
 
 (async () => {
   const seenLimits = [];
@@ -243,6 +277,15 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedMicro.task_card.execution.latency_guard.allow_browser_live_verify, false);
   assert.ok(preparedMicro.skills.every(skill => skill.resource_context.fast_compact === true));
 
+  const preparedBuilder = await runtime.prepareTask('p1', mimoOverviewExpandedPrompt, 8);
+  assert.equal(preparedBuilder.execution_path, EXECUTION_PATHS.FAST);
+  assert.equal(seenLimits[2], 4, 'Mimo Builder Delivery must stay bounded to four ranked files');
+  assert.equal(preparedBuilder.task_card.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
+  assert.ok(preparedBuilder.skills.every(skill => skill.resource_context.fast_compact === true));
+  const builderInstructions = preparedBuilder.skills.map(skill => skill.instructions).join('\n');
+  assert.match(builderInstructions, /resolve\/adopt an existing template/i, 'Mimo Builder Delivery lost duplicate-template protection in compact context');
+  assert.match(builderInstructions, /short local file\/class names/i, 'Mimo Builder Delivery lost short local naming in compact context');
+
   const preparedExplicit = await runtime.prepareTask('p1', explicitRequest, 8);
   assert.equal(preparedExplicit.execution_path, EXECUTION_PATHS.FAST);
   assert.equal(preparedExplicit.task_card.type, TASK_TYPES.FAST_UI);
@@ -253,13 +296,13 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedExplicit.task_card.execution.reasons.includes('persisted-data-migration'), false);
   assert.ok(preparedExplicit.skills.every(skill => !skill.domains.includes('data') && !skill.domains.includes('bricks')));
 
-  const preparedDeep = await runtime.prepareTask('p1', 'Thêm Builder controls và repeater cho Featured Products', 8);
+  const preparedDeep = await runtime.prepareTask('p1', 'Migrate existing persisted Bricks Builder data with rollback', 8);
   assert.equal(preparedDeep.execution_path, EXECUTION_PATHS.DEEP);
-  assert.equal(seenLimits[3], 6, 'Deep prepare may use the six-file WordPress context cap');
+  assert.equal(seenLimits[4], 6, 'Deep prepare may use the six-file WordPress context cap');
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
-  assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
+  assert.ok(preparedDeep.task_card.execution.reasons.includes('persisted-data-migration'));
 
-  console.log('Fast/Deep routing smoke test: PASS (real Longkhai reference-image Micro UI lane + latency guard + negation-aware explicit file FAST + real migration DEEP + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (LongKhai Micro UI + Mimo Builder Delivery compact naming/template guard + evidence-gated Header + true production/data DEEP)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

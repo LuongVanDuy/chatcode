@@ -17,27 +17,25 @@ assert.ok(core.includes('do not broad-search unrelated websites'));
 assert.ok(core.includes('normal edit new-file budget is zero'));
 assert.ok(core.includes('a normal code/layout/template change is not a migration'));
 assert.ok(core.includes('one-time setup must terminate'));
+assert.ok(core.includes('if verification passes, stop'));
 
-assert.ok(organization.includes('preferred wordpress + bricks child-theme architecture'));
-assert.ok(organization.includes('functions.php                 # bootstrap/enqueue only'));
-assert.ok(organization.includes('inc/core/helpers.php'));
-assert.ok(organization.includes('inc/core/templates.php'));
-assert.ok(organization.includes('inc/setup/media.php'));
-assert.ok(organization.includes('inc/setup/menus.php'));
-assert.ok(organization.includes('inc/templates/header.php'));
-assert.ok(organization.includes('inc/templates/footer.php'));
-assert.ok(organization.includes('elements/product-support.php'));
+// v1.0.32 architecture is intentionally compact: short local names, few owners, no brand-prefix/per-section sprawl.
+assert.ok(organization.includes('default shape'));
+assert.ok(organization.includes('functions.php          # thin require/enqueue entry only'));
+assert.ok(organization.includes('inc/init.php'));
+assert.ok(organization.includes('inc/home.php'));
 assert.ok(organization.includes('assets/css/main.css'));
-assert.ok(organization.includes('file creation budget: existing owner first'));
-assert.ok(organization.includes('normal change should usually create **zero new source files**'));
-assert.ok(organization.includes('site-parts-migration.php'));
+assert.ok(organization.includes('assets/css/home.css'));
+assert.ok(organization.includes('short functional names'));
+assert.ok(organization.includes('mimosa-hotel-home.css'));
+assert.ok(organization.includes('home-section-2.css'));
+assert.ok(organization.includes('few owners, short names'));
 
 assert.ok(migrations.includes('migration threshold'));
 assert.ok(migrations.includes('these are **not migrations by default**'));
 assert.ok(migrations.includes('initial implementation of a new site/header/footer/page/section'));
 assert.ok(migrations.includes('do **not** create `*-migration.php` merely because a task touches bricks'));
 
-// v5 umbrella owns cross-cutting scope; detailed lifecycle/media rules live in their domain packs.
 assert.ok(skill.includes('when a reference site/domain is named'));
 assert.ok(skill.includes('a normal edit defaults to zero new source files'));
 assert.ok(skill.includes('do not broaden into git, external research, migration, refactor or deployment'));
@@ -64,4 +62,4 @@ const referenceBuild = chooseResources(manifest, 'Build homepage like the named 
 assert.deepEqual(referenceBuild, ['resources/core-checklist.md', 'resources/media-icons.md']);
 assert.equal(routeSkillDomains('Copy exact reference images and icons', null)[0], 'media');
 
-console.log('Focused Bricks delivery PASS: v5 umbrella scope + domain-owned migration/media discipline');
+console.log('Focused Bricks delivery PASS: lean ownership + scoped references + domain-owned migration/media discipline');

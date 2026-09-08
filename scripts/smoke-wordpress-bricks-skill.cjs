@@ -11,6 +11,7 @@ const {
   MAX_SKILL_CONTEXT_CHARS,
   MAX_DOMAINS,
   DOMAIN_FILES,
+  DOMAIN_COMPACT,
   hasBricksProjectEvidence
 } = require('../core/skill-runtime');
 const { searchUiKnowledge } = require('../core/ui-knowledge');
@@ -65,10 +66,10 @@ const nonWooInspect = {
 assert.equal(manifest.id, 'wordpress-bricks');
 assert.equal(manifest.version, 5);
 assert.equal(WORDPRESS_BRICKS_SKILL_ID, 'wordpress-bricks');
-assert.equal(MAX_SKILL_CONTEXT_CHARS, 12000);
+assert.equal(MAX_SKILL_CONTEXT_CHARS, 9000);
 assert.equal(MAX_DOMAINS, 2);
-assert.ok(entry.length <= 4200, `v5 entry too large: ${entry.length}`);
-assert.ok(core.length < 5000, `core checklist too large: ${core.length}`);
+assert.ok(entry.length <= 3600, `v5 entry too large: ${entry.length}`);
+assert.ok(core.length < 3000, `core checklist too large: ${core.length}`);
 assert.deepEqual(Object.keys(manifest.domains).sort(), Object.keys(DOMAIN_FILES).sort());
 for (const relative of Object.values(DOMAIN_FILES)) assert.ok(fs.existsSync(path.join(skillRoot, relative)), `missing domain pack ${relative}`);
 assert.ok(fs.existsSync(path.join(skillRoot, manifest.data.ui_guidelines)));
@@ -83,7 +84,10 @@ for (const phrase of [
   'normal container/grid/image/icon/text/button/slider/query composition is not a custom-element gap'
 ]) assert.ok(entryLower.includes(phrase), `missing v5 architecture contract: ${phrase}`);
 
-// Legacy compatibility remains stable while prepare_task moves to v5 domains.
+assert.match(DOMAIN_COMPACT.bricks, /resolve\/adopt an existing template/i);
+assert.match(DOMAIN_COMPACT.bricks, /short local file\/class names/i);
+assert.match(DOMAIN_COMPACT.bricks, /without repeating the project prefix/i);
+
 expectLegacyRoute('Fix responsive CSS padding on product card mobile', 'resources/design-system.md', bricksInspect);
 expectLegacyRoute('Tạo custom Bricks element có controls và repeater', 'resources/builder-editability.md', bricksInspect);
 expectLegacyRoute('Lấy đúng ảnh từ website mẫu, upload media và dùng icon Bricks', 'resources/media-icons.md', bricksInspect);
@@ -105,8 +109,8 @@ assert.equal(productCssDomains.includes('woocommerce'), false, 'generic product 
 const nonWooDomains = routeSkillDomains('Tạo post type sản phẩm catalog không WooCommerce', nonWooInspect);
 assert.equal(nonWooDomains.includes('woocommerce'), false, 'non-Woo CPT must not activate Woo domain');
 
-const uiResults = searchUiKnowledge('Sửa container width và spacing section homepage responsive mobile', bricksInspect, 3);
-assert.ok(uiResults.length >= 1 && uiResults.length <= 3, 'UI search must return 1-3 matches');
+const uiResults = searchUiKnowledge('Sửa container width và spacing section homepage responsive mobile', bricksInspect, 2);
+assert.ok(uiResults.length >= 1 && uiResults.length <= 2, 'UI search must return 1-2 matches');
 assert.ok(uiResults.some(item => /container|section|responsive/.test(`${item.id} ${item.title}`.toLowerCase())), 'UI search did not retrieve a relevant layout rule');
 
 assert.equal(hasBricksProjectEvidence(bricksInspect).active, true);
@@ -117,22 +121,28 @@ assert.deepEqual(skill.domains, ['ui']);
 assert.ok(names(skill).includes(CORE_RESOURCE));
 assert.ok(names(skill).includes('domains/ui.md'));
 assert.ok(names(skill).includes('knowledge/ui-search'));
-assert.ok(skill.ui_guidance.length >= 1 && skill.ui_guidance.length <= 3);
+assert.ok(skill.ui_guidance.length >= 1 && skill.ui_guidance.length <= 2);
 assert.ok(skill.resource_context.used_chars <= MAX_SKILL_CONTEXT_CHARS);
 const totalContext = skill.instructions.length + skill.resources.reduce((sum,item) => sum + item.content.length, 0);
-assert.ok(totalContext <= 16500, `skill payload too large: ${totalContext}`);
+assert.ok(totalContext <= 12500, `skill payload too large: ${totalContext}`);
 
-// Fast Path drops full domain files but must retain compact domain guidance + structured UI matches.
 const fastSkill = compactSkillsForFastPath([skill], 6000)[0];
 assert.deepEqual(fastSkill.domains, ['ui']);
 assert.deepEqual(fastSkill.resources, []);
 assert.ok(fastSkill.instructions.includes('Task-domain guidance:'), 'Fast skill lost v5 domain guidance');
 assert.ok(fastSkill.instructions.includes('Task domains: ui'), 'Fast skill lost routed UI domain identity');
-assert.ok(fastSkill.ui_guidance.length >= 1 && fastSkill.ui_guidance.length <= 3, 'Fast skill lost structured UI guidance');
+assert.ok(fastSkill.ui_guidance.length >= 1 && fastSkill.ui_guidance.length <= 2, 'Fast skill lost structured UI guidance');
 assert.equal(fastSkill.resource_context.fast_compact, true);
 assert.deepEqual(fastSkill.resource_context.selected_domains, ['ui']);
 assert.equal(fastSkill.resource_context.ui_guidance_count, fastSkill.ui_guidance.length);
 assert.ok(fastSkill.instructions.length <= 6000, `Fast v5 skill exceeded compact budget: ${fastSkill.instructions.length}`);
+
+const builderSkill = loadWordPressBricksSkill(bricksInspect, 'Create a native Bricks Overview page and reusable template', { type:'BRICKS_BUILDER' });
+const compactBuilder = compactSkillsForFastPath([builderSkill], 6500)[0];
+assert.deepEqual(compactBuilder.domains, ['bricks']);
+assert.match(compactBuilder.instructions, /resolve\/adopt an existing template/i, 'Builder compact contract lost duplicate-template protection');
+assert.match(compactBuilder.instructions, /short local file\/class names/i, 'Builder compact contract lost short naming rule');
+assert.match(compactBuilder.instructions, /without repeating the project prefix/i, 'Builder compact contract lost local-prefix rule');
 
 const mediaSkill = loadWordPressBricksSkill(bricksInspect, 'Lấy ảnh từ mẫu cho 10 brand và icon location');
 assert.deepEqual(mediaSkill.domains, ['media']);
@@ -150,4 +160,4 @@ for (const forbidden of ['tongkhokhoathongminh.com', 'd:\\duyanhweb\\ftp\\boncau
   assert.equal(`${entry}\n${core}`.toLowerCase().includes(forbidden), false, `project-specific path leaked into generic skill: ${forbidden}`);
 }
 
-console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + deterministic UI search + Fast compact guidance + legacy compatibility');
+console.log('WordPress + Bricks skill v5 PASS: 9k budget + <=2 guidance matches + compact duplicate-safe naming contract');
