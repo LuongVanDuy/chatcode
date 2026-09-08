@@ -2,8 +2,9 @@ const { chatError } = require('./errors');
 const { explicitUserPaths } = require('./owner-resolver');
 const { patchScopeFromUnifiedDiff, EXECUTION_PATHS } = require('./task-planner');
 
-const HARD_RULES_VERSION = 1;
+const HARD_RULES_VERSION = 2;
 const MAX_EXPLICIT_NEW_FILES = 2;
+const MAX_FUNCTIONAL_NEW_FILES = 2;
 const MAX_TASK_CONTRACTS = 200;
 const NEGATED_SOURCE_CLAUSE_RE = /(?:(?:\b(?:do\s+not|don't|dont|without|no|not|never|không|khong|dung)\b)|đừng)[^.!?\n]{0,180}/gi;
 const CONTRAST_RE = /\b(?:but|however|nhưng|nhung|tuy\s+nhiên|tuy\s+nhien)\b/i;
@@ -23,6 +24,10 @@ function stripNegatedSourceCreationEvidence(value = '') {
     if (contrast < 0) return ' ';
     return ` ${clause.slice(contrast)} `;
   });
+}
+
+function explicitNoNewFileIntent(request = '') {
+  return /(?:(?:\b(?:do\s+not|don't|dont|never|without|no|không|khong)\b)|đừng)[^.!?\n]{0,90}(?:new\s+(?:source\s+)?file|file\s+(?:mới|moi)|tệp\s+(?:mới|moi)|tep\s+moi|create\s+(?:a\s+)?file|add\s+(?:a\s+)?file|tạo\s+file|tao\s+file|thêm\s+file|them\s+file)/i.test(String(request || ''));
 }
 
 function explicitNewFileIntent(request = '') {
@@ -77,30 +82,137 @@ function ownerBinding(prepared = {}) {
   return { binding, status:status || 'unknown', paths };
 }
 
+function isGenericOwnerPath(value = '') {
+  const file = norm(value);
+  return /(?:^|\/)(?:functions\.php|style\.css|main\.css|base\.css|global\.css|variables\.css)$/i.test(file);
+}
+
+function functionalScope(request = '') {
+  const q = stripNegatedSourceCreationEvidence(request);
+  const header = /\bheader\b|đầu\s+trang|dau\s+trang/i.test(q);
+  const footer = /\bfooter\b|chân\s+trang|chan\s+trang/i.test(q);
+  if (header && footer) return 'header-footer';
+  if (header) return 'header';
+  if (footer) return 'footer';
+  const scopes = [
+    ['home', /\bhome\b|homepage|home\s*page|trang\s+chủ|trang\s+chu|front\s*page/i],
+    ['checkout', /\bcheckout\b|thanh\s+toán|thanh\s+toan/i],
+    ['cart', /\bcart\b|giỏ\s+hàng|gio\s+hang/i],
+    ['single-product', /single\s+product|product\s+detail|chi\s+tiết\s+sản\s*phẩm|chi\s+tiet\s+san\s*pham/i],
+    ['archive', /\barchive\b|taxonomy|product\s+category|danh\s+mục\s+sản\s*phẩm|danh\s+muc\s+san\s*pham/i],
+    ['account', /my\s+account|\baccount\b|tài\s+khoản|tai\s+khoan/i],
+    ['contact', /\bcontact\b|liên\s+hệ|lien\s+he/i],
+    ['about', /\babout\b|giới\s+thiệu|gioi\s+thieu/i],
+    ['menu', /\bmenu\b|navigation|\bnav\b/i],
+    ['search', /\bsearch\b|tìm\s+kiếm|tim\s+kiem/i],
+    ['recruitment', /recruitment|tuyển\s+dụng|tuyen\s+dung/i],
+    ['order-tracking', /order\s+tracking|tra\s+cứu\s+đơn\s+hàng|tra\s+cuu\s+don\s+hang/i]
+  ];
+  return scopes.find(([, re]) => re.test(q))?.[0] || '';
+}
+
+function matchesFunctionalScopePath(value = '', scope = '') {
+  const file = norm(value).toLowerCase();
+  if (!file || !scope) return false;
+  const tests = {
+    'header-footer': /(?:^|[\/_-])(?:header|footer)(?:[\/_.-]|$)/i,
+    header:/(?:^|[\/_-])header(?:[\/_.-]|$)/i,
+    footer:/(?:^|[\/_-])footer(?:[\/_.-]|$)/i,
+    home:/(?:^|[\/_-])(?:home|homepage|front-page|front_page)(?:[\/_.-]|$)/i,
+    checkout:/(?:^|[\/_-])checkout(?:[\/_.-]|$)/i,
+    cart:/(?:^|[\/_-])cart(?:[\/_.-]|$)/i,
+    'single-product':/(?:^|[\/_-])(?:single-product|single_product|product-detail|product_detail|product)(?:[\/_.-]|$)/i,
+    archive:/(?:^|[\/_-])(?:archive|taxonomy|category)(?:[\/_.-]|$)/i,
+    account:/(?:^|[\/_-])(?:account|my-account|my_account|tai-khoan)(?:[\/_.-]|$)/i,
+    contact:/(?:^|[\/_-])(?:contact|lien-he)(?:[\/_.-]|$)/i,
+    about:/(?:^|[\/_-])(?:about|gioi-thieu)(?:[\/_.-]|$)/i,
+    menu:/(?:^|[\/_-])(?:menu|menus|navigation|nav)(?:[\/_.-]|$)/i,
+    search:/(?:^|[\/_-])search(?:[\/_.-]|$)/i,
+    recruitment:/(?:^|[\/_-])(?:recruitment|tuyen-dung)(?:[\/_.-]|$)/i,
+    'order-tracking':/(?:^|[\/_-])(?:order-tracking|order_tracking|tracking|tra-cuu)(?:[\/_.-]|$)/i
+  };
+  return tests[scope]?.test(file) || false;
+}
+
+function isVagueFunctionalOwnerPath(value = '') {
+  const base = norm(value).split('/').pop() || '';
+  return /(?:^|[-_.])(?:fix|temp|temporary|v2|final|latest|common2|misc|stuff|helper|helpers)(?:[-_.]|$)/i.test(base)
+    || /section[-_]?\d+/i.test(base)
+    || /^(?:site-parts|site-chrome)(?:\.|[-_])/i.test(base);
+}
+
+function functionalOwnerPolicy(prepared = {}, binding = ownerBinding(prepared)) {
+  const request = String(prepared?.request || '');
+  const card = prepared?.task_card || {};
+  const execution = card.execution || {};
+  if (explicitNoNewFileIntent(request)) return { allowed:false, reason:'explicit-no-new-file' };
+  if (projectRelativeExplicitPaths(request).length && !explicitNewFileIntent(request)) return { allowed:false, reason:'explicit-existing-path' };
+  if (card.type === 'PRODUCTION') return { allowed:false, reason:'production-reuses-local-source' };
+
+  const q = stripNegatedSourceCreationEvidence(request);
+  const action = /\b(?:create|add|build|implement|introduce|register)\b|tạo|tao|thêm|them|triển\s+khai|trien\s+khai|xây\s+dựng|xay\s+dung|bổ\s+sung|bo\s+sung|\blàm\b|\blam\b/i.test(q);
+  const scope = functionalScope(q);
+  if (!action || !scope) return { allowed:false, reason:'no-new-functional-scope' };
+
+  const cssOwner = globalCssOwner(prepared);
+  const genericPaths = unique([...(binding.paths || []), cssOwner]).filter(isGenericOwnerPath);
+  if (!genericPaths.length) return { allowed:false, reason:'scoped-owner-already-primary' };
+
+  const owner = card.owner || {};
+  const knownPaths = unique([
+    ...(owner.candidates || []),
+    ...(owner.companions || []),
+    ...(card.ownership_map || []).map(item => item?.path),
+    ...(prepared?.context?.relevant_files || []).map(item => item?.path)
+  ]);
+  const existingScoped = knownPaths.find(path => !isGenericOwnerPath(path) && matchesFunctionalScopePath(path, scope));
+  if (existingScoped) return { allowed:false, reason:'reuse-existing-functional-owner', existing_path:existingScoped, scope };
+
+  const requested = execution.lane === 'MICRO_UI' ? 1 : MAX_FUNCTIONAL_NEW_FILES;
+  const patchLimit = Math.max(1, Number(execution.patch_file_limit) || requested);
+  return {
+    allowed:true,
+    reason:'generic-owner-would-grow',
+    scope,
+    budget:Math.min(requested, patchLimit),
+    generic_paths:genericPaths
+  };
+}
+
 function requestedFileBudget(prepared = {}) {
   const request = String(prepared?.request || '');
   const card = prepared?.task_card || {};
   const execution = card.execution || {};
+  const binding = ownerBinding(prepared);
   const explicitPaths = projectRelativeExplicitPaths(request);
+  const explicitNoFile = explicitNoNewFileIntent(request);
   const explicitFile = explicitNewFileIntent(request);
   const explicitCustom = explicitCustomBricksSourceIntent(request);
   const explicitArchitecture = explicitArchitectureSourceIntent(request);
+  const functional = functionalOwnerPolicy(prepared, binding);
   let proposed = 0;
   let reason = 'reuse-existing-owner';
 
-  if (explicitFile) {
+  if (explicitNoFile) {
+    proposed = 0;
+    reason = 'explicit-no-new-file';
+  } else if (explicitFile) {
     proposed = Math.min(MAX_EXPLICIT_NEW_FILES, Math.max(1, explicitPaths.length || 1));
     reason = explicitPaths.length ? 'explicit-new-file-path' : 'explicit-new-file-request';
   } else if (explicitCustom || explicitArchitecture) {
     proposed = 1;
     reason = explicitCustom ? 'explicit-custom-source-request' : 'explicit-architecture-source-request';
+  } else if (functional.allowed) {
+    proposed = functional.budget;
+    reason = 'functional-owner-split';
   }
 
-  // Never make FAST looser than the planner allowance that already existed before v1.0.28.
-  if (execution.path === EXECUTION_PATHS.FAST) {
+  // FAST remains strict for ordinary edits. The only bounded exception is a proven
+  // functional split away from a generic bootstrap/global owner.
+  if (execution.path === EXECUTION_PATHS.FAST && reason !== 'functional-owner-split') {
     const oldLimit = Math.max(0, Number(execution.allow_new_source_files) || 0);
     proposed = Math.min(proposed, oldLimit);
-    if (!proposed && oldLimit === 0 && reason !== 'reuse-existing-owner') reason = 'fast-planner-disallows-new-file';
+    if (!proposed && oldLimit === 0 && !['reuse-existing-owner','explicit-no-new-file'].includes(reason)) reason = 'fast-planner-disallows-new-file';
   }
 
   if (card.type === 'PRODUCTION' && !explicitFile) {
@@ -113,7 +225,12 @@ function requestedFileBudget(prepared = {}) {
     reason,
     explicit_paths:explicitPaths,
     explicit_file:explicitFile,
-    explicit_custom_source:explicitCustom
+    explicit_no_new_file:explicitNoFile,
+    explicit_custom_source:explicitCustom,
+    functional_owner_allowed:reason === 'functional-owner-split',
+    functional_scope:functional.scope || '',
+    generic_owner_paths:functional.generic_paths || [],
+    existing_functional_owner:functional.existing_path || ''
   };
 }
 
@@ -130,14 +247,22 @@ function buildHardRuleContract(prepared = {}) {
   return {
     version:HARD_RULES_VERSION,
     owner_first:{
-      enforced:binding.binding && !filePolicy.explicit_file && !filePolicy.explicit_custom_source,
+      enforced:binding.binding && !filePolicy.explicit_file && !filePolicy.explicit_custom_source && !filePolicy.functional_owner_allowed,
       status:binding.status,
       paths:binding.paths
     },
     file_creation:{
       budget:filePolicy.budget,
       reason:filePolicy.reason,
-      explicit_paths:filePolicy.explicit_paths
+      explicit_paths:filePolicy.explicit_paths,
+      functional_scope:filePolicy.functional_scope || null
+    },
+    functional_ownership:{
+      allowed:filePolicy.functional_owner_allowed,
+      scope:filePolicy.functional_scope || null,
+      generic_owner_paths:filePolicy.generic_owner_paths,
+      existing_owner:filePolicy.existing_functional_owner || null,
+      rule:'reuse scoped owner first; otherwise split stable page/component/module ownership away from generic entry files'
     },
     native_bricks:{
       enabled:bricks,
@@ -148,7 +273,7 @@ function buildHardRuleContract(prepared = {}) {
       root_only_in_owner:!!cssOwner
     },
     project_decisions:decisions,
-    principles:['owner-first','reuse-before-create','no-parallel-owner','native-bricks-before-custom-source','global-tokens-stay-global']
+    principles:['owner-first','reuse-before-create','functional-owner-before-monolith','no-parallel-owner','thin-bootstrap-global-entrypoints','native-bricks-before-custom-source','global-tokens-stay-global']
   };
 }
 
@@ -196,6 +321,22 @@ function validateHardProjectRules(contract = {}, patch = '') {
     violations.push(`New files must stay on explicit user paths: ${[...explicitPaths].join(', ')}`);
   }
 
+  if (contract?.functional_ownership?.allowed && creates.length) {
+    const scope = String(contract.functional_ownership.scope || '');
+    for (const item of creates) {
+      const file = norm(item.path);
+      if (isGenericOwnerPath(file)) {
+        violations.push(`Functional owner split must move responsibility out of generic entry owner: ${file}`);
+      }
+      if (isVagueFunctionalOwnerPath(file)) {
+        violations.push(`Functional owner must use a stable page/component/module name; vague helper/fix/temp/v2/section file is not allowed: ${file}`);
+      }
+      if (scope && !matchesFunctionalScopePath(file, scope)) {
+        violations.push(`New functional owner must match scope ${scope}; received ${file}`);
+      }
+    }
+  }
+
   const owner = contract?.owner_first || {};
   const ownerPaths = new Set(unique(owner.paths || []));
   if (owner.enforced && files.length && ownerPaths.size && files.every(item => !ownerPaths.has(norm(item.path)))) {
@@ -240,17 +381,22 @@ function decoratePrepared(result = {}, contract = {}) {
     constraints,
     hard_rules:contract
   };
+  const functional = contract?.functional_ownership || {};
   const guidance = [
     ...(result?.agent_contract?.guidance || []),
-    `Hard file-creation budget: ${contract.file_creation.budget}. Budget 0 means modify/reuse existing owners only; do not create helper/migration/CSS/PHP files.`,
+    functional.allowed
+      ? `Functional owner budget: ${contract.file_creation.budget} for ${functional.scope}. Reuse an existing scoped owner if found; otherwise create only stable page/component/module owners in the project's established folders. Keep functions.php/style.css/main.css thin or global; do not create per-section, helper, fix, temp or v2 owners.`
+      : `Hard file-creation budget: ${contract.file_creation.budget}. Budget 0 means modify/reuse suitable existing owners only; do not create helper/migration/CSS/PHP files.`,
     contract.owner_first.enforced
       ? `Hard owner-first: patch must include an evidence-backed owner (${contract.owner_first.paths.join(', ')}); do not create a parallel owner.`
-      : 'Owner-first/reuse-first remains mandatory; new owner creation requires explicit source-creation intent.',
+      : functional.allowed
+        ? `Generic owner split is allowed because ${functional.generic_owner_paths.join(', ')} would otherwise grow. New files must match functional scope ${functional.scope}.`
+        : 'Owner-first/reuse-first remains mandatory; new owner creation requires explicit source-creation intent.',
     contract.native_bricks.enabled && !contract.native_bricks.allow_custom_source
       ? 'Hard native-Bricks rule: do not add a shortcode or custom Bricks Element source when native Bricks can own the requested UI.'
       : '',
     contract.global_css.root_only_in_owner
-      ? `Hard global-CSS rule: new :root/global tokens may only be added in ${contract.global_css.owner}.`
+      ? `Hard global-CSS rule: new :root/global tokens may only be added in ${contract.global_css.owner}. Component/page CSS belongs in its scoped owner.`
       : '',
     contract.project_decisions.length
       ? 'Relevant project decisions in hard_project_rules.project_decisions are mandatory conventions for this task.'
@@ -302,7 +448,7 @@ function createHardProjectRulesApi(api) {
             patch_files:check.files,
             file_creation_budget:check.budget,
             hard_project_rules:state.contract,
-            next_action:'Thu nhỏ patch để reuse owner hiện tại. Chỉ re-plan khi yêu cầu của người dùng thật sự cần source owner/file mới.'
+            next_action:'Reuse owner theo đúng chức năng. Nếu owner hiện tại chỉ là functions.php/style.css/global entry và contract cho phép functional split, hãy tạo owner page/component/module có tên ổn định trong đúng cấu trúc project.'
           });
         }
       }
@@ -345,8 +491,12 @@ function installHardProjectRulesPatches() {
 module.exports = {
   HARD_RULES_VERSION,
   stripNegatedSourceCreationEvidence,
+  explicitNoNewFileIntent,
   explicitNewFileIntent,
   explicitCustomBricksSourceIntent,
+  functionalScope,
+  functionalOwnerPolicy,
+  matchesFunctionalScopePath,
   buildHardRuleContract,
   addedLinesByFile,
   validateHardProjectRules,
