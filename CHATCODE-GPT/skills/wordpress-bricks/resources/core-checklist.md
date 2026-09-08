@@ -7,7 +7,8 @@ Loaded for every WordPress + Bricks task. Keep only cross-task rules here; domai
 - Lock to the user-named target/project.
 - Use current project evidence; do not guess owner, template ID, Builder tree, media ID or path.
 - Search/Brain first, then read project-owned code. Open Bricks/Woo/WP core only for a concrete missing dependency.
-- Existing scoped owner wins. Normal edit creates zero files.
+- Keep external references scoped: use the named source first and do not broad-search unrelated websites.
+- Existing scoped owner wins. Normal edit new-file budget is zero.
 - Prefer native Bricks structure/dynamic data before custom source.
 - Preserve unrelated Builder/user edits and shared renderers.
 
@@ -23,7 +24,7 @@ Keep local names short. The theme/project folder already supplies project identi
 
 - Make the smallest owner-scoped patch.
 - A normal code/layout/template change is not a migration.
-- One-time setup must become a no-op after success.
+- One-time setup must terminate and become a no-op after success.
 - Before creating a Bricks template, resolve/adopt the existing intended template by stable ID/marker, type and conditions.
 - Global tokens stay in the global CSS owner; page/component rules stay local.
 
