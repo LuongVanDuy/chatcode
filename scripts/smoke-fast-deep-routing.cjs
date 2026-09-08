@@ -69,8 +69,12 @@ for (const prompt of [mimoHomeExpandedPrompt, mimoOverviewExpandedPrompt]) {
   assert.equal(route.limits.skill_chars, 6500);
 }
 
-assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.FAST);
-assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').lane, EXECUTION_LANES.BUILDER_DELIVERY);
+const headerPreflight = preflightExecutionPath('Tạo Bricks Header template mới');
+assert.equal(headerPreflight.path, EXECUTION_PATHS.FAST);
+assert.equal(headerPreflight.lane, EXECUTION_LANES.FAST, 'preflight must not assume Bricks project evidence from wording alone');
+const headerCard = buildTaskCard({ request:'Tạo Bricks Header template mới', inspect, projectRules:rules });
+assert.equal(headerCard.type, TASK_TYPES.BRICKS_BUILDER);
+assert.equal(headerCard.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY, 'after inspect confirms Bricks, template delivery must use bounded Builder lane');
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.FAST);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').lane, EXECUTION_LANES.BUILDER_DELIVERY);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
@@ -298,7 +302,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDelivery, newFilePatch).ok, fal
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('persisted-data-migration'));
 
-  console.log('Fast/Deep routing smoke test: PASS (LongKhai Micro UI + Mimo Builder Delivery compact naming/template guard + true production/data DEEP + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (LongKhai Micro UI + Mimo Builder Delivery compact naming/template guard + evidence-gated Header + true production/data DEEP)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
