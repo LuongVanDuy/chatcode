@@ -5,10 +5,10 @@ const { resolveBricksSpec, searchBricksKnowledge, formatBricksKnowledge } = requ
 const { stripNegatedStoredStateEvidence } = require('./task-planner');
 
 const SKILL_ROOT = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills');
-const MAX_ENTRY_CHARS = 4200;
-const MAX_RESOURCE_CHARS = 7000;
-const MAX_SKILL_CONTEXT_CHARS = 12000;
-const MAX_DOMAIN_CHARS = 3200;
+const MAX_ENTRY_CHARS = 3600;
+const MAX_RESOURCE_CHARS = 5000;
+const MAX_SKILL_CONTEXT_CHARS = 9000;
+const MAX_DOMAIN_CHARS = 2400;
 const MAX_DOMAINS = 2;
 const CORE_RESOURCE = 'resources/core-checklist.md';
 const WORDPRESS_BRICKS_SKILL_ID = 'wordpress-bricks';
@@ -28,7 +28,7 @@ const DOMAIN_FILES = Object.freeze({
 
 const DOMAIN_COMPACT = Object.freeze({
   wordpress:'WordPress: reuse current owners/APIs/hooks; prefix only public/global boundaries; keep setup/admin work off ordinary frontend requests.',
-  bricks:'Bricks: native elements/dynamic data first; custom element only for a proven native gap; preserve Builder editability/IDs/relations and use exact spec facts only when version evidence supports them.',
+  bricks:'Bricks: native first; resolve/adopt an existing template by stable identity/type/conditions before create; use short local file/class names without repeating the project prefix; preserve Builder IDs/relations and use exact spec facts only with version evidence.',
   woocommerce:'WooCommerce: only when Woo behavior is explicit/relevant; use Woo public APIs/hooks and preserve cart/checkout/order semantics.',
   media:'Media/icons: map reference media by semantic slot with allow_reuse=false by default; use Bricks/native verified icon infrastructure for functional icons.',
   data:'Data: distinguish setup from migration; make seed/migration idempotent, recovery-aware and terminal after success; never keep one-time work on frontend runtime.',
@@ -251,12 +251,12 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
     add(relative, safeRead(path.join(dir, relative), MAX_DOMAIN_CHARS));
   }
 
-  const uiResults = domains.includes('ui') ? searchUiKnowledge(request, inspect, 3) : [];
+  const uiResults = domains.includes('ui') ? searchUiKnowledge(request, inspect, 2) : [];
   const uiContext = formatUiKnowledge(uiResults);
   if (uiContext) add('knowledge/ui-search', uiContext);
 
   const bricksResolution = domains.includes('bricks') ? resolveBricksSpec(inspect) : null;
-  const bricksResults = bricksResolution ? searchBricksKnowledge(request, bricksResolution, 3) : [];
+  const bricksResults = bricksResolution ? searchBricksKnowledge(request, bricksResolution, 2) : [];
   const bricksContext = bricksResolution ? formatBricksKnowledge(bricksResults, bricksResolution) : '';
   if (bricksContext) add('knowledge/bricks-spec', bricksContext);
 
@@ -265,7 +265,7 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
     ...domains.map(domain => `- ${DOMAIN_COMPACT[domain]}`),
     uiContext,
     bricksContext
-  ].filter(Boolean).join('\n').slice(0, 3600);
+  ].filter(Boolean).join('\n').slice(0, 2600);
 
   return {
     resources,
