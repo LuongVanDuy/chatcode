@@ -100,7 +100,7 @@ function hasProductionOperationIntent(request) {
   const productionSignal = /\b(?:ftp|sftp|production|deploy|deployment|hosting|server|cdn)\b|website\s+live|live\s+(?:site|website|frontend)|upload[^\n]{0,70}(?:hosting|server|ftp|sftp)|(?:cache|asset)[^\n]{0,50}(?:live|production)|(?:live|production)[^\n]{0,50}(?:cache|asset)/i.test(text);
   if (!productionSignal) return false;
 
-  const infraOperation = /(?:\b(?:debug|troubleshoot|configure|setup|repair|inspect|check|test|fix)\b|kiểm\s+tra|kiem\s+tra|cấu\s+hình|cau\s+hinh|sửa|sua)[^\n]{0,45}(?:ftp|sftp|hosting|server|cdn|deployment|deploy\s+pipeline)|(?:ftp|sftp|hosting|server|cdn|deployment\s+pipeline)[^\n]{0,45}(?:error|fail|broken|config|permission|timeout|lỗi|loi)/i.test(text);
+  const infraOperation = /(?:\b(?:debug|troubleshoot|configure|setup|repair|inspect|check|test|fix)\b|kiểm\s+tra|kiem\s+tra|cấu\s+hình|cau\s+hình|sửa|sua)[^\n]{0,45}(?:ftp|sftp|hosting|server|cdn|deployment|deploy\s+pipeline)|(?:ftp|sftp|hosting|server|cdn|deployment\s+pipeline)[^\n]{0,45}(?:error|fail|broken|config|permission|timeout|lỗi|loi)/i.test(text);
   if (infraOperation) return true;
 
   const directOperation = /^(?:please\s+|hãy\s+|hay\s+)?(?:deploy|deployment|upload|publish|sync|ftp|sftp|clear\s+cache|purge\s+cdn)\b/i.test(text)
@@ -123,7 +123,7 @@ function classifyTask(request, inspect = {}) {
 
   if (isExplicitFilesystemTask(request) && !hasPersistedStateEvidence(request)) return TASK_TYPES.FAST_UI;
 
-  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|duplicate|duplicates|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
+  const strongData = /\b(?:cpt|database|db|seed|seeding|reseed|migration|migrate|import|export|wpdb|sql)\b|\$wpdb|custom\s+post\s+type|bulk\s+(?:update|import|create)|wp_insert_post|wp_update_post|update_post_meta|update_option|add_option|delete_option|wp_options?|option\s+table|trùng\s+(?:bài|post|template|dữ\s+liệu)|duplicate\s+(?:post|template|record|data)/i.test(evidenceText);
   if (strongData) return TASK_TYPES.DATA;
 
   const builderIntent = /builder[-\s]?editable|builder\s+controls?|set_controls|repeater|custom\s+(?:bricks\s+)?element|query\s+loop|template\s+condition|bricks\s+template|native\s+bricks|bricks\s+(?:page|section|element)|(?:create|build|add|tạo|tao|thêm|them|triển\s+khai)[^\n]{0,70}(?:section|page|trang|template|element)|(?:header|footer|archive|single)[^\n]{0,40}template|template[^\n]{0,40}(?:header|footer|archive|single)/i.test(text);
