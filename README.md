@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.30**
+> Phiên bản hiện tại: **v1.0.31**
 
 ## Kiến trúc
 
@@ -117,18 +117,23 @@ Mục tiêu của Fast Execution Engine là giảm phần thời gian do ChatCod
 
 ### Hard Project Rules
 
-Từ v1.0.28, các nguyên tắc owner-first/reuse-first quan trọng được thực thi ở runtime trước khi patch chạm filesystem:
+Từ v1.0.28, các nguyên tắc owner-first/reuse-first quan trọng được thực thi ở runtime trước khi patch chạm filesystem. v1.0.31 bổ sung **Functional Ownership** để tránh biến các entry file chung thành monolith:
 
-- Task targeted mặc định có **file-creation budget = 0**; budget 0 nghĩa là phải sửa/reuse owner hiện tại, không tự tạo helper CSS/PHP/JS, migration hoặc owner song song.
-- FAST không bao giờ được nới allowance cũ; Hard Project Rules chỉ siết thêm. DEEP cũng phải có source-creation intent rõ ràng mới được cấp budget tạo file.
-- Khi Owner Resolver có `CONFIRMED`/`DETECTED` enforce path, patch phải đi qua evidence-backed owner thay vì bỏ owner để tạo file khác.
+- Chỉnh sửa nhỏ/targeted vẫn mặc định **file-creation budget = 0** và phải reuse owner phù hợp hiện có. Ví dụ sửa padding/header spacing không được tự tạo stylesheet mới.
+- Khi một chức năng/page/component mới thật sự được triển khai, owner hiện tại chỉ là entry/global chung như `functions.php`, `style.css`, `main.css`, `base.css` hoặc `global.css`, và chưa có scoped owner phù hợp, runtime có thể cấp **functional owner budget** có giới hạn thay vì ép toàn bộ code vào file chung.
+- `MICRO_UI` chỉ được tạo tối đa **1 scoped owner**; FAST thông thường tối đa **2 scoped owners** để hỗ trợ một cặp trách nhiệm hợp lý như code + stylesheet.
+- Nếu đã có owner đúng chức năng như `header.css`, `home.css`, `inc/templates/header.php`, `checkout.php`..., budget quay về 0 và owner đó phải được reuse.
+- `functions.php` nên giữ vai trò bootstrap/require/enqueue; `style.css` là metadata/minimal entry; `main.css`/global layer chỉ chứa token/base/site-wide. Header, Footer, Home, product/archive/checkout/account... được phép có owner riêng theo cấu trúc project.
+- Functional owner mới phải có tên ổn định theo page/component/module. Các file kiểu `*-fix`, `*-temp`, `*-v2`, `helper`, `home-section-3.css`, `site-parts.php` bị chặn để không đổi monolith thành file sprawl.
+- Yêu cầu rõ của user như “không tạo file mới” luôn thắng functional split.
+- Khi Owner Resolver có `CONFIRMED`/`DETECTED` scoped owner, patch phải đi qua evidence-backed owner thay vì bỏ owner để tạo file khác.
 - Nếu user yêu cầu rõ file mới và có path cụ thể, budget chỉ cho phép đúng path đó; không tự sinh sibling/helper file.
 - Với project Bricks, UI task ưu tiên native Bricks; shortcode/custom Bricks Element source bị chặn nếu user không yêu cầu custom source rõ ràng.
-- Khi đã xác nhận global CSS owner, `:root`/global token mới chỉ được thêm trong owner đó.
+- Khi đã xác nhận global CSS owner, `:root`/global token mới chỉ được thêm trong owner đó; component/page CSS phải nằm ở scoped owner tương ứng.
 - Relevant project decisions được trả cùng `hard_project_rules` như convention bắt buộc cho task.
 - Vi phạm trả `TASK_SCOPE_VIOLATION` **trước `applyPatch`**, nên không tạo file rồi mới rollback/cleanup.
 
-Hard Project Rules không thay thế Safety, Project Scope, Work Session hay Skill Policy; nó là lớp stricter-only nằm trước mutation.
+Hard Project Rules không thay thế Safety, Project Scope, Work Session hay Skill Policy; nó là lớp stricter owner/architecture guard nằm trước mutation.
 
 ### Work Sessions & recovery
 
@@ -435,7 +440,7 @@ npm run test:notifications
 npm run test:tunnel
 ```
 
-CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:agent` và `test:fastpath` bao gồm regression riêng cho Hard Project Rules; `test:fastpath` cũng bao gồm Fast Execution Engine.
+CI Windows chạy các lớp kiểm tra này trước khi build/publish installer. `test:agent` và `test:fastpath` bao gồm regression riêng cho Hard Project Rules + Functional Ownership; `test:fastpath` cũng bao gồm Fast Execution Engine.
 
 ## Build Windows
 
@@ -509,7 +514,7 @@ PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và 
 | `core/wordpress.js` | WordPress-specific analysis. |
 | `core/retrieval-scope.js` | Scope-aware inspect/retrieval cho Fast Agent. |
 | `core/fast-execution.js` | Coalesced/parallel local I/O và aggregate execution telemetry. |
-| `core/hard-project-rules.js` | Owner-first, hard file-creation budget, native Bricks và global CSS pre-apply guards. |
+| `core/hard-project-rules.js` | Owner-first, bounded Functional Ownership, native Bricks và global CSS pre-apply guards. |
 | `core/agent-runtime.js` | `prepare_task` / `complete_task` và scoped verification. |
 | `core/work-runtime.js` | Work Session, patch transaction và rollback. |
 | `core/terminal-runtime.js` | Trusted shell và background jobs. |
@@ -533,7 +538,8 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Least privilege:** quyền được cấu hình theo từng project.
 - **Recoverable mutations:** thay đổi quan trọng có recovery point hoặc Work Session rollback.
 - **Read before write:** agent được cung cấp context và Brain trước khi patch.
-- **Owner first / reuse before create:** task targeted dùng evidence-backed owner hiện có; file/owner mới phải có explicit source-creation intent và hard budget.
+- **Owner first / functional ownership:** sửa nhỏ reuse evidence-backed owner; chức năng mới chỉ được tách owner khi generic entry sẽ thành monolith, không có scoped owner phù hợp và vẫn nằm trong hard bounded budget.
+- **Thin global entrypoints:** `functions.php`/`style.css`/global CSS không phải nơi mặc định để nhét mọi feature; code/CSS theo page/component/module khi trách nhiệm thực sự độc lập.
 - **Verify after write:** coding flow có scoped verification sau thay đổi; Git chỉ được lấy khi cần.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
@@ -542,12 +548,13 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 
 ## Release hiện tại
 
-**v1.0.30** thêm **Micro UI Latency Guard** cho các task UI nhỏ theo ảnh/mẫu hoặc layout có scope rõ. Prompt thực tế kiểu “build section Home như ảnh” giờ vào lane `MICRO_UI` ngay cả khi không chứa từ khóa CSS/layout. Lane giữ budget **2 context files / 2 patch files / 2.200 ký tự skill context** và đưa stop rules vào Task Card: ưu tiên **2 calls**, tối đa **1 discovery round**, **1 dependency hop**, tối đa **1 extra owner read** khi thật sự cần và **1 verification round**. Git inspection, manual FTP, browser/CDP live verify, database diagnostics và snapshot diagnostics mặc định không nằm trong workflow Micro UI nếu chưa có concrete failure. Hard Project Rules của v1.0.28 vẫn được giữ nguyên.
+**v1.0.31** thêm **Functional Ownership Guard** để cân bằng giữa “reuse trước” và cấu trúc code dễ quản lý. Task chỉnh sửa nhỏ vẫn không được tạo file mới tùy tiện; nhưng khi triển khai một chức năng/page/component mới mà evidence chỉ trỏ tới generic entry như `functions.php`, `style.css` hoặc `main.css`, và chưa có scoped owner phù hợp, ChatCode có thể tách owner ổn định theo chức năng. `MICRO_UI` được tối đa **1** owner mới; FAST thường tối đa **2** owner mới để hỗ trợ code + CSS khi cần. Nếu scoped owner đã tồn tại thì bắt buộc reuse. Runtime đồng thời chặn các tên/file kiểu `*-fix`, `*-temp`, `*-v2`, helper chung chung và `home-section-N.css`, nên việc chống file rác của v1.0.28 vẫn được giữ. Native Bricks, global `:root`, project scope và Micro UI Latency Guard của v1.0.30 không thay đổi.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.31** | Functional Ownership: giữ entry/global files mỏng, cho phép bounded scoped owner theo chức năng thay vì dồn code vào `functions.php`/`style.css`. |
 | **v1.0.30** | Micro UI Latency Guard: reference-image section prompts vào `MICRO_UI` + explicit orchestration stop rules. |
 | **v1.0.29** | Micro Task Latency: targeted CSS/layout dùng 2-file context + 2-file patch budget và compact skill context. |
 | **v1.0.28** | Hard Project Rules: owner-first, zero-default file budget, native Bricks và global CSS owner guards. |
@@ -563,6 +570,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.30**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.31**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
