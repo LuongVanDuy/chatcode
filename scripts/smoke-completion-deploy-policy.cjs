@@ -20,7 +20,7 @@ const {
   assert.equal(failed.agent_contract.result, 'deploy_failed');
   assert.deepEqual(failed.ftp_deploy, ftpFailed);
   assert.match(failed.next_action, /FTP deploy chưa hoàn tất/);
-  assert.doesNotMatch(failed.next_action, /full regression/i);
+  assert.match(failed.next_action, /không chạy lại.*full regression/i);
 
   const noFtp = { ok:true, status:'completed', session:{} };
   assert.equal(completionWithDeployStatus(noFtp), noFtp, 'projects without FTP config must keep existing completion behavior');
