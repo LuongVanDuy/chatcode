@@ -1,68 +1,52 @@
 # WordPress + Bricks Native Delivery v5
 
-## Role
+This is the mandatory umbrella contract for WordPress + Bricks. Runtime adds small task-specific domain packs.
 
-This is the mandatory umbrella contract for projects identified as WordPress + Bricks. Task-specific knowledge is attached as **domain packs**.
+## Workflow
 
-## Core workflow
+`LOCK TARGET -> prepare_task -> smallest owner-scoped change -> complete_task -> PASS -> STOP`
 
-`LOCK TARGET -> prepare_task -> use ranked owner/context -> apply smallest valid change -> verify touched scope -> STOP`
-
-- Use project evidence, Project Profile and Owner Resolver before guessing.
-- Existing owner/component/data source first. A normal edit defaults to zero new source files.
-- Read more only for a concrete dependency.
-- Preserve Builder/user-edited state and confirmed project decisions.
-- Do not broaden into Git, external research, migration, refactor or deployment unless the user/task requires it; configured post-edit sync is allowed.
+- Use project evidence/Owner Resolver; do not guess.
+- Existing owner first. A normal edit defaults to zero new source files.
+- Read more only for one concrete missing dependency.
+- Preserve unrelated Builder/user edits.
+- Do not broaden into Git, external research, migration, refactor or deployment unless the actual task requires it.
 - When a reference site/domain is named, keep it as the scoped source unless unavailable or wider research is requested.
 
-## Native delivery order
-
-Use the first level that fully satisfies the request:
+## Native order
 
 1. Bricks native element/control/template.
-2. Bricks dynamic data / Query Loop / conditions.
-3. WordPress or WooCommerce public API/hook.
+2. Dynamic data / Query Loop / conditions.
+3. WordPress/Woo public API or hook.
 4. Custom Bricks Element only for a proven native gap.
-5. Shortcode wrapper only for legacy compatibility or explicit request.
+5. Shortcode only for legacy compatibility or explicit request.
 
 Normal container/grid/image/icon/text/button/slider/query composition is not a custom-element gap.
 
 ## Domain routing
 
-Runtime attaches `core-checklist.md` plus at most **two** domain packs only when genuinely cross-cutting:
+Runtime attaches the compact core plus at most **two** domain packs:
 
-- `wordpress` — PHP/theme/plugin/hooks/security/ownership.
-- `bricks` — Builder controls/templates/dynamic data/custom elements.
-- `woocommerce` — cart/checkout/order/Woo behavior.
-- `media` — reference images, attachments, SVG/logo/icons.
-- `data` — seed/import/persisted migrations/cleanup lifecycle.
-- `ui` — hierarchy, responsive, typography, components/interaction.
+- `wordpress` — PHP/theme/hooks/ownership
+- `bricks` — Builder/templates/dynamic data
+- `woocommerce` — cart/checkout/order
+- `media` — reference media/icons
+- `data` — seed/import/migration lifecycle
+- `ui` — responsive/design/interaction
 
-A simple task normally gets zero or one domain. Generic words such as `product` do not automatically activate WooCommerce. UI tasks do not activate Builder rules unless Builder structure/controls/templates are actually touched.
+A normal task gets zero or one domain. Generic words such as `product` do not automatically activate WooCommerce.
 
 ## Searchable UI knowledge
 
-For `ui` tasks, runtime performs deterministic local search and attaches at most three matching guidelines. Treat them as recommendations, not project overrides:
-
-- project tokens/components remain source of truth;
-- apply only matches relevant to the touched target;
-- no web search or terminal process is needed;
-- no useful match means no invented database match.
+UI tasks receive at most two deterministic local matches. Project tokens/components remain source of truth; irrelevant matches are ignored; no web/terminal search is required.
 
 ## Cross-cutting invariants
 
-- Prefix collision/storage/security/public identity boundaries only, not every local/descendant identifier.
-- Reference media is slot-specific; accidental attachment reuse is not acceptable by default.
-- Functional icons use verified Bricks/native infrastructure; brand marks use real assets.
-- One-time setup/migration must reach a terminal no-op state and must not keep setup work on normal frontend requests.
-- Global tokens stay with the established global owner; component styling stays scoped unless evidence proves a global issue.
+- Prefix only collision/storage/public boundaries, not local filenames or descendant classes.
+- Reference media remains slot-specific; do not silently reuse unresolved assets.
+- One-time setup/migration must reach a terminal no-op state.
+- Global tokens stay in the global owner; page/component styles stay scoped.
+- `complete_task` owns scoped verification and configured changed-file FTP deployment; never duplicate a successful sync manually.
+- Verify touched scope only. PASS means STOP.
 
-## Project FTP completion
-
-If `.vscode/sftp.json` has `uploadOnSave:true`, sync only current-task changed files after verification. `ftp_deploy` is authoritative; never upload twice. Legacy/direct writes without it use one Trusted Terminal `exec`, never VS Code/Ctrl+S. Credentials stay local to the terminal; remote target is `remotePath + project-relative path`. Delete remote only when the task deleted that file and `watcher.autoDelete:true`. Report skip/failure exactly.
-
-## Completion
-
-Verify only what changed: relevant syntax, Builder structure/editability, Woo semantics, responsive/interaction UI, media uniqueness, and migration idempotency/lifecycle.
-
-Persist only durable user-confirmed project decisions. Never store guesses, credentials, secrets, live URLs or transient IDs. If required verification cannot run, state that exactly.
+Persist only durable user-confirmed project decisions. Never store guesses, credentials or transient diagnostics. If a required check cannot run, report that limitation exactly.
