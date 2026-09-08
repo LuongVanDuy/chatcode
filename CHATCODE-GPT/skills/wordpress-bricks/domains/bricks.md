@@ -1,30 +1,44 @@
 # Bricks Builder domain
 
-Use for Bricks templates, Builder controls, editable sections, Query Loop/dynamic data, template conditions, reusable custom elements and persisted Bricks structure.
+Use for Bricks pages/templates, Builder controls, editable sections, Query Loop/dynamic data and reusable Builder structure.
 
-## Native-first procedure
+## Native-first
 
-1. Use native Bricks elements/controls/templates first.
-2. Use dynamic data, Query Loop and conditions before custom PHP rendering when they fully express the requirement.
-3. A normal section composed of container/grid/image/icon/text/button/slider/query elements is not a custom-element gap.
-4. Create a custom Bricks element only when the requirement has reusable data/behavior that native Builder cannot express cleanly.
-5. If a custom element is justified, ordinary content/options must be Builder-editable through controls; do not force future content edits back into PHP.
-6. Preserve existing Builder IDs, parent/children relationships, conditions and unrelated user-edited settings.
-7. Reuse shared renderers/components before creating another implementation.
+1. Use native Bricks elements/templates/controls first.
+2. Normal container/grid/image/icon/text/button/slider/query layouts are not a custom-element gap.
+3. Use dynamic data, Query Loop and conditions before custom PHP rendering when native Builder can express the requirement.
+4. Create a custom Bricks Element only for proven reusable behavior/data that native Bricks cannot express cleanly.
+5. Preserve existing Builder IDs, parent/children relations, conditions and unrelated user edits.
+6. Reuse current renderers/components/owners before creating parallel implementations.
 
-## Bricks Spec Engine
+## Template identity
 
-- Exact JSON/value-shape knowledge is attached by runtime from a compact version-aware spec, not duplicated in this document.
-- Project/local Bricks evidence has priority over the bundled baseline.
-- If the detected Bricks version does not match the verified baseline, use only invariant facts until local source confirms the exact shape; do not guess setting keys.
-- Generated/changed Bricks JSON must satisfy deterministic tree integrity and supported shape checks before completion.
-- Existing project Theme Styles, global variables/classes and native components are ownership candidates before new CSS/PHP abstractions.
+Before creating a Header/Footer/Archive/Single/reusable template:
 
-## Verification
+```text
+stable template ID/marker
+→ same Bricks template type
+→ same or overlapping conditions
+→ normalized title fallback
+```
 
-- Builder can still edit expected ordinary content/settings.
-- Template type/conditions and parent-child structure remain valid.
-- Existing reusable renderer/element is not duplicated.
-- Query/filter targets point to real loop element IDs when relevant.
-- Bricks JSON structural/spec validation passes when JSON content is touched.
-- CSS/cache regeneration is performed only when the touched Bricks path requires it.
+Found means adopt/update; it does not mean create another copy. Seed/setup must become a no-op after success. Missing marker alone is never enough evidence to duplicate a template.
+
+## Local ownership and naming
+
+Keep project-local names short because the theme folder already supplies project identity.
+
+Prefer `main.css`, `home.css`, `overview.css`, `init.php`, `home.php`, `.home-hero`, `.overview-intro`.
+
+Do not repeat brand/site prefixes such as `mimosa-hotel-*` in ordinary local files/classes, and do not create per-section/helper/v2 files. Prefix only real global/collision boundaries such as PHP public symbols, handles, option/meta keys or custom element names.
+
+## Bricks spec
+
+- Runtime supplies compact version-aware shape knowledge when needed; do not duplicate or guess schema details.
+- Project/local Bricks evidence outranks bundled baseline.
+- If the installed version differs from verified spec, use invariant facts until local evidence confirms exact keys/shapes.
+- Changed Bricks JSON must preserve tree integrity and supported shapes.
+
+## Verify and stop
+
+Verify only the touched Builder scope: editability, template identity/conditions, tree integrity and required responsive state. Regenerate CSS/cache only when the touched path requires it. Once scoped verification passes, stop; do not add another discovery/acceptance round.
