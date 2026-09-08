@@ -76,7 +76,6 @@ for (const prompt of [mimoHomeExpandedPrompt, mimoOverviewExpandedPrompt]) {
 }
 
 assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').path, EXECUTION_PATHS.FAST);
-assert.equal(preflightExecutionPath('Tạo Bricks Header template mới').lane, EXECUTION_LANES.BUILDER_DELIVERY);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').path, EXECUTION_PATHS.FAST);
 assert.equal(preflightExecutionPath('Thêm Builder controls và repeater cho Featured Products').lane, EXECUTION_LANES.BUILDER_DELIVERY);
 assert.equal(preflightExecutionPath('Migrate persisted Bricks Builder data safely').path, EXECUTION_PATHS.DEEP);
@@ -160,25 +159,30 @@ assert.match(micro.constraints.workflow, /prepare_task context -> patch -> compl
 assert.ok(micro.expected_files.length <= 2);
 
 for (const prompt of [mimoHomeExpandedPrompt, mimoOverviewExpandedPrompt]) {
-  const builderDelivery = buildTaskCard({ request:prompt, inspect, projectRules:rules });
-  assert.equal(builderDelivery.type, TASK_TYPES.BRICKS_BUILDER);
-  assert.equal(builderDelivery.execution.path, EXECUTION_PATHS.FAST);
-  assert.equal(builderDelivery.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
-  assert.equal(builderDelivery.execution.context_file_limit, 4);
-  assert.equal(builderDelivery.execution.patch_file_limit, 4);
-  assert.equal(builderDelivery.execution.skill_context_limit_chars, 6500);
-  assert.equal(builderDelivery.execution.latency_guard.diagnostic_round_limit, 1);
-  assert.equal(builderDelivery.execution.latency_guard.corrective_patch_round_limit, 1);
-  assert.equal(builderDelivery.execution.latency_guard.final_verification_round_limit, 1);
-  assert.equal(builderDelivery.execution.latency_guard.allow_manual_ftp, false);
-  assert.equal(builderDelivery.execution.latency_guard.auto_deploy_changed_files, true);
-  assert.equal(builderDelivery.execution.latency_guard.stop_after_scope_verify, true);
-  assert.match(builderDelivery.constraints.workflow, /BUILDER_DELIVERY/);
+  const mimoCard = buildTaskCard({ request:prompt, inspect, projectRules:rules });
+  assert.equal(mimoCard.type, TASK_TYPES.BRICKS_BUILDER);
+  assert.equal(mimoCard.execution.path, EXECUTION_PATHS.FAST);
+  assert.equal(mimoCard.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY);
+  assert.equal(mimoCard.execution.context_file_limit, 4);
+  assert.equal(mimoCard.execution.patch_file_limit, 4);
+  assert.equal(mimoCard.execution.skill_context_limit_chars, 6500);
+  assert.equal(mimoCard.execution.latency_guard.diagnostic_round_limit, 1);
+  assert.equal(mimoCard.execution.latency_guard.corrective_patch_round_limit, 1);
+  assert.equal(mimoCard.execution.latency_guard.final_verification_round_limit, 1);
+  assert.equal(mimoCard.execution.latency_guard.allow_manual_ftp, false);
+  assert.equal(mimoCard.execution.latency_guard.auto_deploy_changed_files, true);
+  assert.equal(mimoCard.execution.latency_guard.stop_after_scope_verify, true);
+  assert.match(mimoCard.constraints.workflow, /BUILDER_DELIVERY/);
 }
 
 const simpleCpt = buildTaskCard({ request:'Đăng ký CPT sản phẩm catalog không WooCommerce trong owner hiện tại', inspect, projectRules:rules });
 assert.equal(simpleCpt.type, TASK_TYPES.DATA);
 assert.equal(simpleCpt.execution.path, EXECUTION_PATHS.FAST, 'simple CPT code registration should not automatically become Deep');
+
+const headerDelivery = buildTaskCard({ request:'Tạo Bricks Header template mới', inspect, projectRules:rules });
+assert.equal(headerDelivery.type, TASK_TYPES.BRICKS_BUILDER);
+assert.equal(headerDelivery.execution.path, EXECUTION_PATHS.FAST);
+assert.equal(headerDelivery.execution.lane, EXECUTION_LANES.BUILDER_DELIVERY, 'framework-aware Task Card may select Builder Delivery after Bricks evidence is available');
 
 const builderDelivery = buildTaskCard({ request:'Thêm Builder controls và repeater cho Featured Products', inspect, projectRules:rules });
 assert.equal(builderDelivery.type, TASK_TYPES.BRICKS_BUILDER);
@@ -310,7 +314,7 @@ assert.equal(validatePatchAgainstTaskCard(realBuilderMigration, newFilePatch).ok
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('persisted-data-migration'));
 
-  console.log('Fast/Deep routing smoke test: PASS (LongKhai Micro UI + Mimo Builder Delivery + bounded recovery contract + true production/data DEEP + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (LongKhai Micro UI + Mimo Builder Delivery + evidence-gated Bricks routing + true production/data DEEP + scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
