@@ -34,10 +34,16 @@ function recoveryShape(state = {}) {
   };
 }
 
+function normalizeProjectKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function createCompletionDeployPolicyApi(api) {
   if (!api || typeof api.completeTask !== 'function' || api.__completionDeployPolicyWrapped) return api;
   api.__completionDeployPolicyWrapped = true;
   const recovery = new Map();
+  const activeByProject = new Map();
+  const projectByTask = new Map();
 
   function remember(taskId, state) {
     const id = String(taskId || '');
@@ -46,28 +52,62 @@ function createCompletionDeployPolicyApi(api) {
     while (recovery.size > MAX_RECOVERY_TASKS) recovery.delete(recovery.keys().next().value);
   }
 
+  function clearActive(taskId) {
+    const id = String(taskId || '');
+    const key = projectByTask.get(id);
+    if (key && activeByProject.get(key)?.task_id === id) activeByProject.delete(key);
+    projectByTask.delete(id);
+    recovery.delete(id);
+  }
+
   if (typeof api.prepareTask === 'function') {
     const originalPrepare = api.prepareTask.bind(api);
     api.prepareTask = async (...args) => {
+      const projectKey = normalizeProjectKey(args[0]);
+      const active = projectKey ? activeByProject.get(projectKey) : null;
+      if (active && recovery.has(active.task_id)) {
+        const state = recovery.get(active.task_id);
+        return {
+          ...active.prepared,
+          status:'active_task_reused',
+          reused_active_task:true,
+          requested_request:String(args[1] || '').trim(),
+          recovery_budget:recoveryShape(state),
+          next_action:state?.exhausted
+            ? 'Task hiện tại đã hết recovery budget. Không prepare lại. Báo failure hoặc rollback_work với cùng task_id.'
+            : 'Project đang có task active. Không mở work session mới; tiếp tục bằng complete_task với cùng task_id, hoặc rollback_work nếu muốn hủy task cũ.',
+          agent_contract:{
+            ...(active.prepared?.agent_contract || {}),
+            next_tool:state?.exhausted ? 'rollback_work_or_report' : 'complete_task',
+            guidance:[
+              ...(active.prepared?.agent_contract?.guidance || []),
+              'prepare_task đã được gọi cho project này và task vẫn active. Không prepare/re-plan lại; reuse cùng task_id để tránh orchestration loop.'
+            ]
+          }
+        };
+      }
+
       const prepared = await originalPrepare(...args);
       if (prepared?.status !== 'ready' || !prepared?.task_id) return prepared;
       const id = String(prepared.task_id);
-      const bounded = !!prepared?.task_card?.execution?.latency_guard;
       const state = { verification_failures:0, corrective_passes_used:0, exhausted:false };
-      if (bounded) remember(id, state);
-      else recovery.delete(id);
+      remember(id, state);
+      if (projectKey) {
+        const stablePrepared = { ...prepared };
+        activeByProject.set(projectKey, { task_id:id, prepared:stablePrepared });
+        projectByTask.set(id, projectKey);
+      }
       return {
         ...prepared,
-        recovery_budget:bounded ? recoveryShape(state) : null,
+        recovery_budget:recoveryShape(state),
         agent_contract:{
           ...(prepared.agent_contract || {}),
           guidance:[
             ...(prepared?.agent_contract?.guidance || []),
+            'Mọi coding task đều dùng bounded flow, kể cả persisted data/production-risk work. Không có task nào được tự mở vòng orchestration vô hạn.',
             'complete_task finalization already owns configured changed-files-only FTP deploy. Do not run manual FTP/SFTP/curl upload while this task is healthy.',
-            ...(bounded ? [
-              'Bounded task flow: after a concrete verification failure, use at most one scoped diagnostic if needed and one corrective complete_task pass. Do not start broad browser/DB/Git/snapshot investigations.',
-              'If scoped verification and configured deploy pass, STOP immediately. Do not add extra acceptance rounds just to be safe.'
-            ] : [])
+            'Sau concrete verification failure, dùng tối đa một scoped diagnostic nếu thật sự cần rồi một corrective complete_task pass. Không mở broad browser/DB/Git/snapshot investigation.',
+            'Nếu scoped verification và configured deploy PASS, STOP ngay. Không prepare lại hoặc thêm acceptance rounds chỉ để kiểm cho chắc.'
           ]
         }
       };
@@ -84,7 +124,7 @@ function createCompletionDeployPolicyApi(api) {
       throw chatError('TASK_SCOPE_VIOLATION', 'Recovery budget của task đã hết. Không áp dụng thêm patch tự động.', {
         task_id:id,
         recovery_budget:recoveryShape(state),
-        next_action:'Dừng sidequest. Báo failure hiện tại cho người dùng hoặc rollback_work; chỉ tạo task mới khi có yêu cầu/decision mới.'
+        next_action:'Dừng sidequest. Báo failure hiện tại cho người dùng hoặc rollback_work; chỉ tạo task mới sau khi task active đã kết thúc.'
       });
     }
 
@@ -117,17 +157,17 @@ function createCompletionDeployPolicyApi(api) {
           ok:false,
           status:'recovery_exhausted',
           recovery_budget:recoveryShape(state),
-          next_action:'Corrective pass vẫn fail. STOP: không diagnostic/patch/deploy thêm. Báo concrete verification failure cho người dùng hoặc rollback_work.'
+          next_action:'Corrective pass vẫn fail. STOP: không diagnostic/patch/deploy/prepare thêm. Báo concrete verification failure hoặc rollback_work.'
         };
       }
       return {
         ...result,
         recovery_budget:recoveryShape(state),
-        next_action:'Có concrete verification failure. Nếu cần, dùng đúng 1 scoped diagnostic để xác định nguyên nhân; sau đó dùng 1 corrective unified diff với cùng task_id. Không manual FTP/Git/browser/DB/snapshot sidequest.'
+        next_action:'Có concrete verification failure. Nếu cần, dùng đúng 1 scoped diagnostic để xác định nguyên nhân; sau đó dùng 1 corrective unified diff với cùng task_id. Không prepare lại, manual FTP, Git, browser, DB hoặc snapshot sidequest.'
       };
     }
 
-    if (['completed','rolled_back'].includes(status) || result?.status === 'deploy_failed') recovery.delete(id);
+    if (['completed','rolled_back'].includes(status) || result?.status === 'deploy_failed') clearActive(id);
     return bounded ? { ...result, recovery_budget:recoveryShape(state) } : result;
   };
 
@@ -135,7 +175,7 @@ function createCompletionDeployPolicyApi(api) {
     const originalRollback = api.rollbackWork.bind(api);
     api.rollbackWork = async (taskId, ...args) => {
       const result = await originalRollback(taskId, ...args);
-      recovery.delete(String(taskId || ''));
+      clearActive(taskId);
       return result;
     };
   }
