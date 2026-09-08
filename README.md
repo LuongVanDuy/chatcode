@@ -8,7 +8,7 @@
 
 Ứng dụng không nhúng một AI chat riêng và không cần OpenAI API key. ChatGPT thực hiện suy luận; ChatCode cung cấp quyền truy cập có kiểm soát vào source code, filesystem, Git, terminal và ngữ cảnh dự án cục bộ.
 
-> Phiên bản hiện tại: **v1.0.31**
+> Phiên bản hiện tại: **v1.0.32**
 
 ## Kiến trúc
 
@@ -97,7 +97,7 @@ complete_task
 
 Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`. Git là lazy theo mặc định trong coding path; status/diff chỉ được lấy khi luồng thực sự cần hoặc người dùng gọi Git rõ ràng.
 
-Nếu verification fail, task giữ nguyên trạng thái để AI tạo corrective patch với cùng `task_id` thay vì inspect lại từ đầu.
+Từ v1.0.32, native Bricks page/section/template/control delivery dùng lane `BUILDER_DELIVERY` có bounded context/patch budget thay vì tự động rơi vào DEEP. Bounded task chỉ có tối đa một diagnostic round và một corrective completion pass; PASS thì dừng ngay.
 
 Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnSave:true` có thể tự đồng bộ **chỉ các file của task vừa thay đổi** qua Trusted Terminal sau khi verification PASS. FTP fail được trả về `deploy_failed`, nên agent không được báo website đã cập nhật khi local code mới chỉ verify thành công.
 
@@ -467,19 +467,13 @@ Workflow `build-windows.yml` chạy trên Windows và thực hiện:
 
 1. Install dependencies với Node.js 24.
 2. Syntax check.
-3. Browser Workspace smoke test.
-4. MCP protocol smoke test.
-5. Safety & Recovery tests.
-6. Trusted Workspace/Terminal tests.
-7. Codex-style editing và Fast Agent Path/Fast Execution/Hard Project Rules tests.
-8. Project Brain + WordPress Brain tests.
-9. WordPress + Bricks skill tests.
-10. Legacy 13-tool skill exposure test.
-11. Filesystem regression, Support, updater và notification tests.
-12. Build NSIS installer.
-13. Verify `latest.yml` updater metadata.
-14. Smoke test remote MCP tunnel.
-15. Publish/update GitHub Release khi phù hợp.
+3. Task-flow release gate.
+4. WordPress + Bricks release gate.
+5. Runtime regression/updater gate.
+6. Build NSIS installer.
+7. Verify `latest.yml` updater metadata.
+8. Smoke test remote MCP tunnel.
+9. Publish/update GitHub Release khi phù hợp.
 
 PR dùng selective test groups theo subsystem bị thay đổi; `main`, tag và release vẫn chạy full gate. Skill-only changes còn có workflow riêng tại `test-chatcode-gpt-skills.yml`.
 
@@ -545,15 +539,17 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
 - **Concurrent project isolation:** project A và B được phép chạy song song, nhưng mỗi task/Work Session/terminal holder chỉ được mutate project đã tạo holder đó.
 - **Fast without fake PASS:** tối ưu latency bằng cache/coalescing/parallelism có giới hạn; không bỏ safety hoặc biến test chưa chạy thành PASS.
+- **Bounded completion:** `MICRO_UI` và `BUILDER_DELIVERY` không được mở recovery sidequest vô hạn; một diagnostic + một corrective pass là giới hạn mặc định.
 
 ## Release hiện tại
 
-**v1.0.31** thêm **Functional Ownership Guard** để cân bằng giữa “reuse trước” và cấu trúc code dễ quản lý. Task chỉnh sửa nhỏ vẫn không được tạo file mới tùy tiện; nhưng khi triển khai một chức năng/page/component mới mà evidence chỉ trỏ tới generic entry như `functions.php`, `style.css` hoặc `main.css`, và chưa có scoped owner phù hợp, ChatCode có thể tách owner ổn định theo chức năng. `MICRO_UI` được tối đa **1** owner mới; FAST thường tối đa **2** owner mới để hỗ trợ code + CSS khi cần. Nếu scoped owner đã tồn tại thì bắt buộc reuse. Runtime đồng thời chặn các tên/file kiểu `*-fix`, `*-temp`, `*-v2`, helper chung chung và `home-section-N.css`, nên việc chống file rác của v1.0.28 vẫn được giữ. Native Bricks, global `:root`, project scope và Micro UI Latency Guard của v1.0.30 không thay đổi.
+**v1.0.32** tập trung vào **Lean/Boun​​ded Task Flow**: native Bricks delivery không còn tự động rơi vào DEEP chỉ vì prompt có `deploy/live/verify`; bounded task khóa lane, context/patch budget và recovery rounds; `complete_task` sở hữu verify + changed-files deploy và PASS là trạng thái kết thúc. Bricks skill đồng thời ưu tiên resolve/adopt template hiện có trước create để tránh duplicate, dùng short local naming như `main.css`, `home.css`, `home.php`, `.home-hero`, và giảm context budget. CI PR chuyển sang impacted tests, còn full Windows/release gate chỉ chạy trên `main`/release.
 
 ### Các bản gần đây
 
 | Version | Trọng tâm |
 | --- | --- |
+| **v1.0.32** | Lean/Bounded Task Flow: Builder Delivery lane, bounded recovery, compact Bricks context, duplicate-safe template ownership, short local naming và selective PR CI. |
 | **v1.0.31** | Functional Ownership: giữ entry/global files mỏng, cho phép bounded scoped owner theo chức năng thay vì dồn code vào `functions.php`/`style.css`. |
 | **v1.0.30** | Micro UI Latency Guard: reference-image section prompts vào `MICRO_UI` + explicit orchestration stop rules. |
 | **v1.0.29** | Micro Task Latency: targeted CSS/layout dùng 2-file context + 2-file patch budget và compact skill context. |
@@ -570,6 +566,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.31**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+Source/package hiện đặt target release **1.0.32**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.
