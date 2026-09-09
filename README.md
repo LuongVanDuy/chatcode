@@ -108,6 +108,8 @@ Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnS
 
 ### Work Sessions & recovery
 
+Nếu cần deploy thủ công bằng danh sách file, dùng [bộ mẫu FTP](docs/ftp-deploy.md): AI chỉ sửa `.chatcode/ftp-files.json` rồi chạy `.chatcode/deploy-ftp.ps1`. Runner đọc cấu hình tại máy, kiểm tra SHA-256 và bỏ qua file remote đã đúng; không phải tự dựng lệnh FTP cho mỗi task.
+
 - Tạo baseline trước khi chỉnh sửa.
 - Apply unified diff nhiều file theo transaction.
 - Preflight patch trước khi ghi.

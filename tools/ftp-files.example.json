@@ -1,0 +1,7 @@
+{
+  "files": [
+    "wp-content/themes/bricks-child/functions.php",
+    "wp-content/themes/bricks-child/assets/css/promotion.css",
+    "wp-content/themes/bricks-child/inc/setup/promotion-archive.php"
+  ]
+}

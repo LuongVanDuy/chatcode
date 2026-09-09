@@ -16,6 +16,7 @@
     "test:wordpress": "node scripts/smoke-wordpress.cjs",
     "test:wordpress-bricks-skill": "node scripts/smoke-wordpress-bricks-skill.cjs && node scripts/smoke-ftp-deploy.cjs && node scripts/smoke-completion-deploy-policy.cjs",
     "test:ftp-deploy": "node scripts/smoke-ftp-deploy.cjs && node scripts/smoke-completion-deploy-policy.cjs",
+    "test:ftp-runner": "node scripts/smoke-ftp-runner.cjs",
     "test:bricks-spec": "node scripts/smoke-bricks-spec.cjs",
     "test:renderer-foundation": "node scripts/smoke-renderer-foundation.cjs",
     "test:browser": "node scripts/smoke-browser-workspace.cjs",
