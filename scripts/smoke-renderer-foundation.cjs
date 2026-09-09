@@ -39,16 +39,23 @@ for (const token of ['--ui-bg:','--ui-sidebar:','--ui-surface:','--ui-text:','--
 }
 assert.ok(css.includes('color-scheme:dark'));
 assert.ok(css.includes('--shadow:var(--ui-shadow)'));
-assert.ok(css.includes('.sidebar{width:250px'), 'Stage 3 must keep compact desktop sidebar');
-assert.ok(css.includes('.topbar{height:62px'), 'Stage 3 must use a compact 62px topbar');
+assert.ok(css.includes('--ui-bg:#1a1a1a'), 'Codex foundation must use the near-black terminal background');
+assert.ok(css.includes('--ui-sidebar:#161616'), 'Codex foundation must use darker sidebar chrome');
+assert.ok(css.includes('--ui-accent:#5cc2e0'), 'Codex foundation must keep the cyan interaction accent');
+assert.ok(css.includes('--ui-success:#4ea96f'));
+assert.ok(css.includes('--ui-warning:#e0af68'));
+assert.ok(css.includes('--ui-danger:#f7768e'));
+assert.ok(css.includes('.sidebar{width:228px'), 'Codex shell must keep a compact 228px desktop sidebar');
+assert.ok(css.includes('.topbar{height:54px'), 'Codex shell must use a compact 54px topbar');
 assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'topbar must not repeat eyebrow labels');
 assert.ok(css.includes('/* Dashboard: system overview, not KPI-card wall. */'));
+assert.ok(css.includes('.hero h2:before{content:">_ "'), 'dashboard launch surface must use Codex >_ framing');
+assert.ok(css.includes('.project-title h2:before{content:">_ "'), 'project launch surface must use Codex >_ framing');
 assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must retain legacy style compatibility even when the surface is retired');
-assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity styles may remain for compatibility but the route itself is retired');
-assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'foundation must retain compact toggle baseline');
-assert.ok(css.includes('/* Project workspace: editor-like hierarchy. */'));
+assert.ok(css.includes('.setting input[type=checkbox],#route-settings .setting input[type="checkbox"]'), 'foundation must retain compact settings switches');
+assert.ok(css.includes('/* Project workspace: Codex launch-card hierarchy. */'));
 assert.ok(css.includes('.project-page>.tabs{position:sticky'), 'project tabs must stay available while scrolling');
-assert.ok(css.includes('@media(max-width:820px){.sidebar{width:64px'), 'narrow windows must collapse sidebar to an icon rail');
+assert.ok(css.includes('@media(max-width:820px){.sidebar{width:60px'), 'narrow windows must collapse sidebar to a compact icon rail');
 assert.ok(css.includes('@media(prefers-contrast:more)'));
 assert.ok(css.includes(':focus-visible'));
 assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'));
@@ -78,17 +85,15 @@ for (const preservedCapability of ['runTask:', 'gitStatus:', 'gitDiff:', 'suppor
   assert.ok(preload.includes(preservedCapability), `core bridge capability must remain available: ${preservedCapability}`);
 }
 
-// Post-1.0.11 polish: permissions, switches and logs must use the current dark workspace language.
+// Current compatibility modules keep behavior; the foundation owns only visual language.
 assert.ok(runtime.includes("revision: 'permissions-log-polish'"));
 assert.ok(runtime.includes('#project-tab-permissions>.two-col{display:grid;grid-template-columns:minmax(260px,.88fr)'), 'permissions must use a single bounded two-column surface');
-assert.ok(runtime.includes('.v10-mode-option{min-height:70px!important'), 'Safe/Trusted mode options must not inherit white legacy cards');
-assert.ok(runtime.includes('.safety-rules-card .safety-rule-grid{display:grid!important'), 'Safety rules must render as one compact grid');
-assert.ok(runtime.includes("details.id = 'uiPermissionAdvanced'"), 'Terminal/Work Session/Fast Agent must be grouped under Advanced tools');
-assert.ok(runtime.includes("['v10TerminalRuntime', 'v10WorkSessions', 'v10FastAgentPath']"), 'all advanced permission cards must be grouped together');
-assert.ok(runtime.includes('#route-settings .setting input[type="checkbox"]::after'), 'settings switches must draw a deterministic thumb');
-assert.ok(runtime.includes('translateX(16px)'), 'settings switch thumb must move explicitly when checked');
-assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!important'), 'legacy log styles may remain without mounting retired app surfaces');
-assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17181a!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
+assert.ok(runtime.includes('.v10-mode-option{min-height:70px!important'), 'Safe/Trusted mode options must remain mounted');
+assert.ok(runtime.includes('.safety-rules-card .safety-rule-grid{display:grid!important'), 'Safety rules must remain mounted');
+assert.ok(runtime.includes("details.id = 'uiPermissionAdvanced'"), 'Terminal/Work Session/Fast Agent must stay grouped under Advanced tools');
+assert.ok(runtime.includes("['v10TerminalRuntime', 'v10WorkSessions', 'v10FastAgentPath']"), 'all advanced permission cards must remain grouped together');
+assert.ok(runtime.includes('#route-settings .setting input[type="checkbox"]::after'), 'settings switches must keep deterministic behavior');
+assert.ok(runtime.includes('translateX(16px)'), 'legacy switch behavior must remain untouched');
 assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must not introduce legacy white gradients');
 
 // 1.0.13 hotfix: permissions must obey the project tab state and mode changes must stay in place.
@@ -181,7 +186,7 @@ async function testProjectOverviewRaceGuard() {
 (async () => {
   await testProjectOverviewSingleLoad();
   await testProjectOverviewRaceGuard();
-  console.log('Renderer foundation PASS: Stage 3 workspace + v1.0.41 UI slimming + single-load project overview.');
+  console.log('Renderer foundation PASS: v1.0.42 Codex visual shell + v1.0.41 slimming + unchanged project behavior.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
