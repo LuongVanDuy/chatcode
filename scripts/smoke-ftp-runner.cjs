@@ -1,4 +1,5 @@
 // Uses the real Windows PowerShell/curl runner against an isolated loopback FTP fixture.
+if (process.platform !== 'win32') { console.log('FTP runner smoke skipped: Windows PowerShell/curl test.'); process.exit(0); }
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
