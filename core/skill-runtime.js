@@ -10,6 +10,7 @@ const MAX_RESOURCE_CHARS = 7000;
 const MAX_SKILL_CONTEXT_CHARS = 12000;
 const MAX_DOMAIN_CHARS = 3200;
 const MAX_DOMAINS = 2;
+const MAX_TARGETED_EXCERPT_CHARS = 1400;
 const CORE_RESOURCE = 'resources/core-checklist.md';
 const WORDPRESS_BRICKS_SKILL_ID = 'wordpress-bricks';
 const SUPPORT_RESOURCES = new Set(['resources/snippets.md', 'resources/patterns.md']);
@@ -231,7 +232,42 @@ function loadResourcesWithBudget(dir, selected) {
   };
 }
 
-function loadDomainPacks(dir, domains, request, inspect = null) {
+function excerptTerms(value) {
+  const stop = new Set(['the','and','for','with','this','that','from','into','trong','cho','của','cua','với','voi','một','mot','phần','phan','sửa','sua','chỉnh','chinh','thêm','them','tạo','tao']);
+  return [...new Set(String(value || '').toLowerCase().split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 3 && !stop.has(token)))].slice(0,18);
+}
+
+function markdownExcerpt(content, query, maxChars = MAX_TARGETED_EXCERPT_CHARS) {
+  const raw = String(content || '').trim();
+  if (!raw) return '';
+  const terms = excerptTerms(query);
+  const sections = raw.split(/(?=^##+\s+)/gm).map((section, index) => ({ section:section.trim(), index })).filter(item => item.section);
+  const scored = sections.map(item => {
+    const haystack = item.section.toLowerCase();
+    const heading = String(item.section.split('\n')[0] || '').toLowerCase();
+    let score = 0;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += term.length >= 7 ? 3 : 2;
+      if (heading.includes(term)) score += 2;
+    }
+    return { ...item, score };
+  }).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.index - b.index);
+  const picked = (scored.length ? scored : sections.slice(0,1)).slice(0,2).sort((a,b) => a.index - b.index);
+  return picked.map(item => item.section).join('\n\n').slice(0, Math.max(200, Number(maxChars) || MAX_TARGETED_EXCERPT_CHARS));
+}
+
+function targetedResourceForTask(request, taskCard = null) {
+  const text = `${String(request || '')}\n${String(taskCard?.target || '')}`.toLowerCase();
+  if (/template\s+condition|bricks\s+template|archive|taxonomy|single\s+(?:post|product|template)|header\s+template|footer\s+template|native\s+main\s+query|main\s+query/.test(text)) {
+    return { file:'resources/templates.md', name:'knowledge/templates-excerpt' };
+  }
+  if (/functions\.php|\bfile\b|\bfolder\b|filename|\bpath\b|child\s*theme|prefix|namespace|refactor|\bowner\b|đặt\s+tên|dat\s+ten|tên\s+file|ten\s+file|thư\s+mục|thu\s+muc|file\s+css|css\s+file/.test(text)) {
+    return { file:'resources/code-organization.md', name:'knowledge/code-organization-excerpt' };
+  }
+  return null;
+}
+
+function loadDomainPacks(dir, domains, request, inspect = null, taskCard = null) {
   const resources = [];
   const omitted = [];
   let usedChars = 0;
@@ -251,6 +287,12 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
     add(relative, safeRead(path.join(dir, relative), MAX_DOMAIN_CHARS));
   }
 
+  const targeted = targetedResourceForTask(request, taskCard);
+  const targetedContext = targeted
+    ? markdownExcerpt(safeRead(path.join(dir, targeted.file), MAX_RESOURCE_CHARS), `${request}\n${taskCard?.target || ''}`)
+    : '';
+  if (targetedContext) add(targeted.name, targetedContext);
+
   const uiResults = domains.includes('ui') ? searchUiKnowledge(request, inspect, 3) : [];
   const uiContext = formatUiKnowledge(uiResults);
   if (uiContext) add('knowledge/ui-search', uiContext);
@@ -263,6 +305,7 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
   const compact = [
     domains.length ? `Task domains: ${domains.join(', ')}` : 'Task domains: core only',
     ...domains.map(domain => `- ${DOMAIN_COMPACT[domain]}`),
+    targetedContext,
     uiContext,
     bricksContext
   ].filter(Boolean).join('\n').slice(0, 3600);
@@ -279,6 +322,7 @@ function loadDomainPacks(dir, domains, request, inspect = null) {
       exceeded_by_required_rules:false,
       omitted_support_resources:omitted,
       selected_domains:domains,
+      targeted_resource:targetedContext ? targeted?.file || null : null,
       max_domains:MAX_DOMAINS,
       ui_guidance_count:uiResults.length,
       bricks_guidance_count:bricksResults.length,
@@ -298,7 +342,7 @@ function loadWordPressBricksSkill(inspect, request, taskCard = null) {
   const instructions = safeRead(path.join(dir, String(manifest.entry || 'SKILL.md')), MAX_ENTRY_CHARS);
   if (!instructions) return null;
   const domains = routeSkillDomains(request, inspect, taskCard);
-  const loadedDomains = loadDomainPacks(dir, domains, request, inspect);
+  const loadedDomains = loadDomainPacks(dir, domains, request, inspect, taskCard);
   const specInfo = loadedDomains.bricks_resolution ? {
     source:loadedDomains.bricks_resolution.source,
     status:loadedDomains.bricks_resolution.status,
@@ -335,6 +379,7 @@ module.exports = {
   WORDPRESS_BRICKS_SKILL_ID,
   MAX_SKILL_CONTEXT_CHARS,
   MAX_DOMAINS,
+  MAX_TARGETED_EXCERPT_CHARS,
   DOMAIN_FILES,
   DOMAIN_COMPACT,
   SUPPORT_RESOURCES,
@@ -349,6 +394,9 @@ module.exports = {
   chooseResources,
   routeSkillDomains,
   loadResourcesWithBudget,
+  excerptTerms,
+  markdownExcerpt,
+  targetedResourceForTask,
   loadDomainPacks,
   loadWordPressBricksSkill,
   skillsForTask
