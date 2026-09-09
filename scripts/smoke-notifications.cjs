@@ -26,9 +26,16 @@ async function testAuditDoesNotBecomeNotificationEvent() {
     })
   };
   const usage = createUsageService(store, { onActivity:entry => { callback = entry; } });
-  await usage.record({ tool:'exec', category:'task', projectId:'p1', target:'npm run build', ok:true });
+  await usage.record({ tool:'exec', category:'task', projectId:'p1', target:'npm run build', ok:true, taskId:'task-1', workSessionId:'task-1', phase:'verify' });
   assert.equal(callback.category, 'task-audit', 'live task audit must not trigger main task notification');
-  assert.equal(usage.snapshot(1).recent[0].category, 'task', 'persisted Activity category must stay task');
+  assert.equal(callback.taskId, 'task-1');
+  assert.equal(callback.workSessionId, 'task-1');
+  assert.equal(callback.phase, 'verify');
+  const recent = usage.snapshot(1).recent[0];
+  assert.equal(recent.category, 'task', 'persisted Activity category must stay task');
+  assert.equal(recent.taskId, 'task-1', 'task trace id must survive persistence');
+  assert.equal(recent.workSessionId, 'task-1', 'work session id must survive persistence');
+  assert.equal(recent.phase, 'verify', 'task phase must survive persistence');
 }
 
 async function testFastAgentOnlyNotifiesAtFinish() {
@@ -114,7 +121,7 @@ function testUiWiring() {
   await testNeedsFixDoesNotNotify();
   testNewProjectDefaultsTrusted();
   testUiWiring();
-  console.log('Task-level notification smoke passed: one task → one final notification; new projects default Trusted/full.');
+  console.log('Task-level notification smoke passed: one task → one final notification; trace metadata persists; new projects default Trusted/full.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
