@@ -2,7 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { planWordPressRetrieval, classifyWordPressPath } = require('../core/wordpress-retrieval');
-const { createScopedInspect, readRelevantFiles } = require('../core/retrieval-scope');
+const { createScopedInspect, readRelevantFiles, MAX_SOURCE_CONTEXT_CHARS, SOURCE_FILE_CHAR_LIMITS } = require('../core/retrieval-scope');
 const { createAgentRuntime, verificationHints } = require('../core/agent-runtime');
 const { chooseResources } = require('../core/skill-runtime');
 
@@ -83,6 +83,13 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
   assert.equal(maxActiveReads, 3, 'scoped context files should be read concurrently');
   assert.deepEqual(concurrent.map(item => item.path), ['a.php','b.php','c.php'], 'concurrent reads must preserve ranked order');
 
+  const budgeted = await readRelevantFiles({
+    readFile:async () => ({ content:'x'.repeat(40000) })
+  }, 'p1', SOURCE_FILE_CHAR_LIMITS.map((_, index) => ({ path:`owner-${index + 1}.php` })));
+  assert.deepEqual(budgeted.map(item => item.content.length), SOURCE_FILE_CHAR_LIMITS, 'ranked owner context caps must stay deterministic');
+  assert.equal(budgeted.reduce((sum, item) => sum + item.content.length, 0), MAX_SOURCE_CONTEXT_CHARS, 'prepare source payload must stay inside total context budget');
+  assert.ok(budgeted.every(item => item.content_truncated === true));
+
   const readPaths = [];
   const contextLimits = [];
   let searchCalls = 0;
@@ -115,6 +122,8 @@ assert.equal(nonWp.scope.strategy, 'project-ranked');
   assert.equal(inspected.relevant_files.length, 2);
   assert.equal(inspected.retrieval_scope.strategy, 'wordpress-scope-first');
   assert.equal(inspected.retrieval_scope.explicit_expansion_search, false);
+  assert.equal(inspected.retrieval_scope.source_context_budget_chars, MAX_SOURCE_CONTEXT_CHARS);
+  assert.ok(inspected.retrieval_scope.source_context_chars <= MAX_SOURCE_CONTEXT_CHARS);
   assert.ok(inspected.retrieval_scope.omitted_count >= 5);
 
   readPaths.length = 0;
