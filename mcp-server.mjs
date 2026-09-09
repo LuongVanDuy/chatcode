@@ -69,6 +69,22 @@ function activityMeta(tool, args = {}) {
   }
 }
 
+export function activityTrace(tool, args = {}, value = null) {
+  const taskId = String(args.task_id || value?.task_id || value?.work_session_id || '').slice(0,80);
+  const workSessionId = String(args.work_session_id || value?.work_session_id || value?.task_id || args.task_id || '').slice(0,80);
+  const phase = ({
+    prepare_task:'prepare', start_work:'prepare',
+    complete_task:'complete', apply_patch:'edit',
+    run_task:'verify', exec:'terminal',
+    work_status:'status', finish_work:'finish', rollback_work:'rollback'
+  })[tool] || '';
+  return {
+    ...(taskId ? { taskId } : {}),
+    ...(workSessionId ? { workSessionId } : {}),
+    ...(phase ? { phase } : {})
+  };
+}
+
 export function toolSucceeded(value) {
   if (!value || typeof value !== 'object') return true;
   if (value.ok !== false && value.status === 'stopped' && (value.stop_reason === 'user' || value.stop_requested)) return true;
@@ -84,12 +100,12 @@ function wrap(api, tool, fn) {
     const safeArgs = args || {}, started = Date.now(), meta = activityMeta(tool, safeArgs), bytesIn = byteSize(safeArgs);
     try {
       const value = await fn(safeArgs); const elapsed = Date.now() - started; const telemetry = telemetryShape(value?.telemetry || {}, elapsed);
-      const ok = toolSucceeded(value);
-      if (typeof api.recordActivity === 'function') try { await api.recordActivity({ tool, ...meta, ok, durationMs:elapsed, bytesIn, bytesOut:byteSize(value), ...(ok ? {} : { error:`${value?.status || 'failed'}${value?.exit_code != null ? ` (exit ${value.exit_code})` : ''}` }) }); } catch {}
+      const ok = toolSucceeded(value), trace = activityTrace(tool, safeArgs, value);
+      if (typeof api.recordActivity === 'function') try { await api.recordActivity({ tool, ...meta, ...trace, ok, durationMs:elapsed, bytesIn, bytesOut:byteSize(value), ...(ok ? {} : { error:`${value?.status || 'failed'}${value?.exit_code != null ? ` (exit ${value.exit_code})` : ''}` }) }); } catch {}
       return { ...result(value, telemetry), ...(ok ? {} : { isError:true }) };
     } catch (error) {
-      const elapsed = Date.now() - started, normalized = normalizeError(error), telemetry = telemetryShape({}, elapsed);
-      if (typeof api.recordActivity === 'function') try { await api.recordActivity({ tool, ...meta, ok:false, durationMs:elapsed, bytesIn, bytesOut:byteSize(normalized), error:`${normalized.code}: ${normalized.message}` }); } catch {}
+      const elapsed = Date.now() - started, normalized = normalizeError(error), telemetry = telemetryShape({}, elapsed), trace = activityTrace(tool, safeArgs);
+      if (typeof api.recordActivity === 'function') try { await api.recordActivity({ tool, ...meta, ...trace, ok:false, durationMs:elapsed, bytesIn, bytesOut:byteSize(normalized), error:`${normalized.code}: ${normalized.message}` }); } catch {}
       return errorResult(error, telemetry);
     }
   };
@@ -117,7 +133,6 @@ function buildMcpServer(api) {
 
   server.registerTool('prepare_task',{ title:'Prepare coding task', description:'Open a Work Session and return relevant source, project rules and verification hints. Repeating the same request reuses its active session. To re-plan a changed request, pass the existing task_id and concrete new evidence; preserve its baseline. For WordPress + Bricks the returned skill applies. Git is not inspected.', inputSchema:z.object({ project:z.string(), request:z.string().min(1).max(2000), limit:z.number().int().min(4).max(12).optional(), task_id:z.string().min(1).optional() }), annotations:LOCAL_SESSION_READ },wrap(api,'prepare_task',({project,request,limit,task_id})=>api.prepareTask(project,request,limit,{ taskId:task_id })));
   server.registerTool('complete_task',{ title:'Complete coding task', description:'Fast Agent Path call 2/2. Apply a transactional unified diff, run up to six verification commands, refresh Brain and finalize the task without automatic Git inspection. When commands are omitted, changed PHP and JavaScript files receive syntax checks automatically. Verification failure returns needs_fix while keeping the same task active. remember_project_rules is only for durable conventions or corrections explicitly confirmed by the user.', inputSchema:z.object({ task_id:z.string().min(1), patch:z.string().min(1).max(2097152), verify_commands:z.array(z.string().min(1).max(16000)).max(6).default([]), remember_project_rules:z.array(z.object({ key:z.string().min(1).max(64), value:z.string().min(1).max(600) })).max(12).default([]), finalize:z.boolean().default(true), rollback_on_failure:z.boolean().default(false) }), annotations:LOCAL_WRITE_OPEN_WORLD },wrap(api,'complete_task',({task_id,patch,verify_commands,remember_project_rules,finalize,rollback_on_failure})=>api.completeTask(task_id,patch,verify_commands,{ finalize, rollbackOnFailure:rollback_on_failure, rememberProjectRules:remember_project_rules })));
-
   server.registerTool('inspect_project',{ title:'Inspect project for a coding task', description:'Legacy/diagnostic context call. Returns framework/WordPress summary, relevant source, symbols, relations and mandatory skill policy when WordPress + Bricks is detected. Git is not inspected automatically.', inputSchema:z.object({ project:z.string(), query:z.string().min(1), limit:z.number().int().min(4).max(16).optional() }), annotations:LOCAL_READ },wrap(api,'inspect_project',({project,query,limit})=>api.inspectProject(project,query,limit)));
   server.registerTool('apply_and_verify',{ title:'Apply changes and verify', description:'Legacy fast mutation path with recovery, Brain refresh and verification. Git is not inspected automatically. WordPress + Bricks skill policy must already be satisfied.', inputSchema:z.object({ project:z.string(), changes:z.array(changeSchema).max(24).default([]), tasks:z.array(z.string()).max(6).default([]) }), annotations:LOCAL_WRITE_OPEN_WORLD },wrap(api,'apply_and_verify',({project,changes,tasks})=>api.applyAndVerify(project,changes,tasks)));
   server.registerTool('operation_status',{ title:'Fast-path operation status', description:'Read a pending apply_and_verify job after approval.', inputSchema:z.object({ job_id:z.string().min(1) }), annotations:LOCAL_READ },wrap(api,'operation_status',({job_id})=>api.operationStatus(job_id)));
