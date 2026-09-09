@@ -10,6 +10,7 @@ const {
   WORDPRESS_BRICKS_SKILL_ID,
   MAX_SKILL_CONTEXT_CHARS,
   MAX_DOMAINS,
+  MAX_TARGETED_EXCERPT_CHARS,
   DOMAIN_FILES,
   hasBricksProjectEvidence
 } = require('../core/skill-runtime');
@@ -67,6 +68,7 @@ assert.equal(manifest.version, 5);
 assert.equal(WORDPRESS_BRICKS_SKILL_ID, 'wordpress-bricks');
 assert.equal(MAX_SKILL_CONTEXT_CHARS, 12000);
 assert.equal(MAX_DOMAINS, 2);
+assert.equal(MAX_TARGETED_EXCERPT_CHARS, 1400);
 assert.ok(entry.length <= 4200, `v5 entry too large: ${entry.length}`);
 assert.ok(core.length < 5000, `core checklist too large: ${core.length}`);
 assert.deepEqual(Object.keys(manifest.domains).sort(), Object.keys(DOMAIN_FILES).sort());
@@ -134,6 +136,29 @@ assert.deepEqual(fastSkill.resource_context.selected_domains, ['ui']);
 assert.equal(fastSkill.resource_context.ui_guidance_count, fastSkill.ui_guidance.length);
 assert.ok(fastSkill.instructions.length <= 6000, `Fast v5 skill exceeded compact budget: ${fastSkill.instructions.length}`);
 
+const archiveSkill = loadWordPressBricksSkill(
+  bricksInspect,
+  'Build taxonomy archive template using native archive main query and correct template conditions',
+  { type:'BRICKS_BUILDER', target:'archive taxonomy template' }
+);
+const templateExcerpt = archiveSkill.resources.find(item => item.name === 'knowledge/templates-excerpt');
+assert.ok(templateExcerpt, 'modern Bricks archive task must receive templates excerpt');
+assert.ok(templateExcerpt.content.length <= MAX_TARGETED_EXCERPT_CHARS, 'template excerpt must stay compact');
+assert.equal(names(archiveSkill).includes('resources/templates.md'), false, 'modern task must not load full legacy templates resource');
+assert.equal(archiveSkill.resource_context.targeted_resource, 'resources/templates.md');
+assert.match(archiveSkill.compact_context.toLowerCase(), /archive|templateconditions|main query/, 'Fast compact context lost targeted archive knowledge');
+
+const namingSkill = loadWordPressBricksSkill(
+  bricksInspect,
+  'Đặt tên file CSS và folder child theme ngắn gọn, reuse owner hiện tại, không tạo owner song song',
+  { type:'FAST_UI', target:'child theme file naming' }
+);
+const namingExcerpt = namingSkill.resources.find(item => item.name === 'knowledge/code-organization-excerpt');
+assert.ok(namingExcerpt, 'file/folder naming task must receive code organization excerpt');
+assert.ok(namingExcerpt.content.length <= MAX_TARGETED_EXCERPT_CHARS, 'code organization excerpt must stay compact');
+assert.equal(names(namingSkill).includes('resources/code-organization.md'), false, 'modern task must not load full legacy code organization resource');
+assert.equal(namingSkill.resource_context.targeted_resource, 'resources/code-organization.md');
+
 const mediaSkill = loadWordPressBricksSkill(bricksInspect, 'Lấy ảnh từ mẫu cho 10 brand và icon location');
 assert.deepEqual(mediaSkill.domains, ['media']);
 assert.deepEqual(names(mediaSkill), [CORE_RESOURCE, 'domains/media.md']);
@@ -150,4 +175,4 @@ for (const forbidden of ['tongkhokhoathongminh.com', 'd:\\duyanhweb\\ftp\\boncau
   assert.equal(`${entry}\n${core}`.toLowerCase().includes(forbidden), false, `project-specific path leaked into generic skill: ${forbidden}`);
 }
 
-console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + deterministic UI search + Fast compact guidance + legacy compatibility');
+console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + compact targeted excerpts + deterministic UI search + Fast guidance + legacy compatibility');
