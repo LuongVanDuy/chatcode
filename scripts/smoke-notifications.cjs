@@ -1,8 +1,10 @@
 const assert = require('assert/strict');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { createTaskLevelApi, applyTrustedProjectDefaults } = require('../core/task-policy');
 const { createUsageService } = require('../core/usage');
+const { createStore } = require('../core/store');
 
 function counters(raw = {}) {
   const base = { calls:0, read:0, write:0, task:0, git:0, manage:0, other:0, errors:0, bytesIn:0, bytesOut:0, durationMs:0 };
@@ -36,6 +38,50 @@ async function testAuditDoesNotBecomeNotificationEvent() {
   assert.equal(recent.taskId, 'task-1', 'task trace id must survive persistence');
   assert.equal(recent.workSessionId, 'task-1', 'work session id must survive persistence');
   assert.equal(recent.phase, 'verify', 'task phase must survive persistence');
+}
+
+async function testTracePersistsThroughRealStore() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatcode-usage-store-'));
+  try {
+    const app = { getPath:name => {
+      assert.equal(name, 'userData');
+      return dir;
+    } };
+    const store = createStore(app, 47820);
+    store.ensure();
+    const usage = createUsageService(store);
+    await usage.record({ tool:'prepare_task', category:'task', target:'prepare', ok:true, taskId:'task-persist', workSessionId:'work-persist', phase:'prepare' });
+    await usage.record({ tool:'exec', category:'task', target:'verify', ok:true, taskId:'task-2', workSessionId:'work-2', phase:'verify' });
+
+    const reopened = createStore(app, 47820);
+    const snapshot = createUsageService(reopened).snapshot(1);
+    const first = snapshot.recent.find(item => item.taskId === 'task-persist');
+    assert.ok(first, 'first activity must survive write/read normalization');
+    assert.equal(first.workSessionId, 'work-persist');
+    assert.equal(first.phase, 'prepare');
+    assert.equal(snapshot.total.calls, 2, 'trace preservation must not change counters');
+
+    const state = reopened.read();
+    state.usage.recent.unshift({
+      id:'long-trace', at:new Date().toISOString(), tool:'raw', category:'read', target:'fixture', ok:true,
+      taskId:'t'.repeat(120), workSessionId:'w'.repeat(120), phase:'p'.repeat(80)
+    });
+    state.usage.recent.unshift({ id:'legacy-no-trace', at:new Date().toISOString(), tool:'legacy', category:'read', target:'legacy', ok:true });
+    reopened.write(state);
+
+    const finalStore = createStore(app, 47820);
+    const finalState = finalStore.read();
+    const long = finalState.usage.recent.find(item => item.id === 'long-trace');
+    const legacy = finalState.usage.recent.find(item => item.id === 'legacy-no-trace');
+    assert.equal(long.taskId.length, 80);
+    assert.equal(long.workSessionId.length, 80);
+    assert.equal(long.phase.length, 40);
+    assert.ok(legacy, 'legacy activity without trace fields must remain readable');
+    assert.equal('taskId' in legacy, false);
+    assert.equal(finalState.usage.total.calls, 2, 'normalizing legacy/raw entries must not mutate counters');
+  } finally {
+    fs.rmSync(dir, { recursive:true, force:true });
+  }
 }
 
 async function testFastAgentOnlyNotifiesAtFinish() {
@@ -117,11 +163,12 @@ function testUiWiring() {
 
 (async () => {
   await testAuditDoesNotBecomeNotificationEvent();
+  await testTracePersistsThroughRealStore();
   await testFastAgentOnlyNotifiesAtFinish();
   await testNeedsFixDoesNotNotify();
   testNewProjectDefaultsTrusted();
   testUiWiring();
-  console.log('Task-level notification smoke passed: one task → one final notification; trace metadata persists; new projects default Trusted/full.');
+  console.log('Task-level notification smoke passed: one task → one final notification; trace metadata survives real store normalization; new projects default Trusted/full.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

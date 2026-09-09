@@ -61,20 +61,28 @@ function normalizeCounters(raw = {}) {
 function normalizeUsage(raw = {}) {
   const daily = {};
   for (const key of Object.keys(raw.daily || {}).sort().slice(-DAILY_USAGE_LIMIT)) daily[key] = normalizeCounters(raw.daily[key]);
-  const recent = Array.isArray(raw.recent) ? raw.recent.slice(0, RECENT_ACTIVITY_LIMIT).map(item => ({
-    id: String(item.id || crypto.randomUUID()),
-    at: String(item.at || new Date().toISOString()),
-    tool: String(item.tool || 'unknown'),
-    category: String(item.category || 'other'),
-    project: String(item.project || ''),
-    projectId: String(item.projectId || ''),
-    target: String(item.target || '').slice(0, 220),
-    ok: item.ok !== false,
-    durationMs: Math.max(0, Number(item.durationMs) || 0),
-    bytesIn: Math.max(0, Number(item.bytesIn) || 0),
-    bytesOut: Math.max(0, Number(item.bytesOut) || 0),
-    error: String(item.error || '').slice(0, 500)
-  })) : [];
+  const recent = Array.isArray(raw.recent) ? raw.recent.slice(0, RECENT_ACTIVITY_LIMIT).map(item => {
+    const taskId = String(item.taskId || '').slice(0, 80);
+    const workSessionId = String(item.workSessionId || '').slice(0, 80);
+    const phase = String(item.phase || '').slice(0, 40);
+    return {
+      id: String(item.id || crypto.randomUUID()),
+      at: String(item.at || new Date().toISOString()),
+      tool: String(item.tool || 'unknown'),
+      category: String(item.category || 'other'),
+      project: String(item.project || ''),
+      projectId: String(item.projectId || ''),
+      target: String(item.target || '').slice(0, 220),
+      ok: item.ok !== false,
+      durationMs: Math.max(0, Number(item.durationMs) || 0),
+      bytesIn: Math.max(0, Number(item.bytesIn) || 0),
+      bytesOut: Math.max(0, Number(item.bytesOut) || 0),
+      error: String(item.error || '').slice(0, 500),
+      ...(taskId ? { taskId } : {}),
+      ...(workSessionId ? { workSessionId } : {}),
+      ...(phase ? { phase } : {})
+    };
+  }) : [];
   return { total: normalizeCounters(raw.total), daily, recent };
 }
 

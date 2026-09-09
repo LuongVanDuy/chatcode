@@ -47,16 +47,31 @@ function runnerReport(files, options = {}) {
   const failed = options.failed || '';
   const uploaded = options.uploaded || files.filter(file => file !== failed);
   return {
-    ok:!failed,
-    mode:'deploy',
+    ok:options.ok !== undefined ? options.ok : !failed,
+    mode:options.mode || 'deploy',
     files:[
       ...uploaded.map(file => ({ file, status:options.unchanged?.includes(file) ? 'unchanged' : 'uploaded', sha256:'fixture', attempts:1 })),
-      ...(failed ? [{ file:failed, status:'failed', attempts:1, error:'connection failed' }] : [])
+      ...(failed ? [{ file:failed, status:'failed', attempts:1, error:'connection failed' }] : []),
+      ...(options.extra || [])
     ],
     curl_requests:Math.max(1, files.length),
-    cleanup_warnings:[],
-    ...(failed ? { not_attempted:files.slice(files.indexOf(failed) + 1) } : {})
+    cleanup_warnings:options.cleanup_warnings || [],
+    ...(failed || options.not_attempted ? { not_attempted:options.not_attempted || files.slice(files.indexOf(failed) + 1) } : {})
   };
+}
+
+function rawReport(report, overrides = {}) {
+  return {
+    status:'completed',
+    exit_code:0,
+    stdout:JSON.stringify(report),
+    stderr:'',
+    ...overrides
+  };
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 (async () => {
@@ -88,6 +103,7 @@ function runnerReport(files, options = {}) {
   assert.equal(command.includes('SECRET_SHOULD_NOT_APPEAR'), false, 'credential leaked into runner invocation');
   assert.equal(decodeCommand(command).includes('FtpWebRequest'), false, 'legacy inline FTP transport must be gone');
 
+  // A1: every deployable file has one current success ACK.
   const parsed = parseDeployResult({
     status:'completed', exit_code:0,
     stdout:`FTP uploaded: a.php\nFTP unchanged: b.css\n${JSON.stringify({ ok:true, mode:'deploy', files:[{file:'a.php',status:'uploaded'},{file:'b.css',status:'unchanged'}], curl_requests:3, cleanup_warnings:[] })}`,
@@ -97,6 +113,44 @@ function runnerReport(files, options = {}) {
   assert.deepEqual(parsed.uploaded, ['a.php']);
   assert.deepEqual(parsed.unchanged, ['b.css']);
   assert.equal(parsed.runner, 'sha256-staging');
+
+  // A2: exit 0 + ok:true is not enough when ACK coverage is incomplete.
+  const missingAck = parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[{ file:'a.php', status:'uploaded' }], cleanup_warnings:[] }), ['a.php','b.php']);
+  assert.equal(missingAck.ok, false);
+  assert.match(missingAck.error, /b\.php/i);
+  const emptyAck = parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[], cleanup_warnings:[] }), ['a.php']);
+  assert.equal(emptyAck.ok, false);
+  assert.match(emptyAck.error, /a\.php/i);
+
+  // A3: extra/duplicate ACKs never compensate for a missing expected file.
+  const extraAck = parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[
+    { file:'a.php', status:'uploaded' }, { file:'a.php', status:'uploaded' }, { file:'x.php', status:'uploaded' }
+  ], cleanup_warnings:[] }), ['a.php','b.php']);
+  assert.equal(extraAck.ok, false);
+  assert.match(extraAck.error, /b\.php/i);
+
+  // A4: conflicting/unknown modes, broken JSON and terminal errors cannot complete.
+  const conflictAck = parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[
+    { file:'a.php', status:'uploaded' }, { file:'a.php', status:'failed', error:'later failure' }
+  ], cleanup_warnings:[] }), ['a.php']);
+  assert.equal(conflictAck.ok, false);
+  const conflictingSuccess = parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[
+    { file:'a.php', status:'uploaded' }, { file:'a.php', status:'unchanged' }
+  ], cleanup_warnings:[] }), ['a.php']);
+  assert.equal(conflictingSuccess.ok, false);
+  assert.equal(parseDeployResult(rawReport({ ok:true, mode:'probe', files:[{ file:'a.php', status:'uploaded' }] }), ['a.php']).ok, false);
+  assert.equal(parseDeployResult({ status:'completed', exit_code:0, stdout:'not-json', stderr:'' }, ['a.php']).ok, false);
+  assert.equal(parseDeployResult(rawReport({ ok:true, mode:'deploy', files:[{ file:'a.php', status:'uploaded' }] }, { status:'failed', exit_code:2 }), ['a.php']).ok, false);
+
+  // A6: partial failure details must survive parsing.
+  const partial = parseDeployResult(rawReport({
+    ok:false, mode:'deploy', files:[{ file:'a.php', status:'uploaded' }, { file:'b.php', status:'failed', error:'network' }],
+    not_attempted:['c.php'], cleanup_warnings:['cleanup warning'], curl_requests:4
+  }, { status:'failed', exit_code:2 }), ['a.php','b.php','c.php']);
+  assert.equal(partial.ok, false);
+  assert.deepEqual(partial.uploaded, ['a.php']);
+  assert.deepEqual(partial.not_attempted, ['c.php']);
+  assert.deepEqual(partial.cleanup_warnings, ['cleanup warning']);
 
   const root = fixtureRoot();
   for (const file of ['inc/test.php','a.php','b.php','legacy.php']) ensureFile(root, file);
@@ -121,10 +175,16 @@ function runnerReport(files, options = {}) {
   assert.equal(execCalls, 1);
   assert.equal(seenCommand.includes('SECRET_SHOULD_NOT_APPEAR'), false, 'runtime command exposed stored password');
 
+  // A5: local missing stays an explicit core skip; no remote delete and no ACK requirement.
   const missing = await deployChangedFiles(api, store, 'p1', ['deleted.php']);
   assert.equal(missing.ok, true);
   assert.deepEqual(missing.skipped_files, [{ reason:'local_missing_no_delete', file:'deleted.php' }]);
   assert.equal(execCalls, 1, 'missing local file must not trigger FTP delete or network transport');
+
+  const mixedMissing = await deployChangedFiles(api, store, 'p1', ['inc/test.php','deleted.php']);
+  assert.equal(mixedMissing.ok, true);
+  assert.deepEqual(mixedMissing.uploaded, ['inc/test.php']);
+  assert.deepEqual(mixedMissing.skipped_files, [{ reason:'local_missing_no_delete', file:'deleted.php' }]);
 
   const disabledRoot = fixtureRoot(false);
   ensureFile(disabledRoot, 'a.php');
@@ -143,6 +203,7 @@ function runnerReport(files, options = {}) {
   assert.equal(finished.ftp_deploy.status, 'completed');
   assert.deepEqual(finished.ftp_deploy.uploaded, ['inc/test.php']);
 
+  // F1/F2/F5: failed retry sends the whole current changed-file set again; closed success remains cached.
   let retryCalls = 0;
   let finishCalls = 0;
   let workState = 'active';
@@ -156,24 +217,63 @@ function runnerReport(files, options = {}) {
       retryCalls++;
       const payload = payloadFromCommand(cmd);
       const manifest = JSON.parse(fs.readFileSync(payload.manifestPath, 'utf8'));
+      assert.deepEqual(manifest.files, ['a.php','b.php'], 'every failed retry must revalidate the whole changed-file set');
       if (retryCalls === 1) {
-        assert.deepEqual(manifest.files, ['a.php','b.php']);
         return { status:'failed', exit_code:2, stdout:JSON.stringify(runnerReport(manifest.files, { uploaded:['a.php'], failed:'b.php' })), stderr:'' };
       }
-      assert.deepEqual(manifest.files, ['b.php'], 'retry only files not already verified remotely');
-      return { status:'completed', exit_code:0, stdout:JSON.stringify(runnerReport(manifest.files)), stderr:'' };
+      assert.equal(fs.readFileSync(path.join(root, 'a.php'), 'utf8'), 'A2', 'retry fixture must include local A2');
+      return { status:'completed', exit_code:0, stdout:JSON.stringify(runnerReport(manifest.files, { unchanged:['b.php'] })), stderr:'' };
     }
   }, store));
   await retryApi.startWork('p1');
   const firstDeploy = await retryApi.finishWork('retry-work');
   assert.equal(firstDeploy.status, 'deploy_failed');
   assert.equal(retryApi.projectScope('p1').locked, false, 'failed FTP must not retain completed work holder');
+  ensureFile(root, 'a.php', 'A2');
   const retryDeploy = await retryApi.finishWork('retry-work');
   assert.equal(retryDeploy.status, 'completed');
-  assert.deepEqual(retryDeploy.ftp_deploy.uploaded, ['a.php','b.php']);
+  assert.deepEqual(retryDeploy.ftp_deploy.uploaded, ['a.php']);
+  assert.deepEqual(retryDeploy.ftp_deploy.unchanged, ['b.php']);
   await retryApi.finishWork('retry-work');
   assert.equal(retryCalls, 2, 'successful FTP must not run twice');
   assert.equal(finishCalls, 2, 'cached success must not re-run finish verification');
+
+  // F3: latest retry report replaces stale success; old A success cannot hide a new A failure.
+  let conflictCalls = 0;
+  let conflictState = 'active';
+  const conflictApi = createFtpDeployApi({
+    workStatus:async () => ({ project_id:'p1', status:conflictState, changed_files:['a.php','b.php'] }),
+    finishWork:async () => { conflictState='completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; },
+    exec:async (_ref, cmd) => {
+      conflictCalls++;
+      const manifest = JSON.parse(fs.readFileSync(payloadFromCommand(cmd).manifestPath, 'utf8'));
+      assert.deepEqual(manifest.files, ['a.php','b.php']);
+      if (conflictCalls === 1) return { status:'failed', exit_code:2, stdout:JSON.stringify(runnerReport(manifest.files, { uploaded:['a.php'], failed:'b.php' })), stderr:'' };
+      return { status:'failed', exit_code:2, stdout:JSON.stringify(runnerReport(manifest.files, { uploaded:['b.php'], failed:'a.php' })), stderr:'' };
+    }
+  }, store);
+  assert.equal((await conflictApi.finishWork('conflict-work')).status, 'deploy_failed');
+  const conflictRetry = await conflictApi.finishWork('conflict-work');
+  assert.equal(conflictRetry.status, 'deploy_failed');
+  assert.equal(conflictRetry.ftp_deploy.uploaded.includes('a.php'), false, 'stale prior A success must not survive a current A failure');
+  assert.deepEqual(conflictRetry.ftp_deploy.uploaded, ['b.php']);
+
+  // F4: simultaneous finish calls share the same in-flight deploy.
+  let concurrentExec = 0;
+  const concurrentApi = createFtpDeployApi({
+    workStatus:async () => ({ project_id:'p1', status:'active', changed_files:['a.php'] }),
+    finishWork:async () => ({ project_id:'p1', status:'completed', changed_files:['a.php'] }),
+    exec:async (_ref, cmd) => {
+      concurrentExec++;
+      const manifest = JSON.parse(fs.readFileSync(payloadFromCommand(cmd).manifestPath, 'utf8'));
+      await delay(20);
+      return { status:'completed', exit_code:0, stdout:JSON.stringify(runnerReport(manifest.files)), stderr:'' };
+    }
+  }, store);
+  const [sameA, sameB] = await Promise.all([concurrentApi.finishWork('same-work'), concurrentApi.finishWork('same-work')]);
+  assert.equal(concurrentExec, 1, 'same session must have one in-flight FTP deploy');
+  assert.equal(sameA.status, 'completed');
+  assert.deepEqual(sameA, sameB);
 
   const legacy = await wrappedApi.applyAndVerify('p1', [{ op:'write', path:'legacy.php', content:'<?php' }, { op:'delete', path:'gone.php' }], []);
   assert.equal(legacy.status, 'completed');
@@ -197,7 +297,7 @@ function runnerReport(files, options = {}) {
   fs.rmSync(root, { recursive:true, force:true });
   fs.rmSync(disabledRoot, { recursive:true, force:true });
   fs.rmSync(noConfigRoot, { recursive:true, force:true });
-  console.log('FTP lifecycle smoke PASS: one SHA runner transport + safe no-delete + retry on same Work Session.');
+  console.log('FTP lifecycle smoke PASS: current-report ACK coverage + whole-manifest retry + one SHA runner transport.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
