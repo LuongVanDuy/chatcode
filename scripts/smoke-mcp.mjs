@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { startMcpHttpServer, toolSucceeded } from '../mcp-server.mjs';
+import { startMcpHttpServer, toolSucceeded, activityTrace } from '../mcp-server.mjs';
 
 const port = 47921;
 const token = 'ci-smoke-token';
@@ -40,6 +40,8 @@ const api = {
   recordActivity: async entry => activity.push(entry)
 };
 
+assert.deepEqual(activityTrace('complete_task', { task_id:'trace-1' }, { work_session_id:'trace-1' }), { taskId:'trace-1', workSessionId:'trace-1', phase:'complete' });
+
 const server = await startMcpHttpServer({ port, token, api });
 const client = new Client({ name:'personal-chatcode-ci', version:'1.0.0' });
 const transport = new StreamableHTTPClientTransport(new URL(server.localUrl));
@@ -65,9 +67,13 @@ try {
 
   const prepared = await client.callTool({ name:'prepare_task', arguments:{ project:'demo', request:'fix demo output' } });
   const preparedValue = JSON.parse(prepared.content[0].text); assert.equal(preparedValue.status, 'ready'); assert.equal(preparedValue.task_id, 'agent-1'); assert.equal(preparedValue.agent_contract.preferred_calls, 2);
+  const prepareAudit = [...activity].reverse().find(entry => entry.tool === 'prepare_task');
+  assert.equal(prepareAudit.taskId, 'agent-1'); assert.equal(prepareAudit.workSessionId, 'agent-1'); assert.equal(prepareAudit.phase, 'prepare');
   const unified = '--- a/src/index.js\n+++ b/src/index.js\n@@ -1,1 +1,1 @@\n-console.log("demo")\n+console.log("demo2")\n';
   const completed = await client.callTool({ name:'complete_task', arguments:{ task_id:'agent-1', patch:unified, verify_commands:['node --version'] } });
   const completedValue = JSON.parse(completed.content[0].text); assert.equal(completedValue.status, 'completed'); assert.equal(completedValue.verification_passed, true); assert.equal(completedValue.agent_contract.completed_in_call, 2);
+  const completeAudit = [...activity].reverse().find(entry => entry.tool === 'complete_task');
+  assert.equal(completeAudit.taskId, 'agent-1'); assert.equal(completeAudit.workSessionId, 'agent-1'); assert.equal(completeAudit.phase, 'complete');
 
   const started = await client.callTool({ name:'start_work', arguments:{ project:'demo', goal:'edit demo' } });
   assert.equal(JSON.parse(started.content[0].text).work_session_id, 'work-1');
@@ -77,6 +83,8 @@ try {
 
   const terminalExec = await client.callTool({ name:'exec', arguments:{ project:'demo', command:'node --version', background:true, work_session_id:'work-1' } });
   const execValue = JSON.parse(terminalExec.content[0].text); assert.equal(execValue.status, 'running'); assert.equal(execValue.work_session_id, 'work-1');
+  const execAudit = [...activity].reverse().find(entry => entry.tool === 'exec');
+  assert.equal(execAudit.taskId, 'work-1'); assert.equal(execAudit.workSessionId, 'work-1'); assert.equal(execAudit.phase, 'terminal');
   const terminalStatus = await client.callTool({ name:'job_status', arguments:{ job_id:'term-1', stdout_offset:0, stderr_offset:0 } }); assert.equal(JSON.parse(terminalStatus.content[0].text).stdout, 'TERM_OK');
   const terminalStop = await client.callTool({ name:'job_stop', arguments:{ job_id:'term-1' } }); assert.equal(JSON.parse(terminalStop.content[0].text).stop_requested, true);
 
@@ -106,7 +114,7 @@ try {
   const deniedWrite = await client.callTool({ name:'write_file', arguments:{ project:'demo', path:'x.txt', content:'x' } });
   assert.equal(deniedWrite.isError, true); const denied = JSON.parse(deniedWrite.content[0].text); assert.equal(denied.ok, false); assert.equal(denied.error.code, 'PERMISSION_DENIED');
 
-  console.log(`MCP smoke test passed: ${names.length} tools, including v1.0 Fast Agent Path + Trusted terminal + Codex editing sessions`);
+  console.log(`MCP smoke test passed: ${names.length} tools, including v1.0 Fast Agent Path + trace metadata + Trusted terminal + Codex editing sessions`);
 } finally {
   try { await client.close(); } catch {}
   try { await server.close(); } catch {}
