@@ -1,6 +1,7 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -11,6 +12,7 @@ const v08 = read('renderer/v08-runtime.js');
 const v10 = read('renderer/v10-runtime.js');
 const v10css = read('renderer/v10.css');
 const css = read('renderer/ui-foundation.css');
+const app = read('renderer/app.js');
 
 assert.ok(preload.includes("await load('current-runtime.js', 'current-runtime')"), 'preload must load the current renderer entrypoint');
 assert.ok(preload.includes("await load('browser-workspace.js', 'browser-workspace')"), 'preload must load Browser Workspace after the current renderer entrypoint');
@@ -25,7 +27,7 @@ assert.ok(runtime.includes("foundation: 'ui-foundation.css'"));
 assert.ok(runtime.includes("new CustomEvent('chatcode:renderer-ready'"));
 assert.ok(runtime.includes('stage: 3'), 'current renderer must expose UI stage 3');
 assert.ok(runtime.includes("document.body.dataset.uiStage = '3'"), 'Stage 3 chrome must mark the document');
-assert.ok(runtime.includes("icon_system: 'lucide'"), 'current renderer must expose Lucide as the chrome icon system');
+assert.ok(runtime.includes("icon_system: 'lucide'"), 'current runtime must expose Lucide as the chrome icon system');
 for (const icon of ['panels-top-left','plug-zap','activity','settings','folder-plus','stethoscope','clipboard-copy','refresh-cw','trash-2','search','play','git-branch','file-diff']) {
   assert.ok(runtime.includes(`'${icon}'`), `Stage 3 missing Lucide icon ${icon}`);
 }
@@ -79,4 +81,92 @@ assert.ok(v10css.includes('.project-tab#project-tab-permissions.active{display:f
 assert.equal(v10.includes('location.reload()'), false, 'Safe/Trusted mode changes must not reload the renderer');
 assert.ok(v10.includes('await render();\n    await refreshTerminalJobs();'), 'workspace mode changes must refresh in place');
 
-console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + Browser Workspace integration');
+function projectFlowSource() {
+  const wanted = new Set(['selectProject','setProjectTab','loadProjectOverview']);
+  return app.split(/\r?\n/).filter(line => {
+    const match = line.match(/^(?:async\s+)?function\s+(\w+)/);
+    return match && wanted.has(match[1]);
+  }).join('\n');
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+function projectHarness(apiOverrides = {}) {
+  const calls = { index:[], git:[], renderedIndex:[], renderedGit:[], activity:0, files:0, routes:[] };
+  const state = { projects:[{ id:'A', name:'A' }, { id:'B', name:'B' }], current:null, projectTab:'overview', index:new Map() };
+  const context = {
+    state,
+    api:{
+      projectIndexStatus:async id => { calls.index.push(id); return { id, fileCount:1 }; },
+      gitStatus:async id => { calls.git.push(id); return { ok:true, stdout:id }; },
+      ...apiOverrides
+    },
+    document:{ querySelectorAll:() => [] },
+    renderProjectHeader:() => {},
+    routeTo:route => { calls.routes.push(route); },
+    loadFiles:async () => { calls.files++; },
+    renderProjectIndex:idx => { calls.renderedIndex.push(idx.id); },
+    renderGitSummary:git => { calls.renderedGit.push(git.stdout); },
+    renderProjectActivity:() => { calls.activity++; },
+    toast:error => { throw new Error(String(error)); },
+    console,
+    Promise,
+    Map
+  };
+  vm.createContext(context);
+  vm.runInContext(projectFlowSource(), context);
+  return { context, state, calls };
+}
+
+async function testProjectOverviewSingleLoad() {
+  const h = projectHarness();
+  await h.context.selectProject('A');
+  assert.deepEqual(h.calls.index, ['A'], 'selectProject must request index once');
+  assert.deepEqual(h.calls.git, ['A'], 'selectProject must request Git once');
+  assert.deepEqual(h.calls.renderedIndex, ['A']);
+  assert.deepEqual(h.calls.renderedGit, ['A']);
+  assert.deepEqual(h.calls.routes, ['project']);
+
+  await h.context.setProjectTab('files');
+  assert.equal(h.calls.files, 1, 'Files tab must keep its existing load behavior');
+  await h.context.setProjectTab('overview');
+  assert.deepEqual(h.calls.index, ['A','A'], 'returning to Overview must load exactly once');
+  assert.deepEqual(h.calls.git, ['A','A'], 'returning to Overview must load Git exactly once');
+}
+
+async function testProjectOverviewRaceGuard() {
+  const index = { A:deferred(), B:deferred() };
+  const git = { A:deferred(), B:deferred() };
+  const h = projectHarness({
+    projectIndexStatus:id => { h.calls.index.push(id); return index[id].promise; },
+    gitStatus:id => { h.calls.git.push(id); return git[id].promise; }
+  });
+  const selectingA = h.context.selectProject('A');
+  await Promise.resolve();
+  const selectingB = h.context.selectProject('B');
+  await Promise.resolve();
+  index.B.resolve({ id:'B', fileCount:2 });
+  git.B.resolve({ ok:true, stdout:'B' });
+  await selectingB;
+  index.A.resolve({ id:'A', fileCount:1 });
+  git.A.resolve({ ok:true, stdout:'A' });
+  await selectingA;
+  assert.equal(h.state.current.id, 'B');
+  assert.deepEqual(h.calls.renderedIndex, ['B'], 'late A index must not render into project B');
+  assert.deepEqual(h.calls.renderedGit, ['B'], 'late A Git must not render into project B');
+  assert.equal(h.state.index.get('B')?.id, 'B');
+  assert.equal(h.state.index.has('A'), false, 'late A response must not mutate current overview state');
+}
+
+(async () => {
+  await testProjectOverviewSingleLoad();
+  await testProjectOverviewRaceGuard();
+  console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + single-load project overview.');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
