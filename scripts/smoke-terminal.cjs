@@ -83,15 +83,6 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.match(multiline.stdout, /Nhiều dòng tiếng Việt/);
     assert.deepEqual(await fsp.readdir(trustedRoot), entriesBefore, 'PowerShell here-string must not create PHP-token files');
 
-    const { buildFtpDeployCommand, parseDeployResult } = require('../core/ftp-deploy');
-    await fsp.mkdir(path.join(trustedRoot, '.vscode'));
-    await fsp.writeFile(path.join(trustedRoot, '.vscode/sftp.json'), JSON.stringify({ uploadOnSave:false }));
-    const ftpCommand = buildFtpDeployCommand(['functions.php']);
-    assert.ok(ftpCommand.length > 8191, 'reproduce the real FTP command exceeding CMD limit');
-    const ftp = await api.exec('trusted', ftpCommand);
-    assert.equal(ftp.status, 'completed', ftp.stderr);
-    assert.equal(parseDeployResult(ftp, ['functions.php']).reason, 'upload_disabled', 'full FTP script must actually execute without network writes');
-
     const longScript = '#' + 'x'.repeat(12500) + "\nWrite-Output 'TEMP_SCRIPT_OK'\nexit 0";
     const longRun = await api.exec('trusted', `powershell.exe -NoProfile -Command "${longScript}"`);
     assert.equal(longRun.status, 'completed', longRun.stderr);

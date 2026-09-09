@@ -39,6 +39,23 @@ function Remote-Url([string]$remote) {
   $scheme = if ($script:implicitTls) { 'ftps' } else { 'ftp' }
   return "${scheme}://$($script:cfg.host):$($script:port)/%2F$encoded"
 }
+function Resolve-CurlPath {
+  $candidates = New-Object System.Collections.Generic.List[string]
+  try {
+    $cmd = Get-Command curl.exe -CommandType Application -ErrorAction Stop
+    if ($cmd.Source) { $candidates.Add([string]$cmd.Source) }
+  } catch {}
+  if ($env:SystemRoot) { $candidates.Add((Join-Path $env:SystemRoot 'System32\curl.exe')) }
+  if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'Git\mingw64\bin\curl.exe')) }
+  if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'Git\mingw32\bin\curl.exe')) }
+  $seen = @{}
+  foreach ($candidate in $candidates) {
+    if (-not $candidate -or $seen.ContainsKey($candidate)) { continue }
+    $seen[$candidate] = $true
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { return (Resolve-Path -LiteralPath $candidate).ProviderPath }
+  }
+  throw 'curl.exe was not found; install Windows curl or Git for Windows'
+}
 function Invoke-Ftp([string]$remote, [string[]]$extra = @()) {
   $lines = @('silent','show-error','fail','globoff', 'noproxy = "*"',
     'connect-timeout = "10"', (Config-Line 'max-time' "$TimeoutSec"),
@@ -175,7 +192,7 @@ try {
   $script:remoteBase = ([string]$cfg.remotePath).Replace('\','/')
   if (-not $remoteBase.StartsWith('/') -or $remoteBase -match '[\r\n\x00]|(^|/)\.\.(/|$)') { throw 'remotePath must be an explicit absolute FTP directory' }
   $script:remoteBase = $remoteBase.TrimEnd('/')
-  $script:curlPath = (Get-Command curl.exe -CommandType Application -ErrorAction Stop).Source
+  $script:curlPath = Resolve-CurlPath
   $script:scratch = Join-Path ([IO.Path]::GetTempPath()) ('chatcode-ftp-' + [Guid]::NewGuid().ToString('N'))
   [void][IO.Directory]::CreateDirectory($scratch)
   $items = @()

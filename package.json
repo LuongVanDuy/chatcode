@@ -1,6 +1,6 @@
 {
   "name": "personal-chatcode",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Cầu nối dự án cục bộ cho ChatGPT qua MCP",
   "main": "bootstrap-main.js",
   "private": true,
@@ -28,7 +28,7 @@
     "test:update": "node scripts/smoke-updater.cjs",
     "test:notifications": "node scripts/smoke-notifications.cjs",
     "test:trusted": "node scripts/smoke-trusted.cjs",
-    "test:terminal": "node scripts/smoke-terminal.cjs && node scripts/smoke-windows-terminal-guard.cjs",
+    "test:terminal": "node scripts/smoke-terminal.cjs && node scripts/smoke-windows-terminal-guard.cjs && node scripts/smoke-ftp-runner.cjs",
     "test:editing": "node scripts/smoke-patch-parser.cjs && node scripts/smoke-editing.cjs",
     "test:tunnel": "node scripts/smoke-tunnel.mjs",
     "test:safety": "node scripts/smoke-safety.cjs",
@@ -57,6 +57,7 @@
     "productName": "ChatCode Cá Nhân",
     "asar": true,
     "files": ["bootstrap-main.js","main.js","mcp-server.mjs","preload.js","core/**/*","CHATCODE-GPT/**/*","renderer/**/*","assets/icon.png","assets/THIRD_PARTY_ICONS.txt","package.json"],
+    "extraResources": [{"from":"tools/deploy-ftp.ps1","to":"tools/deploy-ftp.ps1"}],
     "publish": [{"provider":"github","owner":"LuongVanDuy","repo":"chatcode","releaseType":"release"}],
     "win": {"target":["nsis"],"icon":"assets/icon.ico","artifactName":"ChatCode-Ca-Nhan-Setup-${version}.${ext}"},
     "nsis": {"oneClick":false,"allowToChangeInstallationDirectory":true,"createDesktopShortcut":true,"createStartMenuShortcut":true,"shortcutName":"ChatCode Cá Nhân","installerIcon":"assets/icon.ico","uninstallerIcon":"assets/icon.ico"}
