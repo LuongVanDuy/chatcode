@@ -1,6 +1,9 @@
 const { normalizeError } = require('./errors');
 const { planWordPressRetrieval, queryFlags } = require('./wordpress-retrieval');
 
+const MAX_SOURCE_CONTEXT_CHARS = 56000;
+const SOURCE_FILE_CHAR_LIMITS = Object.freeze([24000, 14000, 8000, 5000, 3000, 2000]);
+
 function nowMs() { return Number(process.hrtime.bigint() / 1000000n); }
 
 function mergeCandidates(primary = [], expanded = []) {
@@ -19,11 +22,18 @@ function explicitExpansionFlags(query) {
 }
 
 async function readRelevantFiles(api, projectId, files = []) {
-  return Promise.all((Array.isArray(files) ? files : []).map(async item => {
+  return Promise.all((Array.isArray(files) ? files : []).map(async (item, index) => {
     try {
       const read = await api.readFile(projectId, item.path);
       const content = String(read.content || '');
-      return { ...item, content:content.slice(0, 24000), content_truncated:content.length > 24000 };
+      const charLimit = SOURCE_FILE_CHAR_LIMITS[index] || SOURCE_FILE_CHAR_LIMITS[SOURCE_FILE_CHAR_LIMITS.length - 1];
+      const clipped = content.slice(0, charLimit);
+      return {
+        ...item,
+        content:clipped,
+        content_chars:clipped.length,
+        content_truncated:content.length > clipped.length
+      };
     } catch (error) {
       return { ...item, error:normalizeError(error) };
     }
@@ -63,12 +73,14 @@ function createScopedInspect(api, store) {
       ...(retrieval.scope || {}),
       explicit_expansion_search:explicitSearchUsed,
       explicit_expansion_flags:expansionFlags,
-      explicit_expansion_candidate_count:Math.max(0, candidates.length - (context.files || []).length)
+      explicit_expansion_candidate_count:Math.max(0, candidates.length - (context.files || []).length),
+      source_context_budget_chars:MAX_SOURCE_CONTEXT_CHARS
     };
 
     const fsStart = nowMs();
     const relevantFiles = await readRelevantFiles(api, project.id, retrieval.files);
     telemetry.filesystem_ms = nowMs() - fsStart;
+    retrieval.scope.source_context_chars = relevantFiles.reduce((sum, item) => sum + Number(item?.content_chars || 0), 0);
 
     const gitStart = nowMs();
     const gitStatus = await api.gitStatus(project.id);
@@ -111,4 +123,12 @@ function installRetrievalScopePatches() {
   };
 }
 
-module.exports = { mergeCandidates, explicitExpansionFlags, readRelevantFiles, createScopedInspect, installRetrievalScopePatches };
+module.exports = {
+  MAX_SOURCE_CONTEXT_CHARS,
+  SOURCE_FILE_CHAR_LIMITS,
+  mergeCandidates,
+  explicitExpansionFlags,
+  readRelevantFiles,
+  createScopedInspect,
+  installRetrievalScopePatches
+};
