@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { completionWithDeployStatus } = require('./completion-deploy-policy');
 
 const FTP_CONFIG_RELATIVE = '.vscode/sftp.json';
 const MAX_DEPLOY_FILES = 50;
@@ -105,6 +106,10 @@ function parseDeployResult(raw, files) {
   }
   const commandOk = raw?.status === 'completed' && Number(raw?.exit_code) === 0;
   if (skipReason && commandOk) return { ok:true, status:'skipped', reason:skipReason, changed_files:files, uploaded, deleted, skipped_files:skippedFiles, failures:[] };
+  if (commandOk) {
+    const reported = new Set([...uploaded, ...deleted, ...skippedFiles.map(item => item.file), ...failures.map(item => item.file)]);
+    for (const file of files) if (!reported.has(file)) failures.push({ file, error:'FTP command returned no result for this file' });
+  }
   const ok = commandOk && failures.length === 0;
   return {
     ok,
@@ -144,8 +149,10 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
       skippedFiles.push(...parsed.skipped_files);
       failures.push(...parsed.failures);
       if (!parsed.ok && !parsed.failures.length) failures.push({ file:batch.join(', '), error:parsed.error || 'FTP terminal batch failed' });
+      if (!parsed.ok) break;
     } catch (error) {
       failures.push({ file:batch.join(', '), error:String(error?.message || error || 'FTP terminal deploy failed').slice(0,800) });
+      break;
     }
   }
 
@@ -171,19 +178,40 @@ function createFtpDeployApi(api, store) {
   if (!api || api.__ftpDeployWrapped) return api;
   if (typeof api.finishWork !== 'function' && typeof api.applyAndVerify !== 'function') return api;
   api.__ftpDeployWrapped = true;
+  const finishedDeploys = new Map();
+  const finishing = new Map();
 
   if (typeof api.finishWork === 'function') {
     const originalFinishWork = api.finishWork.bind(api);
     api.finishWork = async (workSessionId, ...args) => {
+      if (args[1]?.cancel) return originalFinishWork(workSessionId, ...args);
+      if (finishing.has(workSessionId)) return finishing.get(workSessionId);
+      const run = async () => {
       let before = null;
       try { if (typeof api.workStatus === 'function') before = await api.workStatus(workSessionId); } catch {}
+      const previous = finishedDeploys.get(workSessionId);
+      if (before?.status === 'completed' && previous?.ftp_deploy?.ok) return previous;
       const result = await originalFinishWork(workSessionId, ...args);
       if (result?.status !== 'completed') return result;
       const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
       const changedFiles = result?.changed_files || before?.changed_files || [];
       if (!projectRef) return result;
-      const ftp = await deployChangedFiles(api, store, projectRef, changedFiles);
-      return shouldAttachFtpResult(ftp) ? { ...result, ftp_deploy:ftp } : result;
+      const prior = before?.status === 'completed' ? previous?.ftp_deploy : null;
+      const done = new Set([...(prior?.uploaded || []), ...(prior?.deleted || [])]);
+      const ftp = await deployChangedFiles(api, store, projectRef, changedFiles.filter(file => !done.has(file)));
+      if (prior) {
+        ftp.uploaded = [...new Set([...(prior.uploaded || []), ...(ftp.uploaded || [])])];
+        ftp.deleted = [...new Set([...(prior.deleted || []), ...(ftp.deleted || [])])];
+        ftp.changed_files = changedFiles;
+      }
+      const completed = shouldAttachFtpResult(ftp) ? completionWithDeployStatus({ ...result, ftp_deploy:ftp }) : result;
+      finishedDeploys.set(workSessionId, completed);
+      while (finishedDeploys.size > 200) finishedDeploys.delete(finishedDeploys.keys().next().value);
+      return completed;
+      };
+      const pending = run();
+      finishing.set(workSessionId, pending);
+      try { return await pending; } finally { finishing.delete(workSessionId); }
     };
   }
 
@@ -195,7 +223,7 @@ function createFtpDeployApi(api, store) {
       const changedFiles = changedFilesFromLegacyChanges(changes);
       if (!changedFiles.length) return result;
       const ftp = await deployChangedFiles(api, store, ref, changedFiles);
-      return shouldAttachFtpResult(ftp) ? { ...result, ftp_deploy:ftp } : result;
+      return shouldAttachFtpResult(ftp) ? completionWithDeployStatus({ ...result, ftp_deploy:ftp }) : result;
     };
   }
 

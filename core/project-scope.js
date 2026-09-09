@@ -6,7 +6,7 @@ const PROJECT_SCOPE_TTL_MS = 6 * 60 * 60 * 1000;
 const MULTI_PROJECT_INTENT_RE = /\b(copy|clone|migrate|migration|transfer|sync|synchronize|compare|reference|refer|import|export|sao chep|di chuyen|chuyen du lieu|dong bo|so sanh|tham khao|hoc theo|giong|lay .* tu|tu .* sang|chuyen .* sang)\b/i;
 const PROJECT_SWITCH_INTENT_RE = /\b(du an|project|truy cap|ket noi|mo|switch|chuyen sang|lam|sua|build|trien khai|update|tiep theo)\b/i;
 const TERMINAL_FINAL_RE = /^(?:completed|failed|timeout|timed_out|stopped|cancelled|canceled)$/i;
-const WORK_FINAL_RE = /^(?:completed|finished|rolled_back|failed|cancelled|canceled)$/i;
+const WORK_FINAL_RE = /^(?:completed|finished|rolled_back|failed|deploy_failed|cancelled|canceled)$/i;
 
 function normalizeText(value) {
   return String(value || '')
@@ -278,7 +278,17 @@ function createProjectScopeApi(api) {
   }
 
   async function refreshTerminalHolders(project) {
-    if (!project || !original.jobStatus) return;
+    if (!project) return;
+    for (const [id, holder] of activeWorkSessions) {
+      if (!holderMatchesProject(holder, project) || !original.workStatus) continue;
+      try {
+        const session = await original.workStatus(id);
+        if (WORK_FINAL_RE.test(String(session?.status || ''))) activeWorkSessions.delete(id);
+      } catch (error) {
+        if (error?.code === 'FILE_NOT_FOUND') activeWorkSessions.delete(id);
+      }
+    }
+    if (!original.jobStatus) { maybeReleaseScopeForProject(project); return; }
     const jobs = [...activeTerminalJobs.entries()].filter(([, holder]) => holderMatchesProject(holder, project));
     for (const [jobId] of jobs) {
       try {
@@ -535,9 +545,9 @@ function createProjectScopeApi(api) {
   for (const name of ['finishWork','rollbackWork']) {
     if (!original[name]) continue;
     api[name] = async (sessionId, ...args) => {
-      const session = await guardSession(sessionId, name, 'write', name === 'rollbackWork');
+      const session = await guardSession(sessionId, name, 'write', true);
       const result = await original[name](sessionId, ...args);
-      if (result?.ok !== false) {
+      if (WORK_FINAL_RE.test(String(result?.status || ''))) {
         const id = String(sessionId || '');
         const ref = session?.project_id || session?.project || '';
         const project = activeWorkSessions.get(id) || (ref ? await resolveProject(ref) : null);

@@ -2,12 +2,30 @@ const { chatError } = require('./errors');
 
 const MAX_DISPLAY_JOBS = 200;
 
+// Recognize a single PowerShell invocation before cmd.exe gets to interpret its
+// here-strings, PHP arrows, redirects or the 8,191-character command line.
+function powershellInvocation(value) {
+  const match = /^(?:"([^"]+)"|([^\s"]+))\s+((?:(?:-(?:NoLogo|NoProfile|NonInteractive)|-ExecutionPolicy\s+\w+)\s+)*)(-Command|-EncodedCommand)\s+([\s\S]+)$/i.exec(String(value || '').trim());
+  if (!match) return null;
+  const file = match[1] || match[2];
+  if (!/(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i.test(file)) return null;
+  let payload = match[5].trim();
+  if (payload.startsWith('"')) {
+    if (!payload.endsWith('"')) return null;
+    payload = payload.slice(1, -1);
+  }
+  const encoded = /^-EncodedCommand$/i.test(match[4]);
+  if (encoded && !/^[A-Za-z0-9+/]+={0,2}$/.test(payload)) return null;
+  return { file, options:match[3].trim().split(/\s+/).filter(Boolean), encoded, payload };
+}
+
 function hasUnsafeCmdArrow(value) {
   const text = String(value || '');
   let inDouble = false;
   let caretEscape = false;
   for (let i = 0; i < text.length - 1; i++) {
     const ch = text[i];
+    if (ch === '\n' || ch === '\r') { inDouble = false; caretEscape = false; continue; }
     if (caretEscape) { caretEscape = false; continue; }
     if (!inDouble && ch === '^') { caretEscape = true; continue; }
     if (ch === '"') { inDouble = !inDouble; continue; }
@@ -71,7 +89,11 @@ function createWindowsTerminalGuardApi(api, platform = process.platform) {
 
   api.exec = async (ref, command, opts = {}) => {
     const raw = String(command || '').trim();
-    if (platform !== 'win32' || !hasUnsafeCmdArrow(raw)) return originalExec(ref, command, opts);
+    if (platform !== 'win32' || powershellInvocation(raw)) return originalExec(ref, command, opts);
+    if (/[\r\n]/.test(raw)) throw chatError('TASK_NOT_ALLOWED', 'Script nhiều dòng cần một interpreter rõ ràng để tránh cmd.exe thực thi từng dòng code.', {
+      next_action:'Dùng powershell.exe -NoProfile -Command "<toàn bộ script>" hoặc chạy một file script; không gửi code nhiều dòng trực tiếp cho cmd.exe.'
+    });
+    if (!hasUnsafeCmdArrow(raw)) return originalExec(ref, command, opts);
 
     const safePhp = buildSafePhpInlineCommand(raw);
     if (!safePhp) {
@@ -113,6 +135,7 @@ function installWindowsTerminalGuardPatches() {
 }
 
 module.exports = {
+  powershellInvocation,
   hasUnsafeCmdArrow,
   parsePhpInlineCommand,
   buildSafePhpInlineCommand,

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+# Recreated by scripts/generate-icons.cjs before start/build.
+assets/brand.svg
+assets/icon.ico
+assets/icon.png
+renderer/vendor/lucide.js

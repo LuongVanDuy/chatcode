@@ -2,8 +2,10 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const childProcess = require('child_process');
 const { chatError } = require('./errors');
+const { powershellInvocation } = require('./windows-terminal-guard');
 
 const MAX_STREAM_CHARS = 1024 * 1024;
 const MAX_JOBS = 80;
@@ -96,6 +98,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
       job_id:job.id,
       project:job.project,
       project_id:job.projectId,
+      work_session_id:job.workSessionId || null,
       command:job.command,
       cwd:job.cwdRel || '.',
       status:job.status,
@@ -117,7 +120,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
       background:job.background,
       timeout_ms:job.timeoutMs,
       stop_reason:job.stopReason || '',
-      terminal:{ hidden:true, shell:process.platform === 'win32' ? 'cmd.exe' : '/bin/sh', cwd_inside_project:true, os_filesystem_sandbox:false },
+      terminal:{ hidden:true, shell:job.shell, cwd_inside_project:true, os_filesystem_sandbox:false },
       approval:{ required:false, status:'not_required', approval_id:null, mode:'trusted_workspace' }
     };
   }
@@ -145,8 +148,26 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
     return { abs:target, rel:rel === '.' ? '.' : rel.replace(/^\.\//, '') };
   }
 
-  function shellCommand(command) {
+  async function shellCommand(command) {
     if (process.platform === 'win32') {
+      const ps = powershellInvocation(command);
+      if (ps) {
+        const script = '$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n' + (ps.encoded ? Buffer.from(ps.payload, 'base64').toString('utf16le') : ps.payload);
+        const encoded = Buffer.from(script, 'utf16le').toString('base64');
+        const options = ps.options.filter(option => !/^-NonInteractive$/i.test(option));
+        const args = [...options, '-NonInteractive', '-EncodedCommand', encoded];
+        if (args.join(' ').length < 30000) return { file:ps.file, args, stdin:null };
+        const temp = await fsp.mkdtemp(path.join(os.tmpdir(), 'chatcode-script-'));
+        const scriptPath = path.join(temp, 'command.ps1');
+        try {
+          await fsp.writeFile(scriptPath, '\uFEFF' + script, 'utf8');
+        } catch (error) {
+          await fsp.rm(temp, { recursive:true, force:true });
+          throw error;
+        }
+        return { file:ps.file, args:[...options, '-NonInteractive', '-File', scriptPath], stdin:null, cleanup:() => fsp.rm(temp, { recursive:true, force:true }) };
+      }
+      if (command.length > 8000) throw chatError('TASK_NOT_ALLOWED', 'Lệnh vượt giới hạn cmd.exe. Chạy script bằng PowerShell -Command hoặc -EncodedCommand.', { length:command.length });
       return {
         file:process.env.ComSpec || 'cmd.exe',
         args:['/d','/q'],
@@ -199,9 +220,10 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
     const cwd = await resolveCwd(project, options.cwd), background = !!options.background;
     const requestedTimeout = Number(options.timeout_ms);
     const timeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? Math.min(MAX_TIMEOUT_MS, Math.max(1000, requestedTimeout)) : (background ? 0 : 120000);
-    const shell = shellCommand(command), id = crypto.randomUUID(), now = new Date().toISOString();
+    const shell = await shellCommand(command), id = crypto.randomUUID(), now = new Date().toISOString();
     const job = {
       id, project:project.name, projectId:project.id, command, cwdRel:cwd.rel,
+      workSessionId:String(options.work_session_id || ''), shell:shell.file,
       status:'running', pid:null, exitCode:null, signal:'', stdout:'', stderr:'',
       stdoutTotal:0, stderrTotal:0, stdoutBase:0, stderrBase:0, stdoutTruncated:false, stderrTruncated:false,
       background, timeoutMs, createdAt:now, startedAt:now, completedAt:'', stopReason:'', completionRecorded:false, child:null, timeout:null, done:null
@@ -210,6 +232,8 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
 
     let child;
     try {
+      // A session can be cancelled while resolving cwd or preparing a script.
+      options.beforeSpawn?.();
       child = childProcess.spawn(shell.file, shell.args, {
         cwd:cwd.abs,
         windowsHide:true,
@@ -220,6 +244,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
       });
       job.child = child; job.pid = child.pid || null;
     } catch (error) {
+      await shell.cleanup?.().catch(() => {});
       job.status = 'failed'; appendStream(job, 'stderr', error?.message || error); job.completedAt = new Date().toISOString(); emit(job); throw error;
     }
 
@@ -237,6 +262,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
         emit(job);
       });
       child.once('close', async (code, signal) => {
+        await shell.cleanup?.().catch(() => {});
         if (job.timeout) clearTimeout(job.timeout);
         job.exitCode = Number.isInteger(code) ? code : null; job.signal = signal || '';
         if (job.status === 'running') job.status = code === 0 ? 'completed' : 'failed';

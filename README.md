@@ -77,7 +77,7 @@ prepare_task
    ├─ Project Brain context
    ├─ framework / WordPress context
    ├─ relevant source contents
-   ├─ Git baseline
+   ├─ Work Session baseline
    ├─ verification hints
    └─ applicable built-in skills
    │
@@ -90,13 +90,19 @@ complete_task
    ├─ apply patch transactionally
    ├─ run verification
    ├─ refresh Brain
-   ├─ collect Git diff/status
-   └─ finalize Work Session
+   ├─ finalize Work Session
+   └─ configured changed-file FTP deploy
 ```
 
 Một task thông thường được tối ưu cho **2 MCP calls**: `prepare_task` và `complete_task`.
 
 Nếu verification fail, task giữ nguyên trạng thái để AI tạo corrective patch với cùng `task_id` thay vì inspect lại từ đầu.
+
+Gọi lại cùng yêu cầu sẽ trả session đang active. Khi có dependency mới cần re-plan, truyền `task_id` hiện tại vào `prepare_task` để giữ baseline. Inspection thất bại không mở session. Git chỉ được đọc qua các công cụ Git khi cần.
+
+Để dừng và giữ file đã sửa, gọi `finish_work` với `cancel:true`; tiến trình terminal gắn với session sẽ được yêu cầu dừng, không verify, deploy hoặc rollback. Nếu FTP thất bại, gọi lại `finish_work` với cùng session để retry các file chưa upload thành công. Một lần FTP thành công không bị chạy lại khi finish lặp.
+
+Chỉ retry khi đã xác định và sửa nguyên nhân. Nếu lỗi cũ vẫn lặp lại, báo lỗi cùng trạng thái local/live hiện tại thay vì mở thêm session hoặc liên tục polling.
 
 Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnSave:true` có thể tự đồng bộ **chỉ các file của task vừa thay đổi** qua Trusted Terminal sau khi verification PASS. FTP fail được trả về `deploy_failed`, nên agent không được báo website đã cập nhật khi local code mới chỉ verify thành công.
 
@@ -106,7 +112,7 @@ Từ v1.0.26, project Trusted Workspace có `.vscode/sftp.json` với `uploadOnS
 - Apply unified diff nhiều file theo transaction.
 - Preflight patch trước khi ghi.
 - Lưu recovery point cho file bị thay đổi.
-- Theo dõi changed files, commands và Git state.
+- Theo dõi changed files và commands; Git state chỉ được đọc khi yêu cầu riêng.
 - Có thể rollback toàn bộ Work Session.
 - Verification có thể chạy tối đa nhiều lệnh phù hợp với task.
 - Work Session/task id luôn bị ràng buộc vào project đã tạo nó; việc project B chạy song song không cho session của A mutate sang B.
@@ -500,12 +506,14 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 - **Least privilege:** quyền được cấu hình theo từng project.
 - **Recoverable mutations:** thay đổi quan trọng có recovery point hoặc Work Session rollback.
 - **Read before write:** agent được cung cấp context, Brain và baseline trước khi patch.
-- **Verify after write:** coding flow có verification và Git diff/status sau thay đổi.
+- **Verify after write:** kiểm tra phạm vi vừa sửa; Git diff/status chỉ chạy khi yêu cầu riêng.
 - **No automatic Git push:** agent không được tự push code ra remote.
 - **Framework-aware:** WordPress/WooCommerce/Bricks có lớp phân tích và skill chuyên biệt thay vì xử lý như codebase generic.
 - **Concurrent project isolation:** project A và B được phép chạy song song, nhưng mỗi task/Work Session/terminal holder chỉ được mutate project đã tạo holder đó.
 
 ## Release hiện tại
+
+Source/package hiện là **v1.0.36**, dùng runtime baseline v1.0.26, patch parser đã sửa ở v1.0.35 và skill WordPress/Bricks từ v1.0.32. Các thay đổi về retry/cancel và vận chuyển PowerShell trong working tree chưa được phát hành thành installer.
 
 **v1.0.26** thêm **verified terminal FTP deploy** dựa trên `.vscode/sftp.json`: chỉ file của task hiện tại được đồng bộ sau verification PASS, hỗ trợ upload/delete theo `watcher.autoDelete`, giữ credential bên trong terminal process và trả `deploy_failed` nếu remote chưa cập nhật. Bản này cũng sửa lỗi Windows Trusted Terminal có thể hiểu ký tự `>` trong PHP/code arrow `=>` thành output redirection và tạo file rác ở project root; inline PHP nguy cơ cao được chuyển sang PowerShell encoded transport, còn inline command không thể rewrite an toàn sẽ bị chặn trước `cmd.exe`.
 
@@ -524,6 +532,6 @@ ChatCode được phát triển theo một số nguyên tắc chính:
 | **v1.0.17** | Negation-aware Task Classifier: explicit filesystem task FAST, stored-state evidence mới vào DATA/DEEP. |
 | **v1.0.16** | Acceptance hardening: scope lifecycle, explicit filesystem FAST path, explicit-path owner precedence, Bricks context/version evidence. |
 
-Source/package hiện đặt target release **1.0.26**; GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
+GitHub Release được CI publish sau khi các acceptance gate trên `main` PASS.
 
 Xem toàn bộ lịch sử phát hành tại **[Releases](https://github.com/LuongVanDuy/chatcode/releases)**.

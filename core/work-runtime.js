@@ -149,7 +149,7 @@ function createWorkRuntime(projects, store, backups, api) {
     const cutoff = Date.now() - SESSION_TTL_MS;
     for (const [id, s] of sessions) if ((Date.parse(s.finishedAt || s.updatedAt || s.startedAt) || 0) < cutoff) sessions.delete(id);
     const extra = Math.max(0, sessions.size - MAX_SESSIONS);
-    if (extra) [...sessions.values()].sort((a,b) => a.startedAt.localeCompare(b.startedAt)).slice(0, extra).forEach(s => sessions.delete(s.id));
+    if (extra) [...sessions.values()].filter(s => s.status !== 'active').sort((a,b) => a.startedAt.localeCompare(b.startedAt)).slice(0, extra).forEach(s => sessions.delete(s.id));
   }
 
   function get(id) {
@@ -297,6 +297,15 @@ function createWorkRuntime(projects, store, backups, api) {
 
   async function finishWork(id, verifyCommands = [], options = {}) {
     const s = get(id), p = projectForSession(s);
+    if (options.cancel) {
+      // Closing work is distinct from restoring files or deploying them.
+      if (s.status !== 'active') return publicSession(s);
+      s.status = 'cancelled';
+      s.updatedAt = s.finishedAt = new Date().toISOString();
+      const jobs = typeof api.listTerminalJobs === 'function' ? await api.listTerminalJobs(p.id) : [];
+      const stopped = await Promise.allSettled(jobs.filter(job => job.work_session_id === id && ['running','stopping'].includes(job.status)).map(job => api.jobStop(job.job_id)));
+      return { ...publicSession(s), ok:true, files_preserved:true, stopped_jobs:stopped.filter(r => r.status === 'fulfilled').map(r => r.value.job_id) };
+    }
     if (s.status !== 'active') return status(id);
     const verification = [];
     for (const command of (Array.isArray(verifyCommands) ? verifyCommands : []).map(String).filter(Boolean).slice(0,6)) {
@@ -307,6 +316,7 @@ function createWorkRuntime(projects, store, backups, api) {
       verification.push({ command, ok, status:r?.status || (r?.ok ? 'completed' : 'failed'), exit_code:r?.exit_code ?? r?.code ?? null, stdout:String(r?.stdout || '').slice(-16000), stderr:String(r?.stderr || '').slice(-16000) });
       if (!r?.status) recordCommand(s.id, p.id, command, r);
     }
+    if (s.status !== 'active') return { ...publicSession(s), ok:false, verification, verification_passed:false };
     const reused = options?.reuseFinal || null;
     const brainStart = Date.now();
     let brainResult = reused?.brain || null;
@@ -315,9 +325,12 @@ function createWorkRuntime(projects, store, backups, api) {
       const brain = typeof api.rebuildBrain === 'function' ? await api.rebuildBrain(p.id) : null;
       brainResult = { refreshed:true, refresh_ms:Date.now() - brainStart, updated_at:brain?.updatedAt || null, stats:brain?.stats || null };
     }
-    s.status = verification.every(x => x.ok) ? 'completed' : 'verification_failed';
-    s.updatedAt = s.finishedAt = new Date().toISOString();
-    return { ...publicSession(s), verification, verification_passed:verification.every(x => x.ok), brain:brainResult, final:{ git:reused?.git || await gitSnapshot(p.id) } };
+    if (s.status !== 'active') return { ...publicSession(s), ok:false, verification, verification_passed:false };
+    const passed = verification.every(x => x.ok);
+    s.status = passed ? 'completed' : 'active';
+    s.updatedAt = new Date().toISOString();
+    if (passed) s.finishedAt = s.updatedAt;
+    return { ...publicSession(s), ok:passed, verification, verification_passed:passed, brain:brainResult, final:{ git:reused?.git || await gitSnapshot(p.id) } };
   }
 
   async function rollbackWork(id) {
@@ -365,7 +378,13 @@ function installWorkRuntimePatches() {
 
     const originalExec = typeof api.exec === 'function' ? api.exec.bind(api) : null;
     if (originalExec) api.exec = async (ref, command, opts = {}) => {
-      const result = await originalExec(ref, command, opts);
+      const validateSession = () => {
+        if (!opts.work_session_id) return;
+        const s = runtime.peek(opts.work_session_id);
+        if (s.status !== 'active' || s.project_id !== store.getProject(ref).id) throw chatError('PERMISSION_DENIED', 'Terminal command cần work session đang active của đúng project.');
+      };
+      validateSession();
+      const result = await originalExec(ref, command, { ...opts, beforeSpawn:validateSession });
       if (opts?.work_session_id) runtime.recordCommand(opts.work_session_id, ref, command, result);
       return result;
     };

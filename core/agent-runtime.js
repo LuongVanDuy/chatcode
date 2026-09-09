@@ -176,6 +176,8 @@ async function runBricksJsonVerification(api, projectId, files, inspect) {
 function createAgentRuntime(api, store = null) {
   const taskCards = new Map();
   const taskContexts = new Map();
+  const preparations = new Map();
+  const preparing = new Map();
 
   function rememberTaskCard(taskId, taskCard, context = null) {
     taskCards.set(String(taskId), taskCard);
@@ -187,7 +189,36 @@ function createAgentRuntime(api, store = null) {
     }
   }
 
-  async function prepareTask(ref, request, limit = 8) {
+  async function prepareTask(ref, request, limit = 8, { taskId = '' } = {}) {
+    const projectId = store?.getProject ? store.getProject(ref).id : String(ref);
+    const key = JSON.stringify([projectId, String(request || '').trim().replace(/\s+/g, ' '), taskId]);
+    if (preparing.has(key)) return preparing.get(key);
+    const run = async () => {
+      const previous = preparations.get(key);
+      if (previous) {
+        let current;
+        try { current = typeof api.workMeta === 'function' ? await api.workMeta(previous.task_id) : await api.workStatus(previous.task_id); } catch {}
+        if (current?.status === 'active') return {
+          ...previous, status:'active_task_reused', session:current,
+          context:current.changed_files?.length ? { ...previous.context, relevant_files:[], source_must_be_read:true } : previous.context,
+          next_action:'Tiếp tục cùng task_id. Nếu đã sửa file, đọc trạng thái hiện tại trước khi tạo patch; không prepare lặp để reset task.'
+        };
+        preparations.delete(key);
+      }
+      const prepared = await prepareFresh(projectId, request, limit, taskId);
+      // A re-plan replaces the old contract for this session, including aliases
+      // from earlier requests, so a retry cannot return an obsolete task card.
+      for (const [priorKey, prior] of preparations) if (prior.task_id === prepared.task_id) preparations.set(priorKey, prepared);
+      preparations.set(key, prepared);
+      while (preparations.size > MAX_TASK_CARDS) preparations.delete(preparations.keys().next().value);
+      return prepared;
+    };
+    const pending = run();
+    preparing.set(key, pending);
+    try { return await pending; } finally { preparing.delete(key); }
+  }
+
+  async function prepareFresh(ref, request, limit, taskId) {
     const started = nowMs();
     const text = String(request || '').trim();
     if (!text) throw chatError('INTERNAL_ERROR', 'Yêu cầu coding task đang trống.');
@@ -196,10 +227,15 @@ function createAgentRuntime(api, store = null) {
     const inspectLimit = Math.min(requestedLimit, Number(preflight?.limits?.context_files) || MAX_CONTEXT_FILES);
 
     const inspectStarted = nowMs();
-    const [session, inspect] = await Promise.all([
-      api.startWork(ref, text, { compactBaseline:true }),
-      api.inspectProject(ref, text, inspectLimit)
-    ]);
+    let session = null;
+    if (taskId) {
+      session = typeof api.workMeta === 'function' ? await api.workMeta(taskId) : await api.workStatus(taskId);
+      if (session.status !== 'active' || session.project_id !== ref) throw chatError('PERMISSION_DENIED', 'Re-plan cần task đang active của đúng project.', { task_id:taskId });
+    }
+    // Inspection failure must not leave an invisible Work Session behind.
+    const inspect = await api.inspectProject(ref, text, inspectLimit);
+    if (!session) session = await api.startWork(ref, text, { compactBaseline:true });
+    try {
     const inspectMs = nowMs() - inspectStarted;
     const hints = await verificationHints(api, session.project_id, inspect);
     const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
@@ -247,19 +283,29 @@ function createAgentRuntime(api, store = null) {
           pathGuidance,
           ownerGuidance,
           'Bám task_card: giữ đúng target, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
-          'FAST không được tự chuyển thành DEEP trong complete_task. Nếu evidence mới làm task hiện tại không an toàn, dừng và re-plan thay vì patch rộng.',
+          'Nếu cần re-plan do dependency mới, gọi prepare_task với task_id hiện tại để giữ baseline; không mở session mới.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi owner.requires_read hoặc thiếu dependency cụ thể.',
           'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
           'Với WordPress, tôn trọng context.retrieval_scope và chỉ mở rộng ra Bricks parent, Woo core hoặc WordPress core khi có evidence cụ thể.',
           'Bricks JSON mới/thay đổi sẽ được complete_task kiểm cấu trúc deterministic; không bỏ qua lỗi parent/children/settings/query chỉ vì JSON parse được.',
           'Gọi complete_task với task_id này, unified diff và các verify_commands phù hợp.',
           'Nếu complete_task trả needs_fix, sửa trên trạng thái hiện tại và gọi complete_task lại; không tạo session mới.',
+          'Chỉ thử lại khi có thay đổi cụ thể giải quyết lỗi trước. Lỗi giống nhau lặp lại sau sửa: dừng, giữ file và báo nguyên nhân; không lặp prepare/exec hoặc polling không có bằng chứng tiến triển.',
+          'Muốn dừng mà giữ file: finish_work(work_session_id, cancel:true). FTP lỗi: retry bằng finish_work trên session đã hoàn tất; không áp lại patch.',
           'Nếu cần hủy toàn bộ thay đổi của task, dùng rollback_work với cùng task_id.'
         ]
       },
       baseline:session.baseline,
       telemetry:{ total_ms:nowMs() - started, inspect_ms:inspectMs, filesystem_ms:Number(inspect?.telemetry?.filesystem_ms)||0, brain_refresh_ms:Number(inspect?.telemetry?.brain_refresh_ms)||0, git_ms:Number(inspect?.telemetry?.git_ms)||0 }
     };
+    } catch (error) {
+      if (!taskId) {
+        taskCards.delete(session.work_session_id);
+        taskContexts.delete(session.work_session_id);
+        await api.finishWork(session.work_session_id, [], { cancel:true }).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   async function runVerification(projectId, taskId, workspaceMode, commands, { preferTaskRunner = false } = {}) {
@@ -301,7 +347,7 @@ function createAgentRuntime(api, store = null) {
         violations:scopeCheck.violations,
         patch_files:scopeCheck.files,
         unexpected_files:scopeCheck.unexpected_files,
-        next_action:'Giữ task hiện tại nếu có thể thu nhỏ patch. Nếu dependency mới thật sự yêu cầu scope rộng hơn, re-plan bằng prepare_task thay vì tự chuyển FAST thành DEEP.'
+        next_action:'Thu nhỏ patch hoặc re-plan bằng prepare_task với task_id hiện tại và dependency cụ thể. Không tạo session mới.'
       });
     }
 
@@ -318,6 +364,8 @@ function createAgentRuntime(api, store = null) {
     const verifyMs = nowMs() - verifyStarted;
     const verificationPassed = verification.every(item => item.ok);
 
+    const afterVerification = typeof api.workMeta === 'function' ? await api.workMeta(id) : await api.workStatus(id);
+    if (afterVerification.status !== 'active') return { ok:false, status:afterVerification.status, task_id:id, work_session_id:id, verification, verification_passed:false, session:afterVerification };
     if (!verificationPassed) {
       if (rollbackOnFailure) {
         const rolled = await api.rollbackWork(id);
@@ -364,6 +412,9 @@ function createAgentRuntime(api, store = null) {
     const finalizeStarted = nowMs();
     const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
+    if (finished.status !== 'completed' && finished.status !== 'deploy_failed') {
+      return { ok:false, status:finished.status, task_id:id, work_session_id:id, verification, verification_passed:false, session:finished };
+    }
     const savedProfile = saveProjectRules(store, projectId, rememberProjectRules);
     const savedRules = (savedProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
     const projectRules = relevantProjectRules(savedRules, taskCard);
@@ -399,7 +450,7 @@ function installAgentRuntimePatches() {
   safety.createSafeToolApi = function agentAwareSafeToolApi(projects, store, approvals, backups, options) {
     const api = previousCreate(projects, store, approvals, backups, options);
     const runtime = createAgentRuntime(api, store);
-    api.prepareTask = (ref, request, limit) => runtime.prepareTask(ref, request, limit);
+    api.prepareTask = (ref, request, limit, options) => runtime.prepareTask(ref, request, limit, options);
     api.completeTask = (taskId, patch, verifyCommands, options = {}) => runtime.completeTask(taskId, patch, verifyCommands, options);
     return api;
   };

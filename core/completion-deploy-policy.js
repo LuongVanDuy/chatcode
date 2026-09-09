@@ -13,7 +13,7 @@ function completionWithDeployStatus(result) {
     status:'deploy_failed',
     ftp_deploy:ftp,
     agent_contract:{ ...(result?.agent_contract || {}), result:'deploy_failed' },
-    next_action:'Thay đổi local đã verify nhưng FTP deploy chưa hoàn tất. Giữ nguyên file local, kiểm tra ftp_deploy và retry deploy; không báo task hoàn tất trên website.'
+    next_action:'Thay đổi local đã verify nhưng FTP deploy chưa hoàn tất. Kiểm tra ftp_deploy; retry bằng finish_work với work_session_id cũ, không áp lại patch hoặc mở task mới. Nếu cùng lỗi còn lặp lại, dừng và báo nguyên nhân; không báo website đã cập nhật.'
   };
 }
 

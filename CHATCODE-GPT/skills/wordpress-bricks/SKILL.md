@@ -9,6 +9,7 @@ This is the mandatory umbrella contract for WordPress + Bricks. Runtime adds sma
 - Use project evidence/Owner Resolver; do not guess.
 - Existing owner first. A normal edit defaults to zero new source files.
 - Read more only for one concrete missing dependency.
+- Re-plan with the existing `task_id` when new evidence changes scope. Do not restart preparation to work around an error.
 - Preserve unrelated Builder/user edits.
 - Do not broaden into Git, external research, migration, refactor or deployment unless the actual task requires it.
 - When a reference site/domain is named, keep it as the scoped source unless unavailable or wider research is requested.
@@ -48,5 +49,8 @@ UI tasks receive at most two deterministic local matches. Project tokens/compone
 - Global tokens stay in the global owner; page/component styles stay scoped.
 - `complete_task` owns scoped verification and configured changed-file FTP deployment; never duplicate a successful sync manually.
 - Verify touched scope only. PASS means STOP.
+- Follow the user's current scope and explicit exceptions. Defaults such as zero new files or distinct reference media do not override a request to create a page or reuse placeholder images.
+- Retry only after identifying and correcting the cause. If the same error persists, stop and report it; do not cycle through prepare, shell, FTP and live polling.
+- `finish_work(cancel:true)` stops active work while preserving files. A failed FTP is retried through `finish_work` on the same session, without applying the patch again.
 
 Persist only durable user-confirmed project decisions. Never store guesses, credentials or transient diagnostics. If a required check cannot run, report that limitation exactly.

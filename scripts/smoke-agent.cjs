@@ -53,8 +53,18 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(typeof api.prepareTask, 'function');
   assert.equal(typeof api.completeTask, 'function');
 
+  const originalInspect = api.inspectProject;
+  api.inspectProject = async () => { throw new Error('inspection unavailable'); };
+  const beforeFailedPrepare = api.listWorkSessions('agent').length;
+  await assert.rejects(() => api.prepareTask('agent', 'Inspection failure'), /inspection unavailable/);
+  assert.equal(api.listWorkSessions('agent').length, beforeFailedPrepare, 'failed inspection must not open a ghost session');
+  api.inspectProject = originalInspect;
+
   // Normal coding task: exactly prepare -> complete, with no Git context.
   const prepared = await api.prepareTask('agent', 'Fix checkout address so null values do not crash', 8);
+  const repeated = await Promise.all(Array.from({ length:3 }, () => api.prepareTask('agent', 'Fix checkout address so null values do not crash', 8)));
+  assert.ok(repeated.every(r => r.task_id === prepared.task_id));
+  assert.equal(api.listWorkSessions('agent').filter(s => s.status === 'active').length, 1);
   assert.equal(prepared.status, 'ready');
   assert.ok(prepared.task_id);
   assert.equal(prepared.agent_contract.preferred_calls, 2);
@@ -87,6 +97,23 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(firstRollback.ok, true);
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
+
+  const replanning = await api.prepareTask('agent', 'Update src/app.js', 6);
+  const replanned = await api.prepareTask('agent', 'Fix src/app.js using newly identified dependency', 6, { taskId:replanning.task_id });
+  assert.equal(replanned.task_id, replanning.task_id, 're-plan must preserve baseline and session id');
+  const originalRequestRetry = await api.prepareTask('agent', 'Update src/app.js', 6);
+  assert.equal(originalRequestRetry.task_id, replanned.task_id);
+  assert.deepEqual(originalRequestRetry.task_card, replanned.task_card, 'old request must reuse the latest contract after re-plan');
+  const stoppedWork = await api.finishWork(replanned.task_id, [], { cancel:true });
+  assert.equal(stoppedWork.status, 'cancelled');
+  assert.equal(await fsp.readFile(path.join(root, 'src/app.js'), 'utf8'), baseline);
+
+  const verifyOnly = await api.startWork('agent', 'Failed finish can be corrected');
+  const failedFinish = await api.finishWork(verifyOnly.work_session_id, ['node -e "process.exit(1)"']);
+  assert.equal(failedFinish.ok, false);
+  assert.equal((await api.workStatus(verifyOnly.work_session_id)).status, 'active');
+  assert.ok(api.projectScope('agent').active_work_session_ids.includes(verifyOnly.work_session_id));
+  await api.finishWork(verifyOnly.work_session_id, [], { cancel:true });
 
   // Verification failure stays active and can be corrected with the same task id.
   const repair = await api.prepareTask('agent', 'Change checkout normalization and verify behavior', 6);
@@ -150,6 +177,19 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(rolled.verification_passed, false);
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
+
+  // A stop arriving at finalization must never turn into completed or deploy.
+  const cancelAtFinish = await api.prepareTask('agent', 'Stop checkout update at finalization', 6);
+  const realFinish = api.finishWork;
+  api.finishWork = async (id, commands, options) => {
+    if (id === cancelAtFinish.task_id && options?.reuseFinal) await realFinish(id, [], { cancel:true });
+    return realFinish(id, commands, options);
+  };
+  const cancelledCompletion = await api.completeTask(cancelAtFinish.task_id, firstAttemptPatch, []);
+  api.finishWork = realFinish;
+  assert.equal(cancelledCompletion.status, 'cancelled');
+  assert.equal(cancelledCompletion.ok, false);
+  assert.match(await fsp.readFile(path.join(root, 'src/app.js'), 'utf8'), /String\(value\)/, 'stop preserves already applied edits');
 
   await api.shutdownTerminalJobs();
   approvals.shutdown();

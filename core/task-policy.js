@@ -69,7 +69,7 @@ function createTaskLevelApi(api, store, notifyTaskCompleted) {
       let before = null;
       try { before = typeof api.workMeta === 'function' ? await api.workMeta(id) : typeof api.workStatus === 'function' ? await api.workStatus(id) : null; } catch {}
       const result = await runGrouped(() => rawFinishWork(id, commands, options));
-      const transitioned = before?.status === 'active' && result?.status === 'completed';
+      const transitioned = before?.status === 'active' && result?.status === 'completed' && result?.ok !== false;
       if (!transitioned || notifiedSessions.has(String(id))) {
         return withNotification(result, { emitted:false, count:0, reason:transitioned ? 'task-level-deduped' : 'task-not-final' });
       }

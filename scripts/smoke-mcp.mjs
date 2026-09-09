@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { startMcpHttpServer } from '../mcp-server.mjs';
+import { startMcpHttpServer, toolSucceeded } from '../mcp-server.mjs';
 
 const port = 47921;
 const token = 'ci-smoke-token';
+const activity = [];
 const api = {
   listProjects: async () => [{ id:'demo', name:'demo', root:'C:/demo', permissions:{ write:false, manageFiles:false, tasks:false, gitWrite:false }, workspace_mode:'trusted' }],
   listFiles: async () => ['README.md','src/index.js'],
@@ -36,7 +37,7 @@ const api = {
   gitDiff: async () => ({ ok:true, code:0, stdout:'', stderr:'' }),
   gitStage: async () => { throw new Error('Git write permission is disabled for project "demo"'); },
   gitCommit: async () => { throw new Error('Git write permission is disabled for project "demo"'); },
-  recordActivity: async () => {}
+  recordActivity: async entry => activity.push(entry)
 };
 
 const server = await startMcpHttpServer({ port, token, api });
@@ -81,6 +82,26 @@ try {
 
   const finished = await client.callTool({ name:'finish_work', arguments:{ work_session_id:'work-1', verify_commands:['node --version'] } }); assert.equal(JSON.parse(finished.content[0].text).verification_passed, true);
   const rolledBack = await client.callTool({ name:'rollback_work', arguments:{ work_session_id:'work-1' } }); assert.equal(JSON.parse(rolledBack.content[0].text).status, 'rolled_back');
+
+  api.prepareTask = async (_ref, _request, _limit, options) => ({ ok:true, task_id:options.taskId });
+  const resumed = await client.callTool({ name:'prepare_task', arguments:{ project:'demo', request:'new evidence', task_id:'agent-1' } });
+  assert.equal(JSON.parse(resumed.content[0].text).task_id, 'agent-1');
+  api.finishWork = async (_id, _commands, options) => ({ ok:true, status:options.cancel ? 'cancelled' : 'completed' });
+  const cancelled = await client.callTool({ name:'finish_work', arguments:{ work_session_id:'work-1', cancel:true } });
+  assert.equal(JSON.parse(cancelled.content[0].text).status, 'cancelled');
+  assert.notEqual(cancelled.isError, true);
+  for (const failure of [
+    { status:'failed', exit_code:9009 },
+    { ok:false, status:'needs_fix', verification_passed:false },
+    { status:'completed', session:{ ftp_deploy:{ ok:false, status:'failed' } } },
+    { status:'timeout', exit_code:null }
+  ]) assert.equal(toolSucceeded(failure), false);
+  assert.equal(toolSucceeded({ ok:true, status:'stopped', stop_reason:'user', exit_code:1 }), true, 'a requested stop is not a command failure to repair');
+  api.exec = async () => ({ status:'failed', exit_code:9009, stdout:'', stderr:'command failed' });
+  const failedExec = await client.callTool({ name:'exec', arguments:{ project:'demo', command:'failed-command' } });
+  assert.equal(failedExec.isError, true, 'resolved terminal failure must be an MCP error');
+  assert.equal(activity.at(-1).ok, false, 'audit must not record failed terminal as success');
+  assert.match(activity.at(-1).error, /9009/);
 
   const deniedWrite = await client.callTool({ name:'write_file', arguments:{ project:'demo', path:'x.txt', content:'x' } });
   assert.equal(deniedWrite.isError, true); const denied = JSON.parse(deniedWrite.content[0].text); assert.equal(denied.ok, false); assert.equal(denied.error.code, 'PERMISSION_DENIED');

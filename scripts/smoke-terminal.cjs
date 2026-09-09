@@ -75,6 +75,31 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   // Acceptance E foreground: exercise a real nested CMD on Windows, not only node through the default shell.
   if (process.platform === 'win32') {
+    const script = `$payload=@'\n<?php\n$args = ['order' => 'ASC', 'direction' => 'DESC', 'orderby' => 'ids', 'cast' => (int) 3, 'label' => esc_html__('X')];\n'@\nWrite-Output $payload\nWrite-Output 'Nhiều dòng tiếng Việt'\nexit 0`;
+    const entriesBefore = await fsp.readdir(trustedRoot);
+    const multiline = await api.exec('trusted', `powershell.exe -NoProfile -Command "${script}"`);
+    assert.equal(multiline.status, 'completed', multiline.stderr);
+    assert.match(multiline.stdout, /'order' => 'ASC'/);
+    assert.match(multiline.stdout, /Nhiều dòng tiếng Việt/);
+    assert.deepEqual(await fsp.readdir(trustedRoot), entriesBefore, 'PowerShell here-string must not create PHP-token files');
+
+    const { buildFtpDeployCommand, parseDeployResult } = require('../core/ftp-deploy');
+    await fsp.mkdir(path.join(trustedRoot, '.vscode'));
+    await fsp.writeFile(path.join(trustedRoot, '.vscode/sftp.json'), JSON.stringify({ uploadOnSave:false }));
+    const ftpCommand = buildFtpDeployCommand(['functions.php']);
+    assert.ok(ftpCommand.length > 8191, 'reproduce the real FTP command exceeding CMD limit');
+    const ftp = await api.exec('trusted', ftpCommand);
+    assert.equal(ftp.status, 'completed', ftp.stderr);
+    assert.equal(parseDeployResult(ftp, ['functions.php']).reason, 'upload_disabled', 'full FTP script must actually execute without network writes');
+
+    const longScript = '#' + 'x'.repeat(12500) + "\nWrite-Output 'TEMP_SCRIPT_OK'\nexit 0";
+    const longRun = await api.exec('trusted', `powershell.exe -NoProfile -Command "${longScript}"`);
+    assert.equal(longRun.status, 'completed', longRun.stderr);
+    assert.match(longRun.stdout, /TEMP_SCRIPT_OK/);
+    const failedPs = await api.exec('trusted', 'powershell.exe -NoProfile -Command "exit 7"');
+    assert.equal(failedPs.status, 'failed');
+    assert.equal(failedPs.exit_code, 7);
+
     const cmd = await api.exec('trusted', `cmd.exe /d /q /c "echo CMD_FOREGROUND_OK"`);
     assert.equal(cmd.status, 'completed', cmd.stderr);
     assert.equal(cmd.exit_code, 0, cmd.stderr);
@@ -138,6 +163,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(timed.status, 'timeout');
   assert.equal(timed.stop_reason, 'timeout');
   assert.match(timed.stderr, /timeout/i);
+
+  const work = await api.startWork('trusted', 'Stop attached job without changing files');
+  const attached = await api.exec('trusted', `node -e "setInterval(()=>{},1000)"`, { background:true, work_session_id:work.work_session_id });
+  const cancelled = await api.finishWork(work.work_session_id, [], { cancel:true });
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.files_preserved, true);
+  for (let i = 0; i < 30 && ['running','stopping'].includes(api.jobStatus(attached.job_id).status); i++) await sleep(100);
+  assert.equal(api.jobStatus(attached.job_id).status, 'stopped');
+  await assert.rejects(() => api.exec('trusted', 'node --version', { work_session_id:work.work_session_id }), /active/);
 
   // Acceptance E background: real PowerShell process, output/exit code retained and terminal remains hidden.
   if (process.platform === 'win32') {

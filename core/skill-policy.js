@@ -186,9 +186,9 @@ function createSkillPolicyApi(api) {
   };
 
   if (original.prepareTask) {
-    api.prepareTask = async (ref, request, limit) => {
+    api.prepareTask = async (ref, request, limit, options) => {
       prunePreparedTasks();
-      const result = await original.prepareTask(ref, request, limit);
+      const result = await original.prepareTask(ref, request, limit, options);
       const evidence = hasBricksProjectEvidence(result?.context || {});
       if (!evidence.active) return result;
       const skills = Array.isArray(result?.skills) ? result.skills : [];

@@ -90,6 +90,8 @@ function filesFromCommand(command) {
   const disabled = parseDeployResult({ status:'completed', exit_code:0, stdout:'CHATCODE_FTP_SKIP|upload_disabled\n', stderr:'' }, ['a.php']);
   assert.equal(disabled.status, 'skipped');
   assert.equal(disabled.reason, 'upload_disabled');
+  const emptySuccess = parseDeployResult({ status:'completed', exit_code:0, stdout:'', stderr:'' }, ['a.php']);
+  assert.equal(emptySuccess.ok, false, 'exit zero without file results is not a successful upload');
 
   const root = fixtureRoot();
   let execCalls = 0;
@@ -125,6 +127,33 @@ function filesFromCommand(command) {
   assert.equal(finished.status, 'completed');
   assert.equal(finished.ftp_deploy.status, 'completed');
   assert.deepEqual(finished.ftp_deploy.uploaded, ['inc/test.php']);
+
+  let retryCalls = 0;
+  let finishCalls = 0;
+  let workState = 'active';
+  const { createProjectScopeApi } = require('../core/project-scope');
+  const retryApi = createProjectScopeApi(createFtpDeployApi({
+    listProjects:async () => [store.getProject('p1')],
+    startWork:async () => ({ work_session_id:'retry-work', project_id:'p1', status:'active' }),
+    workStatus:async () => ({ project_id:'p1', status:workState, changed_files:['a.php','b.php'] }),
+    finishWork:async () => { finishCalls++; workState = 'completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; },
+    exec:async (_ref, cmd) => {
+      retryCalls++;
+      if (retryCalls === 1) return { status:'failed', exit_code:2, stdout:'CHATCODE_FTP_OK|upload|a.php\nCHATCODE_FTP_FAIL|b.php|connection failed\n' };
+      assert.deepEqual(filesFromCommand(cmd), ['b.php'], 'retry only files not successfully uploaded');
+      return { status:'completed', exit_code:0, stdout:'CHATCODE_FTP_OK|upload|b.php\n' };
+    }
+  }, store));
+  await retryApi.startWork('p1');
+  const firstDeploy = await retryApi.finishWork('retry-work');
+  assert.equal(firstDeploy.status, 'deploy_failed');
+  assert.equal(retryApi.projectScope('p1').locked, false, 'failed FTP must not retain completed work holder');
+  const retryDeploy = await retryApi.finishWork('retry-work');
+  assert.equal(retryDeploy.status, 'completed');
+  assert.deepEqual(retryDeploy.ftp_deploy.uploaded, ['a.php','b.php']);
+  await retryApi.finishWork('retry-work');
+  assert.equal(retryCalls, 2, 'successful FTP must not run twice');
+  assert.equal(finishCalls, 2, 'cached success must not re-run finish verification');
 
   const legacy = await wrappedApi.applyAndVerify('p1', [{ op:'write', path:'legacy.php', content:'<?php' }], []);
   assert.equal(legacy.status, 'completed');

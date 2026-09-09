@@ -34,6 +34,6 @@ Keep local names short. The theme/project folder already supplies project identi
 - Do not duplicate successful FTP, Git, browser, DB or snapshot work manually.
 - Verify only touched scope and direct dependencies.
 - If verification passes, stop.
-- If bounded verification fails, use only the allowed scoped recovery budget; do not start a broad sidequest.
+- If verification fails, correct the identified cause in the same task. A repeated unchanged failure is a reason to stop and report the blocker, not prepare again or invent another workflow.
 
 If a required check cannot run, report that limitation rather than implying PASS.
