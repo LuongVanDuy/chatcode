@@ -86,7 +86,7 @@ function cleanupDeployManifest(dir) {
   }
 }
 
-function parseDeployResult(raw, files = [], skippedFiles = []) {
+function parseDeployResult(raw, files = [], skippedFiles = [], expectedFiles = files) {
   const stdout = String(raw?.stdout || '');
   const stderr = String(raw?.stderr || '');
   const start = stdout.indexOf('{');
@@ -95,21 +95,52 @@ function parseDeployResult(raw, files = [], skippedFiles = []) {
     try { report = JSON.parse(stdout.slice(start)); } catch {}
   }
 
+  const expected = new Set(Array.isArray(expectedFiles) ? expectedFiles : []);
   const uploaded = [], unchanged = [], failures = [];
+  const uploadedSeen = new Set(), unchangedSeen = new Set();
+  const states = new Map();
+
   for (const item of Array.isArray(report?.files) ? report.files : []) {
     const file = String(item?.file || '');
     const status = String(item?.status || '');
-    if (status === 'uploaded' && file) uploaded.push(file);
-    else if (status === 'unchanged' && file) unchanged.push(file);
-    else if (status === 'failed') failures.push({ file, error:String(item?.error || 'FTP runner failed').slice(0,800) });
+    if (!file) {
+      if (status === 'failed') failures.push({ file:'', error:String(item?.error || 'FTP runner failed').slice(0,800) });
+      continue;
+    }
+    if (!states.has(file)) states.set(file, new Set());
+    states.get(file).add(status);
+    if (status === 'uploaded') {
+      if (!uploadedSeen.has(file)) uploaded.push(file);
+      uploadedSeen.add(file);
+    } else if (status === 'unchanged') {
+      if (!unchangedSeen.has(file)) unchanged.push(file);
+      unchangedSeen.add(file);
+    } else if (status === 'failed') {
+      failures.push({ file, error:String(item?.error || 'FTP runner failed').slice(0,800) });
+    }
+  }
+
+  if (!report) failures.push({ file:'', error:'FTP runner returned no JSON report' });
+  if (report && report?.mode !== 'deploy') failures.push({ file:'', error:`FTP runner returned invalid mode: ${String(report?.mode || 'missing')}` });
+  if (report && report?.ok !== true && !failures.length) {
+    failures.push({ file:'', error:String(report?.cleanup_warnings?.[0] || stderr.trim() || 'FTP runner reported failure').slice(0,800) });
+  }
+
+  for (const file of expected) {
+    const fileStates = states.get(file) || new Set();
+    const hasUploaded = fileStates.has('uploaded');
+    const hasUnchanged = fileStates.has('unchanged');
+    const hasFailed = fileStates.has('failed');
+    const unknown = [...fileStates].filter(status => !['uploaded','unchanged','failed'].includes(status));
+    if (!fileStates.size) {
+      failures.push({ file, error:`FTP runner missing confirmation for ${file}` });
+    } else if (hasFailed || unknown.length || (hasUploaded && hasUnchanged) || (!hasUploaded && !hasUnchanged)) {
+      if (!hasFailed) failures.push({ file, error:`FTP runner returned conflicting or invalid status for ${file}` });
+    }
   }
 
   const commandOk = raw?.status === 'completed' && Number(raw?.exit_code) === 0;
-  const reportOk = report?.ok === true;
-  if (!report && !failures.length) failures.push({ file:'', error:'FTP runner returned no JSON report' });
-  if (report && !reportOk && !failures.length) {
-    failures.push({ file:'', error:String(report?.cleanup_warnings?.[0] || stderr.trim() || 'FTP runner reported failure').slice(0,800) });
-  }
+  const reportOk = report?.ok === true && report?.mode === 'deploy';
   const ok = commandOk && reportOk && failures.length === 0;
 
   return {
@@ -124,7 +155,7 @@ function parseDeployResult(raw, files = [], skippedFiles = []) {
     not_attempted:Array.isArray(report?.not_attempted) ? report.not_attempted : [],
     cleanup_warnings:Array.isArray(report?.cleanup_warnings) ? report.cleanup_warnings : [],
     curl_requests:Number(report?.curl_requests || 0),
-    batch_count:files.length ? 1 : 0,
+    batch_count:expected.size ? 1 : 0,
     runner:'sha256-staging',
     ...(ok ? {} : { error:(failures[0]?.error || stderr.trim() || `Terminal FTP exited with code ${raw?.exit_code ?? 'unknown'}`).slice(0,800) })
   };
@@ -185,7 +216,7 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
       return { ok:false, status:'failed', changed_files:files, uploaded:[], unchanged:[], deleted:[], skipped_files:skippedFiles, failures:[], error:'FTP runner invocation exceeds terminal guard' };
     }
     const raw = await api.exec(project.id, command, { background:false, timeout_ms:180000 });
-    return parseDeployResult(raw, files, skippedFiles);
+    return parseDeployResult(raw, files, skippedFiles, deployable);
   } catch (error) {
     return {
       ok:false, status:'failed', changed_files:files, uploaded:[], unchanged:[], deleted:[], skipped_files:skippedFiles,
@@ -199,25 +230,6 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
 
 function shouldAttachFtpResult(ftp) {
   return ftp && ftp.status !== 'not_configured' && ftp.reason !== 'no_changed_files';
-}
-
-function mergeFtpProgress(prior, current, changedFiles) {
-  if (!prior) return current;
-  const skipped = [...(prior.skipped_files || []), ...(current.skipped_files || [])];
-  const seenSkipped = new Set();
-  return {
-    ...current,
-    changed_files:changedFiles,
-    uploaded:[...new Set([...(prior.uploaded || []), ...(current.uploaded || [])])],
-    unchanged:[...new Set([...(prior.unchanged || []), ...(current.unchanged || [])])],
-    deleted:[...new Set([...(prior.deleted || []), ...(current.deleted || [])])],
-    skipped_files:skipped.filter(item => {
-      const key = `${item?.reason || ''}|${item?.file || ''}`;
-      if (seenSkipped.has(key)) return false;
-      seenSkipped.add(key);
-      return true;
-    })
-  };
 }
 
 function createFtpDeployApi(api, store) {
@@ -242,12 +254,7 @@ function createFtpDeployApi(api, store) {
         const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
         const changedFiles = result?.changed_files || before?.changed_files || [];
         if (!projectRef) return result;
-        const prior = before?.status === 'completed' ? previous?.ftp_deploy : null;
-        const done = new Set([
-          ...(prior?.uploaded || []), ...(prior?.unchanged || []), ...(prior?.deleted || []),
-          ...(prior?.skipped_files || []).filter(item => item?.reason === 'local_missing_no_delete').map(item => item.file)
-        ]);
-        const ftp = mergeFtpProgress(prior, await deployChangedFiles(api, store, projectRef, changedFiles.filter(file => !done.has(file))), changedFiles);
+        const ftp = await deployChangedFiles(api, store, projectRef, changedFiles);
         const completed = shouldAttachFtpResult(ftp) ? completionWithDeployStatus({ ...result, ftp_deploy:ftp }) : result;
         finishedDeploys.set(workSessionId, completed);
         while (finishedDeploys.size > 200) finishedDeploys.delete(finishedDeploys.keys().next().value);
