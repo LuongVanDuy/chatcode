@@ -9,10 +9,12 @@ const preload = read('preload.js');
 const runtime = read('renderer/current-runtime.js');
 const browser = read('renderer/browser-workspace.js');
 const v08 = read('renderer/v08-runtime.js');
+const v09 = read('renderer/v09-runtime.js');
 const v10 = read('renderer/v10-runtime.js');
 const v10css = read('renderer/v10.css');
 const css = read('renderer/ui-foundation.css');
 const app = read('renderer/app.js');
+const html = read('renderer/index.html');
 
 assert.ok(preload.includes("await load('current-runtime.js', 'current-runtime')"), 'preload must load the current renderer entrypoint');
 assert.ok(preload.includes("await load('browser-workspace.js', 'browser-workspace')"), 'preload must load Browser Workspace after the current renderer entrypoint');
@@ -41,8 +43,8 @@ assert.ok(css.includes('.sidebar{width:250px'), 'Stage 3 must keep compact deskt
 assert.ok(css.includes('.topbar{height:62px'), 'Stage 3 must use a compact 62px topbar');
 assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'topbar must not repeat eyebrow labels');
 assert.ok(css.includes('/* Dashboard: system overview, not KPI-card wall. */'));
-assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must be a flat strip');
-assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity foundation must remain flat');
+assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must retain legacy style compatibility even when the surface is retired');
+assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity styles may remain for compatibility but the route itself is retired');
 assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'foundation must retain compact toggle baseline');
 assert.ok(css.includes('/* Project workspace: editor-like hierarchy. */'));
 assert.ok(css.includes('.project-page>.tabs{position:sticky'), 'project tabs must stay available while scrolling');
@@ -55,12 +57,26 @@ assert.equal(/https?:\/\//i.test(css), false, 'UI foundation must not depend on 
 // 1.0.11 cleanup contract: keep backend capabilities, remove redundant desktop surfaces.
 assert.ok(runtime.includes("document.getElementById('v07SafetyNav')?.remove()"), 'Safety Center must not remain a sidebar route');
 assert.ok(runtime.includes("panel.id = 'settingsSafetyPanel'"), 'Safety controls must live inside Settings');
-assert.ok(runtime.includes('#route-dashboard .two-col>article:has(#dashboardActivity)'), 'dashboard recent activity card must be hidden');
-assert.ok(runtime.includes('#route-dashboard article:has(#dashboardProjects)'), 'dashboard shared project card must be hidden');
+assert.ok(runtime.includes('#route-dashboard .two-col>article:has(#dashboardActivity)'), 'dashboard recent activity compatibility rule may remain');
+assert.ok(runtime.includes('#route-dashboard article:has(#dashboardProjects)'), 'dashboard shared project compatibility rule may remain');
 assert.ok(runtime.includes('[data-project-tab="files"],[data-project-tab="search"]'), 'Files/Search tabs must be removed from desktop navigation');
 assert.ok(runtime.includes('#project-tab-overview .two-col>article:has(#indexDetails)'), 'duplicate Project Index card must be hidden');
 assert.ok(runtime.includes('.settings-safety-panel .safety-summary'), 'Safety cards must inherit dark desktop surfaces');
 assert.equal(v08.includes('insertAdjacentHTML'), false, 'Project Brain must stay headless and not remount a card');
+
+// v1.0.41 UI slimming: retire app-only surfaces while keeping ChatCode execution capabilities intact.
+for (const retired of ['data-route="activity"','id="route-activity"','id="modeQuick"','id="quickFields"','data-project-tab="tasks"','data-project-tab="git"','id="project-tab-tasks"','id="project-tab-git"','id="usageChart"','id="dashboardActivity"']) {
+  assert.equal(html.includes(retired), false, `retired UI surface must not remain: ${retired}`);
+}
+for (const retiredBinding of ["$('modeQuick')","$('taskButton')","$('gitStatusButton')","$('gitDiffButton')","$('activityFilter')","$('clearActivity')"]) {
+  assert.equal(app.includes(retiredBinding), false, `retired UI binding must not remain: ${retiredBinding}`);
+}
+assert.ok(app.includes("mode:'custom'"), 'connection UI must save only custom-domain mode');
+assert.equal(v09.includes('supportJournal'), false, 'Support Journal panel must not mount');
+assert.equal(v09.includes('saveSupportNote'), false, 'Support Journal UI actions must be retired');
+for (const preservedCapability of ['runTask:', 'gitStatus:', 'gitDiff:', 'supportEvents:', 'usageSnapshot:']) {
+  assert.ok(preload.includes(preservedCapability), `core bridge capability must remain available: ${preservedCapability}`);
+}
 
 // Post-1.0.11 polish: permissions, switches and logs must use the current dark workspace language.
 assert.ok(runtime.includes("revision: 'permissions-log-polish'"));
@@ -71,7 +87,7 @@ assert.ok(runtime.includes("details.id = 'uiPermissionAdvanced'"), 'Terminal/Wor
 assert.ok(runtime.includes("['v10TerminalRuntime', 'v10WorkSessions', 'v10FastAgentPath']"), 'all advanced permission cards must be grouped together');
 assert.ok(runtime.includes('#route-settings .setting input[type="checkbox"]::after'), 'settings switches must draw a deterministic thumb');
 assert.ok(runtime.includes('translateX(16px)'), 'settings switch thumb must move explicitly when checked');
-assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!important'), 'Activity and Support logs must share neutral dark surfaces');
+assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!important'), 'legacy log styles may remain without mounting retired app surfaces');
 assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17181a!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
 assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must not introduce legacy white gradients');
 
@@ -165,7 +181,7 @@ async function testProjectOverviewRaceGuard() {
 (async () => {
   await testProjectOverviewSingleLoad();
   await testProjectOverviewRaceGuard();
-  console.log('Renderer foundation PASS: Stage 3 workspace + permissions/log polish + single-load project overview.');
+  console.log('Renderer foundation PASS: Stage 3 workspace + v1.0.41 UI slimming + single-load project overview.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
