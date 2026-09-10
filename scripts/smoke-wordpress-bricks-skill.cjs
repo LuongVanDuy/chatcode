@@ -16,6 +16,7 @@ const {
 } = require('../core/skill-runtime');
 const { searchUiKnowledge } = require('../core/ui-knowledge');
 const { compactSkillsForFastPath } = require('../core/agent-runtime');
+const { buildTaskCard, EXECUTION_PATHS } = require('../core/task-planner');
 
 const root = path.join(__dirname, '..');
 const skillRoot = path.join(root, 'CHATCODE-GPT', 'skills', 'wordpress-bricks');
@@ -36,6 +37,22 @@ function expectDomains(request, expected, inspect, taskCard = null) {
   const selected = routeSkillDomains(request, inspect, taskCard);
   assert.deepEqual(selected, expected, `${request}: wrong v5 domains`);
   assert.ok(selected.length <= MAX_DOMAINS, `${request}: too many domains`);
+}
+function assertOrganizationInvariant(text, label) {
+  const lower = String(text || '').toLowerCase();
+  for (const phrase of ['correct functional owner','functions.php','bootstrap/require/enqueue','small fixes','zero new']) {
+    assert.ok(lower.includes(phrase), `${label}: missing organization invariant phrase ${phrase}`);
+  }
+  assert.ok(lower.includes('bricks') && lower.includes('native'), `${label}: missing native Bricks preference`);
+}
+function withoutCompactOrganizationInvariant(skill) {
+  return {
+    ...skill,
+    compact_context:String(skill?.compact_context || '')
+      .split(/\r?\n/)
+      .filter(line => !line.startsWith('Code organization:'))
+      .join('\n')
+  };
 }
 
 const bricksInspect = {
@@ -63,6 +80,22 @@ const nonWooInspect = {
   wordpress:{ ...bricksInspect.wordpress, woocommerce:false }
 };
 
+const organizationInspect = {
+  project:{ id:'p3', name:'organization-fixture' },
+  primary_language:'PHP',
+  frameworks:[{ name:'WordPress' }, { name:'Bricks Builder' }],
+  framework_names:['WordPress', 'Bricks Builder'],
+  wordpress:{
+    isWordPress:true,
+    woocommerce:false,
+    childThemes:[{ slug:'fixture-child', template:'bricks', root:'wp-content/themes/fixture-child' }]
+  },
+  relevant_files:[
+    { path:'wp-content/themes/fixture-child/functions.php', score:100 },
+    { path:'wp-content/themes/fixture-child/assets/css/home.css', score:90 }
+  ]
+};
+
 assert.equal(manifest.id, 'wordpress-bricks');
 assert.equal(manifest.version, 5);
 assert.equal(WORDPRESS_BRICKS_SKILL_ID, 'wordpress-bricks');
@@ -84,6 +117,8 @@ for (const phrase of [
   'generic words such as `product` do not automatically activate woocommerce',
   'normal container/grid/image/icon/text/button/slider/query composition is not a custom-element gap'
 ]) assert.ok(entryLower.includes(phrase), `missing v5 architecture contract: ${phrase}`);
+assertOrganizationInvariant(entry, 'full SKILL.md');
+assertOrganizationInvariant(core, 'core checklist');
 
 // Legacy compatibility remains stable while prepare_task moves to v5 domains.
 expectLegacyRoute('Fix responsive CSS padding on product card mobile', 'resources/design-system.md', bricksInspect);
@@ -135,6 +170,73 @@ assert.equal(fastSkill.resource_context.fast_compact, true);
 assert.deepEqual(fastSkill.resource_context.selected_domains, ['ui']);
 assert.equal(fastSkill.resource_context.ui_guidance_count, fastSkill.ui_guidance.length);
 assert.ok(fastSkill.instructions.length <= 6000, `Fast v5 skill exceeded compact budget: ${fastSkill.instructions.length}`);
+assertOrganizationInvariant(fastSkill.instructions, 'existing Fast UI payload');
+
+// Organization invariant regression: exercise the real planner, skill loader and Fast compactor.
+const ajaxRequest = 'Thêm AJAX tải thêm sản phẩm trang chủ';
+const ajaxCard = buildTaskCard({ request:ajaxRequest, inspect:organizationInspect });
+assert.equal(ajaxCard.execution.path, EXECUTION_PATHS.FAST, 'T1 AJAX fixture classification changed');
+assert.equal(ajaxCard.owner.primary_path, 'wp-content/themes/fixture-child/functions.php', 'T1 owner baseline changed');
+assert.equal(ajaxCard.execution.allow_new_source_files, 0, 'T1 Fast new-file gate must remain zero');
+const ajaxSkill = loadWordPressBricksSkill(organizationInspect, ajaxRequest, ajaxCard);
+assert.equal(ajaxSkill.resource_context.targeted_resource, null, 'T1 must not depend on targeted organization keywords');
+assertOrganizationInvariant(ajaxSkill.instructions, 'T1 full skill');
+const ajaxFast3600 = compactSkillsForFastPath([ajaxSkill], 3600)[0];
+const ajaxFast6000 = compactSkillsForFastPath([ajaxSkill], 6000)[0];
+assertOrganizationInvariant(ajaxFast3600.instructions, 'T1/T3 Fast 3600');
+assertOrganizationInvariant(ajaxFast6000.instructions, 'T4 Fast 6000');
+assert.ok(ajaxFast3600.instructions.length <= 3600, 'T3 Fast 3600 budget exceeded');
+assert.ok(ajaxFast6000.instructions.length <= 6000, 'T4 Fast 6000 budget exceeded');
+assert.deepEqual(ajaxFast6000.resources, [], 'T4 Fast resources must remain empty');
+
+const sliderRequest = 'Tạo section trang chủ Bricks có slider';
+const sliderCard = buildTaskCard({ request:sliderRequest, inspect:organizationInspect });
+assert.equal(sliderCard.execution.path, EXECUTION_PATHS.DEEP, 'T2 Bricks section fixture classification changed');
+assert.equal(sliderCard.owner.primary_path, 'wp-content/themes/fixture-child/functions.php', 'T2 owner baseline changed');
+const sliderSkill = loadWordPressBricksSkill(organizationInspect, sliderRequest, sliderCard);
+assert.deepEqual(sliderSkill.domains, ['bricks','ui'], 'T2 domain routing changed');
+assert.equal(sliderSkill.resource_context.targeted_resource, null, 'T2 must not force full organization routing');
+assert.equal(names(sliderSkill).includes('resources/code-organization.md'), false, 'T2 must not load full organization resource');
+assertOrganizationInvariant(sliderSkill.compact_context, 'T2 compact context');
+assertOrganizationInvariant(sliderSkill.instructions, 'T6 Deep/full instructions');
+assertOrganizationInvariant(sliderSkill.resources.find(item => item.name === CORE_RESOURCE)?.content, 'T6 returned core resource');
+
+const cssRequest = 'Giảm padding product card mobile 4px';
+const cssCard = buildTaskCard({ request:cssRequest, inspect:organizationInspect });
+assert.equal(cssCard.execution.path, EXECUTION_PATHS.FAST, 'T3 CSS fixture classification changed');
+assert.equal(cssCard.owner.primary_path, 'wp-content/themes/fixture-child/assets/css/home.css', 'T3 CSS owner baseline changed');
+assert.equal(cssCard.execution.skill_context_limit_chars, 3600, 'T3 micro Fast budget changed');
+const cssSkill = loadWordPressBricksSkill(organizationInspect, cssRequest, cssCard);
+const cssFast = compactSkillsForFastPath([cssSkill], cssCard.execution.skill_context_limit_chars)[0];
+assert.deepEqual(cssSkill.domains, ['ui'], 'T3 CSS domain routing changed');
+assertOrganizationInvariant(cssFast.instructions, 'T3 CSS Fast payload');
+assert.ok(cssFast.instructions.length <= 3600, 'T3 CSS Fast payload exceeded 3600');
+
+const longRequest = 'Build Bricks taxonomy archive template with native main query, template conditions, responsive mobile tablet desktop container grid card spacing typography buttons hover transitions';
+const longCard = buildTaskCard({ request:longRequest, inspect:organizationInspect });
+const longSkill = loadWordPressBricksSkill(organizationInspect, longRequest, longCard);
+assert.equal(longSkill.resource_context.targeted_resource, 'resources/templates.md', 'T5 targeted template excerpt missing');
+assert.ok(names(longSkill).includes('knowledge/ui-search'), 'T5 UI knowledge missing');
+assertOrganizationInvariant(longSkill.compact_context, 'T5 loaded long compact context');
+const truncationProbe = {
+  ...longSkill,
+  compact_context:`${longSkill.compact_context}\n${'optional-tail '.repeat(500)}OPTIONAL_TAIL_END`
+};
+const truncatedFast = compactSkillsForFastPath([truncationProbe], 3600)[0];
+assert.equal(truncatedFast.instructions.length, 3600, 'T5 truncation probe must exercise the Fast cap');
+assert.equal(truncatedFast.instructions.includes('OPTIONAL_TAIL_END'), false, 'T5 optional tail should be cut');
+assertOrganizationInvariant(truncatedFast.instructions, 'T5 invariant after truncation');
+
+const functionsRequest = 'Sửa điều kiện hook cũ trong functions.php theo đúng file người dùng yêu cầu';
+const functionsCard = buildTaskCard({ request:functionsRequest, inspect:organizationInspect });
+const functionsSkill = loadWordPressBricksSkill(organizationInspect, functionsRequest, functionsCard);
+assert.equal(functionsSkill.resource_context.targeted_resource, 'resources/code-organization.md', 'T7 explicit functions.php must retain targeted excerpt');
+assert.match(functionsSkill.instructions, /Small fixes to existing code may stay in place/i, 'T7 must not hard-ban functions.php edits');
+assert.match(functionsSkill.instructions, /explicit user scope/i, 'T7 must respect explicit user scope');
+assert.match(functionsSkill.compact_context, /Small fixes to existing code may stay in place/i, 'T7 Fast compact rule must allow existing small fixes');
+
+const before3600 = compactSkillsForFastPath([withoutCompactOrganizationInvariant(ajaxSkill)], 3600)[0];
+const before6000 = compactSkillsForFastPath([withoutCompactOrganizationInvariant(ajaxSkill)], 6000)[0];
 
 const archiveSkill = loadWordPressBricksSkill(
   bricksInspect,
@@ -175,4 +277,5 @@ for (const forbidden of ['tongkhokhoathongminh.com', 'd:\\duyanhweb\\ftp\\boncau
   assert.equal(`${entry}\n${core}`.toLowerCase().includes(forbidden), false, `project-specific path leaked into generic skill: ${forbidden}`);
 }
 
-console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + compact targeted excerpts + deterministic UI search + Fast guidance + legacy compatibility');
+console.log(`Organization payload chars: FAST 3600 ${before3600.instructions.length}->${ajaxFast3600.instructions.length}; FAST 6000 ${before6000.instructions.length}->${ajaxFast6000.instructions.length}; resources=${ajaxFast6000.resources.length}; domains=${ajaxSkill.domains.length}`);
+console.log('WordPress + Bricks skill v5 PASS: umbrella + <=2 domains + organization invariant + compact targeted excerpts + deterministic UI search + Fast guidance + legacy compatibility');

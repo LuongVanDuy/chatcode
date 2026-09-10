@@ -95,7 +95,13 @@ assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must no
 assert.ok(v10css.includes('.project-tab#project-tab-permissions:not(.active){display:none!important}'), 'inactive Permissions tab must stay hidden');
 assert.ok(v10css.includes('.project-tab#project-tab-permissions.active{display:flex!important}'), 'active Permissions tab must use its polished flex layout');
 assert.equal(v10.includes('location.reload()'), false, 'Safe/Trusted mode changes must not reload the renderer');
-assert.ok(v10.includes('await render();\n    await refreshTerminalJobs();'), 'workspace mode changes must refresh in place');
+function hasRenderThenRefresh(source) {
+  return /await render\(\);\r?\n\s+await refreshTerminalJobs\(\);/.test(String(source || ''));
+}
+assert.equal(hasRenderThenRefresh('await render();\n    await refreshTerminalJobs();'), true, 'LF sequence must pass');
+assert.equal(hasRenderThenRefresh('await render();\r\n    await refreshTerminalJobs();'), true, 'CRLF sequence must pass');
+assert.equal(hasRenderThenRefresh('await render();'), false, 'missing refresh must fail');
+assert.ok(hasRenderThenRefresh(v10), 'workspace mode changes must refresh in place');
 
 function projectFlowSource() {
   const wanted = new Set(['selectProject','setProjectTab','loadProjectOverview']);

@@ -7,7 +7,7 @@ This is the mandatory umbrella contract for WordPress + Bricks. Runtime adds sma
 `LOCK TARGET -> prepare_task -> smallest owner-scoped change -> complete_task -> PASS -> STOP`
 
 - Use project evidence/Owner Resolver; do not guess.
-- Existing owner first. A normal edit defaults to zero new source files.
+- Reuse the correct functional owner, not merely the first existing file. Keep child-theme `functions.php` for bootstrap/require/enqueue by default; do not append whole features, migrations, or large inline JS there. Small fixes to existing code may stay in place; do not refactor unrelated code. New custom functionality should extend a suitable module, or use the smallest necessary module when the task allows it. Zero new source files is an ordinary-edit default, not a reason to choose the wrong owner; explicit user scope and task limits still apply.
 - Read more only for one concrete missing dependency.
 - Re-plan with the existing `task_id` when new evidence changes scope. Do not restart preparation to work around an error.
 - Preserve unrelated Builder/user edits.

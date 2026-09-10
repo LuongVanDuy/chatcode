@@ -14,7 +14,8 @@ const mediaDomain = fs.readFileSync(path.join(root, 'domains', 'media.md'), 'utf
 
 assert.ok(core.includes('keep external references scoped'));
 assert.ok(core.includes('do not broad-search unrelated websites'));
-assert.ok(core.includes('normal edit new-file budget is zero'));
+assert.ok(core.includes('reuse the correct functional owner'));
+assert.ok(core.includes('zero-file defaults never justify the wrong owner'));
 assert.ok(core.includes('a normal code/layout/template change is not a migration'));
 assert.ok(core.includes('one-time setup must terminate'));
 
@@ -28,8 +29,9 @@ assert.ok(organization.includes('inc/templates/header.php'));
 assert.ok(organization.includes('inc/templates/footer.php'));
 assert.ok(organization.includes('elements/product-support.php'));
 assert.ok(organization.includes('assets/css/main.css'));
-assert.ok(organization.includes('file creation budget: existing owner first'));
-assert.ok(organization.includes('normal change should usually create **zero new source files**'));
+assert.ok(organization.includes('file creation budget: correct owner first'));
+assert.ok(organization.includes('normal edit to an existing responsibility should usually create **zero new source files**'));
+assert.ok(organization.includes('does not justify placing a new feature in `functions.php`'));
 assert.ok(organization.includes('site-parts-migration.php'));
 
 assert.ok(migrations.includes('migration threshold'));
@@ -39,7 +41,9 @@ assert.ok(migrations.includes('do **not** create `*-migration.php` merely becaus
 
 // v5 umbrella owns cross-cutting scope; detailed lifecycle/media rules live in their domain packs.
 assert.ok(skill.includes('when a reference site/domain is named'));
-assert.ok(skill.includes('a normal edit defaults to zero new source files'));
+assert.ok(skill.includes('reuse the correct functional owner'));
+assert.ok(skill.includes('zero new source files is an ordinary-edit default'));
+assert.ok(skill.includes('small fixes to existing code may stay in place'));
 assert.ok(skill.includes('do not broaden into git, external research, migration, refactor or deployment'));
 assert.ok(skill.includes('one-time setup/migration must reach a terminal no-op state'));
 assert.ok(dataDomain.includes('initial setup from migration'));

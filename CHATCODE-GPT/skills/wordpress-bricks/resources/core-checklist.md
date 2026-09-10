@@ -8,7 +8,8 @@ Loaded for every WordPress + Bricks task. Keep only cross-task rules here; domai
 - Use current project evidence; do not guess owner, template ID, Builder tree, media ID or path.
 - Search/Brain first, then read project-owned code. Open Bricks/Woo/WP core only for a concrete missing dependency.
 - Keep external references scoped: use the named source first and do not broad-search unrelated websites.
-- Existing scoped owner wins. Normal edit new-file budget is zero.
+- Reuse the correct functional owner, not merely the first existing file or candidate. Existing small fixes normally create zero new source files.
+- Keep child-theme `functions.php` for bootstrap/require/enqueue by default. New custom features belong in a suitable functional module when the task allows; zero-file defaults never justify the wrong owner, and explicit user/task scope still wins.
 - Prefer native Bricks structure/dynamic data before custom source.
 - Preserve unrelated Builder/user edits and shared renderers.
 
