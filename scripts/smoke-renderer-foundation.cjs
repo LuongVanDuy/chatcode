@@ -37,20 +37,39 @@ for (const icon of ['panels-top-left','plug-zap','activity','settings','folder-p
 for (const token of ['--ui-bg:','--ui-sidebar:','--ui-surface:','--ui-text:','--ui-muted:','--ui-border:','--ui-accent:','--ui-radius-md:','--ui-font:']) {
   assert.ok(css.includes(token), `UI foundation missing ${token}`);
 }
+for (const target of [
+  '--ui-bg:#191B20', '--ui-sidebar:#15171B', '--ui-surface:#20232A', '--ui-surface-2:#272B33',
+  '--ui-surface-3:#303640', '--ui-active:#343D50', '--ui-text:#F2F4F8', '--ui-text-2:#C9D0DC',
+  '--ui-muted:#A1ACBD', '--ui-faint:#A1ACBD', '--ui-border:#3E4654', '--ui-border-soft:#303640',
+  '--ui-accent:#A9B8FF', '--ui-accent-strong:#C4CEFF', '--ui-success:#82D6A4', '--ui-warning:#F0C47A', '--ui-danger:#FF9C9C'
+]) assert.ok(css.includes(target), `desktop readability token missing: ${target}`);
 assert.ok(css.includes('color-scheme:dark'));
 assert.ok(css.includes('--shadow:var(--ui-shadow)'));
-assert.ok(css.includes('.sidebar{width:250px'), 'Stage 3 must keep compact desktop sidebar');
-assert.ok(css.includes('.topbar{height:62px'), 'Stage 3 must use a compact 62px topbar');
+assert.ok(css.includes('.sidebar{width:248px'), 'desktop sidebar must use the 248px baseline');
+assert.ok(css.includes('@media(min-width:1100px) and (max-width:1279px){.sidebar{width:224px'), '1100-1279px shell must use the 224px sidebar');
+assert.ok(css.includes('.topbar{height:68px'), 'desktop topbar must use the 68px readability baseline');
+assert.ok(css.includes('.topbar h1{margin:0;color:var(--ui-text);font-size:20px;line-height:28px'), 'topbar page heading must remain readable');
+assert.ok(css.includes('.nav-link{position:relative;min-height:40px'), 'navigation rows must provide a 40px hit area');
+assert.ok(css.includes('font-size:14px;font-weight:500;cursor:pointer}.nav-link'), 'navigation labels must use the 14px desktop baseline');
+assert.ok(css.includes('.project-item{width:100%;min-height:36px'), 'project rows must provide a 36px hit area');
+assert.ok(css.includes('.setting strong{color:var(--ui-text-2);font-size:14px'), 'settings labels must be 14px');
+assert.ok(css.includes('.setting span{margin-top:4px;color:var(--ui-muted);font-size:13px'), 'settings descriptions must be 13px');
+assert.ok(css.includes('.project-title h2{display:block'), 'project header must show the project name');
+assert.ok(css.includes('.code,.v103-detail{min-height:180px') && css.includes('font-size:13px;line-height:20px'), 'log/code baseline must be 13px/20px');
+assert.ok(css.includes('.btn.primary{background:var(--ui-accent);border-color:var(--ui-accent);color:var(--ui-sidebar)'), 'primary buttons must use accent background with dark text');
 assert.ok(css.includes('.topbar .eyebrow{display:none}'), 'topbar must not repeat eyebrow labels');
 assert.ok(css.includes('/* Dashboard: system overview, not KPI-card wall. */'));
+assert.ok(css.includes('.hero{padding:20px!important;border:1px solid var(--ui-border)!important'), 'dashboard hero must be a compact summary panel');
+assert.ok(css.includes('.health-card span{color:var(--ui-muted);font-size:12px'), 'dashboard health labels must be at least 12px');
+assert.ok(css.includes('.health-card strong{margin-top:3px;color:var(--ui-text);font-size:15px'), 'dashboard health values must use the 15px value size');
 assert.ok(css.includes('.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0'), 'dashboard metrics must retain legacy style compatibility even when the surface is retired');
 assert.ok(css.includes('#route-activity .page>.card{padding:4px 8px!important'), 'activity styles may remain for compatibility but the route itself is retired');
-assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:32px;height:18px'), 'foundation must retain compact toggle baseline');
+assert.ok(css.includes('.setting input[type=checkbox]{appearance:none;width:38px;height:22px'), 'foundation must retain a readable toggle baseline');
 assert.ok(css.includes('/* Project workspace: editor-like hierarchy. */'));
 assert.ok(css.includes('.project-page>.tabs{position:sticky'), 'project tabs must stay available while scrolling');
-assert.ok(css.includes('@media(max-width:820px){.sidebar{width:64px'), 'narrow windows must collapse sidebar to an icon rail');
+assert.ok(css.includes('@media(max-width:820px){.sidebar{width:64px'), 'narrow compatibility rule must remain bounded below the desktop window floor');
 assert.ok(css.includes('@media(prefers-contrast:more)'));
-assert.ok(css.includes(':focus-visible'));
+assert.ok(css.includes(':focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}'));
 assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'));
 assert.equal(/https?:\/\//i.test(css), false, 'UI foundation must not depend on remote fonts/assets');
 
@@ -78,24 +97,54 @@ for (const preservedCapability of ['runTask:', 'gitStatus:', 'gitDiff:', 'suppor
   assert.ok(preload.includes(preservedCapability), `core bridge capability must remain available: ${preservedCapability}`);
 }
 
-// Post-1.0.11 polish: permissions, switches and logs must use the current dark workspace language.
-assert.ok(runtime.includes("revision: 'permissions-log-polish'"));
+// Desktop readability polish: permissions, switches and logs keep behavior while using the shared visual system.
+assert.ok(runtime.includes("revision: 'desktop-readability-polish'"));
+assert.ok(runtime.includes('#route-connection>.page>.two-col{gap:24px'), 'connection columns must use the 24px desktop gap');
 assert.ok(runtime.includes('#project-tab-permissions>.two-col{display:grid;grid-template-columns:minmax(260px,.88fr)'), 'permissions must use a single bounded two-column surface');
-assert.ok(runtime.includes('.v10-mode-option{min-height:70px!important'), 'Safe/Trusted mode options must not inherit white legacy cards');
+assert.ok(runtime.includes('.v10-mode-option{min-height:76px!important'), 'Safe/Trusted mode options must use the readable desktop control size');
+assert.ok(runtime.includes('.v10-mode-option strong{color:var(--ui-text)!important;font-size:14px!important'), 'workspace mode labels must be readable');
+assert.ok(runtime.includes('.v10-mode-option span{color:var(--ui-muted)!important;font-size:13px!important'), 'workspace mode descriptions must be readable');
 assert.ok(runtime.includes('.safety-rules-card .safety-rule-grid{display:grid!important'), 'Safety rules must render as one compact grid');
 assert.ok(runtime.includes("details.id = 'uiPermissionAdvanced'"), 'Terminal/Work Session/Fast Agent must be grouped under Advanced tools');
 assert.ok(runtime.includes("['v10TerminalRuntime', 'v10WorkSessions', 'v10FastAgentPath']"), 'all advanced permission cards must be grouped together');
 assert.ok(runtime.includes('#route-settings .setting input[type="checkbox"]::after'), 'settings switches must draw a deterministic thumb');
-assert.ok(runtime.includes('translateX(16px)'), 'settings switch thumb must move explicitly when checked');
-assert.ok(runtime.includes('.activity-list,.support-events{background:#18191b!important'), 'legacy log styles may remain without mounting retired app surfaces');
-assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17181a!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
+assert.ok(runtime.includes('translateX(18px)'), 'settings switch thumb must move explicitly when checked');
+assert.ok(runtime.includes('aria-expanded="false" aria-controls="settingsSafetyPanel"'), 'Safety launcher must expose expansion semantics');
+assert.ok(runtime.includes("panel.setAttribute('aria-hidden', 'true')"), 'Safety panel must expose hidden state semantics');
+assert.ok(runtime.includes('.activity-list,.support-events{background:#17191E!important'), 'legacy log styles may remain without mounting retired app surfaces');
+assert.ok(runtime.includes('.code,.v10-job-output,.v103-detail{background:#17191E!important'), 'Task/Git/Terminal/Work Session logs must share neutral dark surfaces');
 assert.equal(runtime.includes('#fff 0%,#f7faff'), false, 'current polish must not introduce legacy white gradients');
+
+// Browser chrome only: do not change browser session/bounds APIs, but keep tabs and controls readable and accessible.
+for (const phrase of [
+  '.browser-tabbar{height:40px;min-height:40px',
+  '.browser-tab{min-width:120px;max-width:220px;height:34px',
+  '.browser-tab-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;font-size:13px',
+  '.browser-tab-close{width:28px;height:28px;min-width:28px',
+  '.browser-tool{width:32px;height:32px;min-width:32px',
+  '.browser-address{width:100%;height:32px!important;min-height:32px!important',
+  '.browser-session-note{height:28px;min-height:28px'
+]) assert.ok(browser.includes(phrase), `Browser chrome readability regression: ${phrase}`);
+assert.ok(browser.includes('role="tablist" aria-label="Các tab trình duyệt"'), 'browser tab list needs an accessible name');
+assert.ok(browser.includes("button.setAttribute('role', 'tab')"), 'browser tab selection must use button semantics');
+assert.ok(browser.includes("button.setAttribute('aria-selected'"), 'browser active tab must expose selected state');
+assert.ok(browser.includes("close.setAttribute('aria-label'"), 'browser close buttons need accessible names');
+assert.ok(browser.includes('aria-label="Địa chỉ hoặc tìm kiếm"'), 'browser address field needs an accessible name');
+assert.ok(browser.includes('id="browserStatus" role="status" aria-live="polite"'), 'browser status must use a polite live region');
+assert.ok(browser.includes('event.stopPropagation()'), 'closing a tab must not activate it');
+assert.ok(browser.includes('api.browserSetBounds({ x:rect.x, y:rect.y, width:rect.width, height:rect.height })'), 'browser bounds must still follow the viewport rectangle');
 
 // 1.0.13 hotfix: permissions must obey the project tab state and mode changes must stay in place.
 assert.ok(v10css.includes('.project-tab#project-tab-permissions:not(.active){display:none!important}'), 'inactive Permissions tab must stay hidden');
 assert.ok(v10css.includes('.project-tab#project-tab-permissions.active{display:flex!important}'), 'active Permissions tab must use its polished flex layout');
 assert.equal(v10.includes('location.reload()'), false, 'Safe/Trusted mode changes must not reload the renderer');
-assert.ok(v10.includes('await render();\n    await refreshTerminalJobs();'), 'workspace mode changes must refresh in place');
+function hasRenderThenRefresh(source) {
+  return /await render\(\);\r?\n\s+await refreshTerminalJobs\(\);/.test(String(source || ''));
+}
+assert.equal(hasRenderThenRefresh('await render();\n    await refreshTerminalJobs();'), true, 'LF sequence must pass');
+assert.equal(hasRenderThenRefresh('await render();\r\n    await refreshTerminalJobs();'), true, 'CRLF sequence must pass');
+assert.equal(hasRenderThenRefresh('await render();'), false, 'missing refresh must fail');
+assert.ok(hasRenderThenRefresh(v10), 'workspace mode changes must refresh in place');
 
 function projectFlowSource() {
   const wanted = new Set(['selectProject','setProjectTab','loadProjectOverview']);
@@ -181,7 +230,7 @@ async function testProjectOverviewRaceGuard() {
 (async () => {
   await testProjectOverviewSingleLoad();
   await testProjectOverviewRaceGuard();
-  console.log('Renderer foundation PASS: Stage 3 workspace + v1.0.41 UI slimming + single-load project overview.');
+  console.log('Renderer foundation PASS: desktop readability + v1.0.41 UI slimming + browser chrome + single-load project overview.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
