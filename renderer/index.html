@@ -19,7 +19,7 @@
     <div class="content">
       <section id="route-dashboard" class="route active">
         <div class="dashboard">
-          <article class="hero card"><div><span class="eyebrow">HỆ THỐNG</span><h2 id="heroTitle">Đang kiểm tra hệ thống</h2><p id="heroText">ChatCode đang xác minh Local MCP và Cloudflare Tunnel.</p><div class="row"><button id="copyMcp" class="btn primary" disabled>Sao chép URL MCP</button><button id="heroDiagnose" class="btn">Chẩn đoán</button></div></div><div class="hero-side"><div class="pulse"><i id="heroDot" class="dot"></i></div><strong id="heroDomain">—</strong><span>Kết nối dùng chung cho mọi dự án</span></div></article>
+          <article class="hero card"><div><span class="eyebrow">HỆ THỐNG</span><h2 id="heroTitle">Đang kiểm tra hệ thống</h2><div class="row"><button id="copyMcp" class="btn primary" disabled>Sao chép URL MCP</button><button id="heroDiagnose" class="btn">Chẩn đoán</button></div></div><div class="hero-side"><div class="pulse"><i id="heroDot" class="dot"></i></div><strong id="heroDomain">—</strong></div></article>
 
           <div class="health-grid">
             <article class="health-card"><div><span>LOCAL MCP</span><strong id="healthLocal">Đang kiểm tra</strong></div><i id="healthLocalDot" class="dot"></i><small id="healthLocalMeta">127.0.0.1:47820</small></article>
@@ -31,16 +31,18 @@
           <div id="route-connection" class="dashboard-connection">
             <div class="page">
               <div class="two-col">
-                <article class="card"><div class="card-head"><div><span class="eyebrow">KẾT NỐI CHATGPT</span><h3>Domain & Tunnel</h3><p>Cấu hình một lần cho toàn bộ workspace.</p></div></div><div id="customFields" class="form-stack"><label>Domain<div class="prefix"><b>https://</b><input id="domainInput" placeholder="mcp.example.com"></div></label><label>Tunnel Token<div class="secret"><input id="tokenInput" type="password" placeholder="eyJ..."><button id="toggleToken" class="btn small">Hiện</button></div><small id="tokenSaved" class="success-text hidden">✓ Đã lưu bằng Windows Secure Storage</small></label><div class="note">Published Application phải trỏ tới <code>http://localhost:47820</code>.</div></div><div class="row"><button id="saveConnect" class="btn primary">Lưu & kết nối</button><button id="restartConnection" class="btn">Kết nối lại</button></div><div id="connectionMessage" class="message"></div></article>
-                <article class="card"><div class="card-head"><div><span class="eyebrow">CHATGPT CONNECTOR</span><h3>URL MCP</h3><p>Dùng URL này khi thêm connector vào ChatGPT.</p></div></div><textarea id="mcpUrl" class="url-box" rows="5" readonly placeholder="URL MCP sẽ xuất hiện khi kết nối thành công"></textarea><div class="note">Trạng thái Domain, Local MCP, Watchdog và File Index đã hiển thị ở phía trên nên không lặp lại tại đây.</div></article>
+                <article class="card"><div class="card-head"><div><h3>Domain & Tunnel</h3></div></div><div id="customFields" class="form-stack"><label>Domain<div class="prefix"><b>https://</b><input id="domainInput" placeholder="mcp.example.com"></div></label><label>Tunnel Token<div class="secret"><input id="tokenInput" type="password" placeholder="eyJ..."><button id="toggleToken" class="btn small">Hiện</button></div></label><div class="note">Published Application phải trỏ tới <code>http://localhost:47820</code>.</div></div><div class="row"><button id="saveConnect" class="btn primary">Lưu & kết nối</button><button id="restartConnection" class="btn">Kết nối lại</button></div><div id="connectionMessage" class="message"></div></article>
+                <article class="card"><div class="card-head"><div><h3>URL MCP</h3></div></div><input id="mcpUrl" class="url-box" readonly placeholder="URL MCP sẽ xuất hiện khi kết nối thành công"></article>
               </div>
 
               <details id="connectionTech" class="card">
                 <summary>Chi tiết kỹ thuật</summary>
-                <div class="card-head"><div><span class="eyebrow">WATCHDOG & CHẨN ĐOÁN</span><h3>Theo dõi kết nối</h3><p id="watchdogSummary">Theo dõi Local MCP và Cloudflare theo chu kỳ.</p></div><button id="copyDiagnostic" class="btn">Sao chép báo cáo</button></div>
-                <div class="watch-grid"><div><span>Lần kiểm tra cuối</span><strong id="watchLastCheck">—</strong></div><div><span>Lỗi liên tiếp</span><strong id="watchFailures">0</strong></div><div><span>Reconnect gần nhất</span><strong id="watchReconnectAt">—</strong></div><div><span>Lý do mất kết nối</span><strong id="watchReason">—</strong></div></div>
-                <div class="danger-row"><button id="stopConnection" class="link-btn">Ngắt tunnel</button><button id="rotateSecret" class="link-btn">Đổi secret MCP</button><button id="clearToken" class="link-btn danger">Xóa Tunnel Token</button></div>
-                <div id="diagnostics" class="diagnostics"><div class="empty">Bấm “Chẩn đoán” khi cần kiểm tra Local MCP → DNS → Cloudflare → initialize → tools/list → cloudflared.</div></div>
+                <div class="form-stack">
+                  <div class="row"><button id="copyDiagnostic" class="btn">Sao chép báo cáo</button></div>
+                  <div class="watch-grid"><div><span>Lần kiểm tra cuối</span><strong id="watchLastCheck">—</strong></div><div><span>Lỗi liên tiếp</span><strong id="watchFailures">0</strong></div><div><span>Reconnect gần nhất</span><strong id="watchReconnectAt">—</strong></div><div><span>Lý do mất kết nối</span><strong id="watchReason">—</strong></div></div>
+                  <div class="row"><button id="stopConnection" class="btn small">Ngắt tunnel</button><button id="rotateSecret" class="btn small">Đổi secret MCP</button><button id="clearToken" class="btn small danger-outline">Xóa Tunnel Token</button></div>
+                  <div id="diagnostics" class="diagnostics"><div class="empty">Bấm “Chẩn đoán” khi cần kiểm tra Local MCP → DNS → Cloudflare → initialize → tools/list → cloudflared.</div></div>
+                </div>
               </details>
             </div>
           </div>
