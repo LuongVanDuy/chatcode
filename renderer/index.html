@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="vi">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>ChatCode Cá Nhân</title><link rel="stylesheet" href="styles.css"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>ChatCode Cá Nhân</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="ui-next-polish.css"></head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
@@ -8,7 +8,7 @@
     <nav class="nav">
       <button class="nav-link active" data-route="dashboard"><span>⌂</span>Tổng quan</button>
     </nav>
-    <div class="projects-block"><div class="section-title"><span>DỰ ÁN</span><b id="projectCount">0</b></div><div id="projects" class="project-list"></div><button id="addProject" class="add-project">＋ Thêm dự án</button></div>
+    <div class="projects-block"><div class="section-title"><span>DỰ ÁN</span><button id="sidebarAddProject" class="section-action" aria-label="Thêm dự án" title="Thêm dự án">＋</button></div><div id="projects" class="project-list"></div></div>
     <div class="sidebar-spacer"></div>
     <nav class="nav"><button class="nav-link" data-route="settings"><span>⚙</span>Cài đặt</button></nav>
     <div class="sidebar-health"><i id="sideDot" class="dot"></i><div><strong id="sideStatus">Đang khởi động</strong><small id="sideSub">MCP · 47820</small></div></div>
@@ -58,10 +58,10 @@
       </article><article class="card about"><img src="../assets/icon.png" alt=""><div><strong>ChatCode Cá Nhân <span id="appVersion">v0.6.0</span></strong><p>Local MCP bridge cho ChatGPT · không dùng OpenAI API key.</p></div><button id="hideTray" class="btn">Ẩn xuống tray</button></article></div></section>
 
       <section id="route-project" class="route"><div class="project-page">
-        <article class="project-head card"><div class="project-avatar big" id="projectAvatar">P</div><div class="project-title"><span class="eyebrow">PROJECT WORKSPACE</span><h2 id="projectName">Project</h2><p id="projectPath">—</p><div id="permissionPills" class="pills"></div></div><div class="project-actions"><button id="reindexProject" class="btn">↻ Re-index</button><button id="removeProject" class="btn danger-outline">Gỡ dự án</button></div></article>
+        <div class="project-access"><div id="permissionPills" class="pills"></div></div>
         <div class="project-stats"><article><span>Tệp đã index</span><strong id="projectFiles">—</strong><small id="projectIndexTime">Chưa index</small></article><article><span>File watcher</span><strong id="projectWatcher">—</strong><small>Tự cập nhật incremental</small></article><article><span>Git</span><strong id="projectGit">—</strong><small>Trạng thái working tree</small></article><article><span>AI activity</span><strong id="projectActions">0</strong><small>Log gần đây</small></article></div>
-        <div class="tabs"><button class="active" data-project-tab="overview">Tổng quan</button><button data-project-tab="files">Tệp</button><button data-project-tab="search">Tìm kiếm</button><button data-project-tab="permissions">Quyền truy cập</button></div>
-        <div class="project-tab active" id="project-tab-overview"><div class="two-col"><article class="card"><div class="card-head"><div><span class="eyebrow">INDEX</span><h3>Project Index</h3></div></div><div id="indexDetails" class="detail-list"></div></article><article class="card"><div class="card-head"><div><span class="eyebrow">GẦN ĐÂY</span><h3>Hoạt động AI</h3></div></div><div id="projectActivity" class="activity-list compact"></div></article></div></div>
+        <div class="tabs project-tabs"><button class="active" data-project-tab="overview">Tổng quan</button><button data-project-tab="files">Tệp</button><button data-project-tab="search">Tìm kiếm</button><button data-project-tab="permissions">Quyền truy cập</button></div>
+        <div class="project-tab active" id="project-tab-overview"><div class="project-activity-section"><div class="project-activity-head"><h3>Hoạt động AI</h3></div><div id="projectActivity" class="activity-list compact"></div></div></div>
         <div class="project-tab" id="project-tab-files"><div class="split"><article class="card file-list-panel"><div class="card-head"><h3>Tệp dự án</h3><button id="refreshFiles" class="btn small">Làm mới</button></div><div id="fileList" class="file-list"></div></article><article class="card"><div class="card-head"><h3 id="fileTitle">Nội dung</h3></div><pre id="fileContent" class="code">Chọn một file để đọc.</pre></article></div></div>
         <div class="project-tab" id="project-tab-search"><article class="card"><div class="search-row"><input id="searchInput" placeholder="Tìm tên file hoặc nội dung code..."><button id="searchButton" class="btn primary">Tìm kiếm</button></div><div id="searchResults" class="search-results"></div></article></div>
         <div class="project-tab" id="project-tab-permissions"><div class="two-col"><article class="card"><div class="card-head"><div><span class="eyebrow">PRESET</span><h3>Chọn mức quyền</h3><p>Preset giúp cấu hình nhanh và dễ hiểu.</p></div></div><div class="preset-grid"><button data-preset="readonly"><strong>Chỉ đọc</strong><span>Không ghi, task hay Git.</span></button><button data-preset="development"><strong>Phát triển</strong><span>Ghi/quản lý file + task; chưa Git commit.</span></button><button data-preset="full"><strong>Toàn quyền</strong><span>Bật toàn bộ quyền local.</span></button></div></article><article class="card"><div class="card-head"><div><span class="eyebrow">CHI TIẾT</span><h3>Quyền nâng cao</h3></div></div><label class="perm"><input id="permWrite" type="checkbox"><div><strong>Ghi file</strong><span>Tạo và thay thế file.</span></div></label><label class="perm"><input id="permManage" type="checkbox"><div><strong>Quản lý file</strong><span>Đổi tên, di chuyển, xóa.</span></div></label><label class="perm"><input id="permTasks" type="checkbox"><div><strong>Chạy tác vụ</strong><span>Build/test theo allowlist.</span></div></label><label class="perm"><input id="permGit" type="checkbox"><div><strong>Git write</strong><span>Stage và commit local; không push.</span></div></label><button id="savePermissions" class="btn primary full">Lưu quyền</button></article></div></div>
@@ -69,6 +69,7 @@
     </div>
   </main>
 </div>
+<div id="projectMenu" class="project-menu hidden" role="menu"><button data-project-menu-action="reindex" role="menuitem">Re-index</button><button data-project-menu-action="remove" class="danger" role="menuitem">Xóa dự án</button></div>
 <div id="toastContainer" class="toasts"></div>
 <script src="app.js"></script>
 </body></html>
