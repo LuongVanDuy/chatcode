@@ -49,19 +49,28 @@ Use short functional names such as `helpers.php`, `templates.php`, `media.php`, 
 
 Avoid vague defaults such as `site-chrome`, `site-parts`, `misc`, `stuff`, `common2`, `new`, `final`, `latest`, `v2`; do not prefix with `bricks-` merely because Bricks is used. Inspect current owners before creating parallel modules.
 
-## File creation budget: existing owner first
+## File creation budget: correct owner first
 
-A normal change should usually create **zero new source files**.
+A normal edit to an existing responsibility should usually create **zero new source files**. That default does not make the first existing/candidate file the owner and does not justify placing a new feature in `functions.php`.
+
+| Situation | Expected decision |
+| --- | --- |
+| Change padding for a section already owned by `home.css` | Edit `home.css`; do not create another stylesheet |
+| Fix the condition of an existing hook in `functions.php` | Fix that hook in place; do not split or refactor the theme just for the small change |
+| New functionality already has a module with the same responsibility | Extend that functional module |
+| New custom functionality has no suitable module | Use one minimal functional module only when the task allows it; keep bootstrap limited to require/enqueue |
+| Bricks native can implement the behavior | Use native Bricks; do not generate custom PHP merely to create a cleaner module tree |
+| The user explicitly restricts the change to a specific file | Respect that scope; report a concrete limitation if it cannot satisfy the task instead of expanding silently |
 
 ```text
-search current owner
--> clean owner exists: edit it
--> established functional module fits: use it
--> genuinely independent/reusable responsibility: create one clear owner
--> multiple new files only for proven separate lifecycles
+identify the responsibility
+-> small fix to existing code: edit its current owner in place, even when that code is in functions.php
+-> suitable established functional module exists: extend it
+-> new custom responsibility with no suitable module: use one minimal functional owner only when task scope allows
+-> task card forbids the required new owner: resolve/report the mismatch through the existing task; do not bypass scope or stuff the feature into bootstrap
 ```
 
-Do not create setup/helper/parts files merely to avoid editing an existing clean owner. Do not pair a normal feature with `*-migration.php`, or split one feature into `site-parts.php`, `site-parts-migration.php`, `site-parts-setup.php`. Initial implementation plus small tightly coupled setup may share one functional owner. Reuse a clean existing module even if its name differs from the preferred new-project tree.
+Do not create setup/helper/parts files merely to avoid editing an existing clean owner. Do not pair a normal feature with `*-migration.php`, or split one feature into `site-parts.php`, `site-parts-migration.php`, `site-parts-setup.php`. Initial implementation plus small tightly coupled setup may share one functional owner. Reuse a clean existing module even if its name differs from the preferred new-project tree. Do not scaffold `home`, `catalog`, `contact`, or `product` modules just because they appear in an example architecture.
 
 ## Global CSS belongs to the global layer
 
@@ -131,4 +140,4 @@ archive-product-item.php
 featured-product-item.php        # duplicate normal card
 ```
 
-Goal: **thin bootstrap; shared core helpers; scoped setup; template code in `inc/templates`; reusable Bricks elements in `elements`; global CSS stays global; page sections stay in the page layer; ordinary edits extend existing owners instead of creating file sprawl.**
+Goal: **thin bootstrap; shared core helpers; scoped setup; template code in `inc/templates`; reusable Bricks elements in `elements`; global CSS stays global; page sections stay in the page layer; ordinary edits extend the correct functional owner instead of creating file sprawl or overloading `functions.php`.**

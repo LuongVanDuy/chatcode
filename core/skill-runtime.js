@@ -36,6 +36,8 @@ const DOMAIN_COMPACT = Object.freeze({
   ui:'UI: reuse project tokens/components; separate global vs local ownership; apply only verified UI knowledge matches and validate responsive/interaction states.'
 });
 
+const PROJECT_CODE_ORGANIZATION_INVARIANT = 'Code organization: reuse the correct functional owner, not merely the first existing file. Keep child-theme functions.php for bootstrap/require/enqueue; do not append whole features, migrations or large inline JS by default. Small fixes to existing code may stay in place; do not refactor unrelated code. For new custom functionality, reuse a suitable module or use the smallest necessary functional module only when the task allows it. Zero new files is an ordinary-edit default, not a reason to use the wrong owner. Prefer native Bricks over custom PHP. Avoid per-section/helper/fix/v2 files. Respect explicit user scope and task limits; resolve a scope mismatch through the existing task, never shell bypass or repeated preparation.';
+
 function trimFileCache() {
   while (fileCache.size > MAX_FILE_CACHE_ENTRIES) fileCache.delete(fileCache.keys().next().value);
 }
@@ -304,6 +306,7 @@ function loadDomainPacks(dir, domains, request, inspect = null, taskCard = null)
 
   const compact = [
     domains.length ? `Task domains: ${domains.join(', ')}` : 'Task domains: core only',
+    PROJECT_CODE_ORGANIZATION_INVARIANT,
     ...domains.map(domain => `- ${DOMAIN_COMPACT[domain]}`),
     targetedContext,
     uiContext,
