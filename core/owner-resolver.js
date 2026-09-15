@@ -194,12 +194,42 @@ function cssKindForFlags(flags) {
   return 'component_css';
 }
 
+function cssTargetAffinity(row, rows, flags) {
+  const haystack = `${row.lower}\n${row.content}`.toLowerCase();
+  const basename = String(row.path.split('/').pop() || '').toLowerCase();
+  let scoped = false, score = 0;
+
+  if (flags.homepage) {
+    scoped = true;
+    if (/(?:^|[\/_-])(?:home|homepage|front-page)(?:[\/_.-]|$)|home[-_]?hero/.test(haystack)) score += 120;
+    for (const source of rows) {
+      if (!source.content || !source.content.toLowerCase().includes(basename)) continue;
+      if (/\b(?:is_front_page|is_home)\s*\(/i.test(source.content)) score += 160;
+    }
+  }
+  if (flags.header) {
+    scoped = true;
+    if (/header|site[-_]?nav|main[-_]?nav/.test(haystack)) score += 120;
+  }
+  if (flags.footer) {
+    scoped = true;
+    if (/footer|site[-_]?footer/.test(haystack)) score += 120;
+  }
+  if (flags.product || flags.productCard) {
+    scoped = true;
+    if (/product|products|catalog|catalogue|san[-_]?pham|sản[-_]?phẩm/.test(haystack)) score += 120;
+  }
+  return { scoped, score };
+}
+
 function relatedCssOwner(rows, inspect, request, flags, facts = {}) {
   const tokens = requestTokens(request).filter(token => !['css','style','spacing','padding','margin','layout','responsive','product','products','card','cards','sản','phẩm','san','pham'].includes(token));
   const childRoot = norm(facts.child_theme_root || '').toLowerCase();
   const ranked = rows.filter(row => /\.(?:css|scss|sass|less)$/i.test(row.path)).map(row => {
     const relation = directRelationEvidence(row,rows,inspect);
-    let score = relation.length * 100;
+    const affinity = cssTargetAffinity(row,rows,flags);
+    if (affinity.scoped && affinity.score === 0) return { row, relation, score:-1 };
+    let score = relation.length * 100 + affinity.score;
     if (childRoot && row.lower.startsWith(childRoot)) score += 20;
     for (const token of tokens) {
       if (row.lower.includes(token)) score += 10;
