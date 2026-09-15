@@ -53,7 +53,7 @@ assert.deepEqual(globalOwner.enforce_paths, ['wp-content/themes/fixture-child/as
 
 const homeOwner = ownershipMap({ request:'Sửa width container trang chủ', inspect, projectProfile:profile });
 assert.equal(homeOwner.primary.kind, 'homepage_css');
-assert.equal(homeOwner.primary.status, OWNER_STATUS.DETECTED);
+assert.ok([OWNER_STATUS.DETECTED,OWNER_STATUS.CONFIRMED].includes(homeOwner.primary.status),'existing owner may be promoted when stronger current evidence is available');
 assert.ok(homeOwner.primary.path.endsWith('/assets/css/home.css'));
 assert.ok(homeOwner.entries.some(item => item.kind === 'global_css'));
 assert.deepEqual(new Set(homeOwner.enforce_paths), new Set([
