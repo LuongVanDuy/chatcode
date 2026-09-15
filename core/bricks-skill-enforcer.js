@@ -151,6 +151,7 @@ function createBricksSkillEnforcerApi(api, store) {
     const taskId = String(result?.task_id || result?.work_session_id || '');
     const spec = skill?.bricks_spec || {};
     const skillPackageVersion = Number(skill?.version || skill?.skill_package_version || 0);
+    const profileVersion = result?.project_profile?.facts?.bricks_version || result?.context?.project_profile?.facts?.bricks_version || null;
     return {
       task_id:taskId,
       project_id:String(p.id || ''),
@@ -161,9 +162,9 @@ function createBricksSkillEnforcerApi(api, store) {
       skill_version:skillPackageVersion,
       contract_version:CONTRACT_VERSION,
       domains:(skill?.domains || []).slice(0,2),
-      bricks_detected_version:spec.detected_version || null,
-      bricks_spec_version:spec.spec_version || null,
-      bricks_spec_status:spec.status || null,
+      bricks_detected_version:spec.detected_version || skill?.bricks_detected_version || profileVersion || null,
+      bricks_spec_version:spec.spec_version || skill?.bricks_spec_version || null,
+      bricks_spec_status:spec.status || skill?.bricks_spec_status || null,
       execution_path:result?.execution_path || result?.task_card?.execution?.path || null,
       prepared_at:new Date().toISOString()
     };
@@ -315,8 +316,6 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.rollbackWork) {
     api.rollbackWork = async (taskId, ...args) => {
-      // Recovery must stay available even if the skill receipt expired or was lost.
-      // The hard gate protects new mutations; it must never trap a user inside a bad task.
       const id = String(taskId || '');
       const result = await original.rollbackWork(taskId,...args);
       receipts.delete(id);
