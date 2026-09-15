@@ -103,10 +103,11 @@ function productModelDecision(decisions = []) {
   for (const item of rows) {
     const haystack = `${item.key} ${item.value}`;
     if (!/(?:product|catalog|catalogue|sản\s*phẩm|san[-_\s]?pham)/i.test(haystack)) continue;
-    if (/\bwc_product\b|woocommerce\s+(?:native\s+)?product/i.test(item.value)) return 'wc_product';
     const explicit = item.value.match(/\b(?:cpt|custom\s+post\s+type|post[_\s-]?type)\s*(?:is|=|:|uses?|dùng|dung)?\s*[`'\"]?([a-z0-9_-]{2,80})/i)
       || item.value.match(/\buses?\s+(?:the\s+)?(?:cpt|post\s+type)\s+[`'\"]?([a-z0-9_-]{2,80})/i);
     if (explicit?.[1] && !/^(?:woocommerce|product|products|native)$/i.test(explicit[1])) return explicit[1];
+    if (/\bwc_product\b|woocommerce\s+(?:native\s+)?product/i.test(item.value)
+      && !/\b(?:not|không|khong)\b[^.]{0,40}woocommerce\s+(?:native\s+)?product/i.test(item.value)) return 'wc_product';
   }
   return '';
 }
