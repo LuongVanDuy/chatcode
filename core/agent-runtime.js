@@ -11,6 +11,7 @@ const {
   buildTaskCard,
   preflightExecutionPath,
   EXECUTION_PATHS,
+  TASK_TYPES,
   validatePatchAgainstTaskCard
 } = require('./task-planner');
 
@@ -44,6 +45,14 @@ function inferredSyntaxCommands(files) {
     else if (/\.(?:js|cjs|mjs)$/i.test(file)) commands.push(`node --check "${file}"`);
   }
   return unique(commands).slice(0, MAX_VERIFY);
+}
+
+function verificationFingerprint(verification) {
+  return JSON.stringify((verification || []).filter(item => !item?.ok).map(item => ({
+    kind:item?.kind || '', command:item?.command || '', file:item?.file || '',
+    code:item?.error?.code || '', error:item?.error?.message || item?.error || '',
+    stderr:String(item?.stderr || '').trim().slice(-500)
+  })));
 }
 
 function readProjectRules(store, projectId) {
@@ -178,6 +187,7 @@ function createAgentRuntime(api, store = null) {
   const taskContexts = new Map();
   const preparations = new Map();
   const preparing = new Map();
+  const failureFingerprints = new Map();
 
   function rememberTaskCard(taskId, taskCard, context = null) {
     taskCards.set(String(taskId), taskCard);
@@ -186,6 +196,7 @@ function createAgentRuntime(api, store = null) {
       const oldest = taskCards.keys().next().value;
       taskCards.delete(oldest);
       taskContexts.delete(oldest);
+      failureFingerprints.delete(oldest);
     }
   }
 
@@ -241,6 +252,11 @@ function createAgentRuntime(api, store = null) {
     const fullProjectProfile = refreshProjectProfile(store, session.project_id, inspect);
     const allProjectRules = (fullProjectProfile.decisions || []).map(item => ({ key:item.key, value:item.value }));
     const taskCard = buildTaskCard({ request:text, inspect, projectRules:allProjectRules, projectProfile:fullProjectProfile, verificationHints:hints });
+    let databaseCapability = null;
+    if ((taskCard.facets || []).includes(TASK_TYPES.DATA) && typeof api.databaseOp === 'function') {
+      try { databaseCapability = await api.databaseOp(session.project_id,{ action:'inspect' }); }
+      catch (error) { databaseCapability = { ok:false, status:'unavailable', error:normalizeError(error) }; }
+    }
     const skillInspect = { ...inspect, project_profile:fullProjectProfile };
 
     const rawSkills = skillsForTask(skillInspect, text, taskCard);
@@ -255,8 +271,10 @@ function createAgentRuntime(api, store = null) {
       ? `FAST Path: tối đa ${taskCard.execution.context_file_limit} file context và ${taskCard.execution.patch_file_limit} file patch; không tự tạo/xóa file ngoài allowance của task_card.`
       : `DEEP Path chỉ bật vì: ${(taskCard.execution.reasons || []).join(', ') || 'explicit high-risk task'}. Vẫn phải giữ scope theo target và owner.`;
     const ownerGuidance = taskCard.owner?.primary_path
-      ? `Owner Resolver: ${taskCard.owner.status} ${taskCard.owner.kind || 'owner'} tại ${taskCard.owner.primary_path}${taskCard.owner.primary_symbol ? ` (${taskCard.owner.primary_symbol})` : ''}. Sửa owner này trước; không tạo owner song song.`
-      : 'Owner Resolver chưa có owner đủ evidence; chỉ dùng ranked candidates và không tạo owner mới nếu chưa xác nhận owner hiện tại không tồn tại.';
+      ? (Number(taskCard.owner.confidence || 0) >= 0.8
+          ? `Owner Resolver: ${taskCard.owner.status} ${taskCard.owner.kind || 'owner'} tại ${taskCard.owner.primary_path}${taskCard.owner.primary_symbol ? ` (${taskCard.owner.primary_symbol})` : ''}. Dùng owner này trước.`
+          : `Owner Resolver confidence ${Number(taskCard.owner.confidence || 0).toFixed(2)}: đọc đúng owner/relation một lần để xác nhận rồi tiếp tục với owner bounded tốt nhất; không bỏ task chỉ vì chưa đạt certainty tuyệt đối.`)
+      : 'Owner Resolver chưa có owner mạnh: đọc targeted candidates một lần, sau đó chọn owner bounded tốt nhất; nếu thật sự chưa có owner, được tạo một owner đúng responsibility.';
 
     return {
       ok:true,
@@ -269,6 +287,7 @@ function createAgentRuntime(api, store = null) {
       context,
       skills,
       project_profile:projectProfile,
+      database_capability:databaseCapability,
       project_decisions:projectRules,
       project_rules:projectRules,
       task_card:taskCard,
@@ -283,6 +302,9 @@ function createAgentRuntime(api, store = null) {
           pathGuidance,
           ownerGuidance,
           'Bám task_card: giữ đúng target, tôn trọng must_preserve/out_of_scope và không tự mở rộng task.',
+          'Guard severity: HARD mới chặn mutation. SOFT = một targeted read/proof rồi dùng bounded reversible fallback. ADVISORY/best practice là preference, không phải permission boundary.',
+          'Giữ cùng task_id cho seed, diagnostic, repair, cleanup và đổi execution path. Không mở task mới chỉ vì ideal path unavailable.',
+          'Nếu local WP-CLI/MySQL không phù hợp FTP mirror, dùng database capability/server-side fallback khi có; helper tạm chỉ one-shot, authenticated, bounded và cleanup trong cùng task.',
           'Nếu cần re-plan do dependency mới, gọi prepare_task với task_id hiện tại để giữ baseline; không mở session mới.',
           'Dùng context trong response này để lập patch; chỉ đọc thêm khi owner.requires_read hoặc thiếu dependency cụ thể.',
           'Dùng project_profile.facts làm project facts hiện hành và project_profile.decisions cho các quyết định liên quan task; project_rules chỉ là alias tương thích.',
@@ -371,6 +393,7 @@ function createAgentRuntime(api, store = null) {
         const rolled = await api.rollbackWork(id);
         taskCards.delete(id);
         taskContexts.delete(id);
+        failureFingerprints.delete(id);
         return {
           ok:false, status:'rolled_back', task_id:id, work_session_id:id,
           execution_path:taskCard?.execution?.path || null,
@@ -382,18 +405,25 @@ function createAgentRuntime(api, store = null) {
         };
       }
       const current = await api.workStatus(id);
+      const fingerprint = verificationFingerprint(verification);
+      const repeatedRootCause = !!fingerprint && failureFingerprints.get(id) === fingerprint;
+      if (fingerprint) failureFingerprints.set(id,fingerprint);
       return {
-        ok:false, status:'needs_fix', task_id:id, work_session_id:id,
+        ok:false, status:repeatedRootCause ? 'path_exhausted' : 'needs_fix', task_id:id, work_session_id:id,
         execution_path:taskCard?.execution?.path || null,
         task_card:taskCard, scope_check:scopeCheck,
         verification, verification_passed:false,
         changed_files:current.changed_files || applied.changed_files || [],
         git:current.current?.git || applied.git || null,
         recovery_points:current.recovery_points || applied.recovery_points || [],
-        next_action:'Giữ nguyên task_id và execution path. Tạo corrective unified diff nhỏ trong cùng scope rồi gọi complete_task lại; chỉ rollback_work nếu muốn hủy toàn bộ task.',
+        next_action:repeatedRootCause
+          ? 'Cùng root-cause đã lặp lại sau một corrective pass. Dừng path này; giữ cùng task_id và chọn fallback bounded khác hoặc báo blocker. Không áp lại cùng patch/command/error.'
+          : 'Giữ nguyên task_id. Thực hiện đúng một corrective pass cho root-cause đã xác định; nếu lỗi giống hệt lặp lại thì bỏ path này và đổi fallback, không loop.',
         telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:0, brain_refresh_ms:Number(applied?.brain?.refresh_ms)||0, git_ms:0 }
       };
     }
+
+    failureFingerprints.delete(id);
 
     if (!finalize) {
       const current = await api.workStatus(id);
@@ -421,6 +451,7 @@ function createAgentRuntime(api, store = null) {
     const profileContext = projectProfileContext(savedProfile, taskCard?.target || '', taskCard?.type || '', taskCard?.decision_keys || []);
     taskCards.delete(id);
     taskContexts.delete(id);
+    failureFingerprints.delete(id);
     return {
       ok:true, status:'completed', task_id:id, work_session_id:id,
       execution_path:taskCard?.execution?.path || null,
