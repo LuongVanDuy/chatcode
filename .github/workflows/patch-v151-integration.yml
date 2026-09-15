@@ -25,6 +25,7 @@ jobs:
           node-version: 24
       - name: Apply database/MCP integration
         run: |
+          # One-shot branch-only integrator; removed before merge.
           node scripts/patch-v151-integration.cjs
           node --check core/database-runtime.js
           node --check core/ftp-deploy.js
