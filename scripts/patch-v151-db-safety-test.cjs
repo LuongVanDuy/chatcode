@@ -8,7 +8,7 @@ rep("assert.ok(HELPER_RE.test('wp-content/chatcode-db-once-0123456789abcdef01234
 `assert.ok(HELPER_RE.test('wp-content/chatcode-db-once-0123456789abcdef01234567.php'));
 assert.equal(siteUrlCandidates({ siteUrl:'https://example.com/subdir/' })[0], 'https://example.com/subdir', 'subdirectory WordPress URLs must be preserved');
 const helperSource = buildOneShotHelper('token',Math.floor(Date.now()/1000)+60);
-assert.match(helperSource,/dirname\(__DIR__\) \. '\/wp-load\.php'/,'one-shot helper must bootstrap WordPress from wp-content');
+assert.ok(helperSource.includes("dirname(__DIR__) . '/wp-load.php'"),'one-shot helper must bootstrap WordPress from wp-content');
 assert.match(helperSource,/current_state_mismatch/,'Bricks meta helper must compare current state before write');
 assert.match(helperSource,/read_back_verified/,'meta/option writes must report read-back verification');
 assert.throws(()=>validateMutation('bricks_update_meta',{ post_id:7,key:'_bricks_page_content_2',value:[] },10), error=>error?.code==='DATABASE_CURRENT_STATE_REQUIRED');
