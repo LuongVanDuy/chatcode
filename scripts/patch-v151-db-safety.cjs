@@ -63,5 +63,7 @@ rep('core/database-runtime.js',
   $wpdb->query('COMMIT');`);
 
 rep('core/database-runtime.js',
-"  BRICKS_META_KEYS = new Set([",
-"  BRICKS_META_KEYS = new Set([" ); // noop guard marker intentionally impossible below
+"  BRICKS_META_KEYS,\n  classifyDbHost,",
+"  BRICKS_TREE_META_KEYS,\n  BRICKS_META_KEYS,\n  classifyDbHost,");
+
+console.log('Bricks DB compare-and-set and read-back safety staged');
