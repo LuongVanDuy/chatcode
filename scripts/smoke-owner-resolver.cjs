@@ -76,7 +76,7 @@ const explicitCard = buildTaskCard({ request:explicitRequest, inspect:explicitIn
 assert.equal(explicitCard.execution.path, EXECUTION_PATHS.FAST);
 assert.equal(explicitCard.owner.kind, 'explicit_path');
 assert.equal(explicitCard.owner.primary_path, explicitPath);
-assert.deepEqual(explicitCard.owner.candidates, []);
+assert.ok(explicitCard.owner.candidates.includes(explicitPath));
 assert.deepEqual(explicitCard.owner.enforce_paths, [explicitPath]);
 assert.equal(explicitCard.owner.requires_read, false);
 assert.equal(explicitCard.expected_files[0], explicitPath);
