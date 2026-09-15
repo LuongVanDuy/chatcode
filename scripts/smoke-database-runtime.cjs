@@ -20,7 +20,7 @@ assert.throws(()=>validateReadSql('UPDATE wp_posts SET post_title="x"'), /read-o
 assert.throws(()=>validateMutation('wpdb_delete',{ table:'{posts}', where:{ ID:1 }, data:{} }), /confirm_destructive/i);
 assert.doesNotThrow(()=>validateMutation('wpdb_delete',{ table:'{posts}', where:{ ID:1 }, data:{}, confirm_destructive:true },10));
 assert.throws(()=>buildFtpOwnedDeleteCommand('runner','C:/site','wp-content/uploads/a.php'), /restricted/i);
-assert.ok(HELPER_RE.test('wp-content/mu-plugins/chatcode-db-once-0123456789abcdef01234567.php'));
+assert.ok(HELPER_RE.test('wp-content/chatcode-db-once-0123456789abcdef01234567.php'));
 
 function tempProject({ persistent = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'chatcode-db-smoke-'));
@@ -39,7 +39,6 @@ async function runOneShotLifecycle() {
   const project = { id:'p1', name:'example.com', root, workspaceMode:'trusted' };
   const store = { getProject:ref => { if (String(ref)!=='p1') throw new Error('missing'); return project; } };
   const patches = [], deployments = [], deletions = [], requests = [];
-  let postCount = 0;
   const api = {
     workStatus:async id => ({ status:'active', project_id:id === 'wrong-task' ? 'p2' : 'p1', work_session_id:id, workspace_mode:'trusted' }),
     applyPatch:async (_ref,patch,task) => { patches.push({patch,task}); return { changed_files:[] }; }
@@ -47,7 +46,6 @@ async function runOneShotLifecycle() {
   const fetchImpl = async (url,opts={}) => {
     requests.push({url,method:opts.method||'GET'});
     if ((opts.method||'GET') === 'GET') return { ok:true, status:200, text:async()=>JSON.stringify({ name:'WordPress' }) };
-    postCount++;
     const body = JSON.parse(opts.body||'{}');
     if (body.action === 'mutate') return { ok:true,status:200,text:async()=>JSON.stringify({ ok:true,changed:true,post_id:77,recovery:{ kind:'delete_post',post_id:77 } }) };
     if (body.action === 'rollback') return { ok:true,status:200,text:async()=>JSON.stringify({ ok:true,rolled_back:true }) };
@@ -75,6 +73,7 @@ async function runOneShotLifecycle() {
   assert.equal(patches.length,2,'helper must be created and removed locally in the same task');
   assert.equal(requests.filter(x=>x.method==='POST').length,1,'mutation path must not retry the same server operation');
   assert.ok(deployments[0].files[0].match(HELPER_RE));
+  assert.equal(deployments[0].options?.explicit,true,'explicit database helper deploy must not depend on uploadOnSave');
 
   const rolled = await runtime.databaseOp('p1',{ action:'rollback',task_id:'task-1',recovery_id:changed.recovery_id });
   assert.equal(rolled.rolled_back,true);
