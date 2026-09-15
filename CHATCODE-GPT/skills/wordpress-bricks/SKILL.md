@@ -34,7 +34,7 @@ Normal container/grid/image/icon/text/button/slider/query composition is not a c
 - Reuse the correct functional owner, not merely the first existing file.
 - Keep child-theme `functions.php` for bootstrap/require/enqueue by default. Small fixes to existing code may stay in place; **new features, migrations and large inline JS do not belong there**.
 - Global tokens stay in the global owner. Page/component CSS stays in its established page/component owner. Do not accumulate unrelated `style.css` overrides.
-- Zero new source files is an ordinary-edit default, not a reason to choose the wrong owner; explicit user/task scope still applies.
+- Zero new source files is an ordinary-edit default, not a reason to choose the wrong owner; explicit user scope still applies.
 
 ## Domain routing
 
