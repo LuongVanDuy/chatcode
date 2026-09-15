@@ -2,7 +2,7 @@ const { chatError } = require('./errors');
 const { extractNodes } = require('./bricks-validator');
 const { WORDPRESS_BRICKS_SKILL_ID } = require('./skill-runtime');
 
-const HARDENING_VERSION = 1;
+const HARDENING_VERSION = 2;
 const MAX_EVIDENCE_ITEMS = 800;
 
 const HARDENING_RULES = [
@@ -10,7 +10,7 @@ const HARDENING_RULES = [
   '- Existing Bricks element IDs used by selectors/query targets/migrations must be evidenced from the current task persisted tree. Reading chat history or frontend DOM does not count.',
   '- Numeric WordPress media IDs introduced by the patch must be verified as live attachment posts in the current WordPress project (for example WP-CLI `wp post get <id> --field=post_type` returning `attachment`).',
   '- `#brxe-*` and `[data-field-id]` selectors are linted before mutation. Prefer semantic/global classes; unverified generated IDs are blocked.',
-  '- New top-level PHP function/class/interface/trait names are checked against Project Brain before the patch is applied. Existing registrations found for new hooks are surfaced as duplicate warnings.',
+  '- New top-level PHP function/class/interface/trait names are checked against Project Brain before the patch is applied. Matching remove -> post mutation -> restore hook patterns are classified as safe recursion guards.',
   '- Completion distinguishes code verification, deployment and live/responsive verification. ChatCode never promotes write/upload success to live visual PASS.'
 ].join('\n');
 
@@ -146,6 +146,31 @@ function hookRegistrations(lines = []) {
   return out;
 }
 
+function escapeRegex(value) { return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function hookCallIndex(text, fn, hook, callback, startAt = 0) {
+  if (!callback || !/^[A-Za-z_][A-Za-z0-9_:>-]*$/.test(callback)) return -1;
+  const re = new RegExp(`\\b${escapeRegex(fn)}\\s*\\(\\s*["']${escapeRegex(hook)}["']\\s*,\\s*["']${escapeRegex(callback)}["']`, 'g');
+  re.lastIndex = Math.max(0, Number(startAt) || 0);
+  const match = re.exec(String(text || ''));
+  return match ? match.index : -1;
+}
+function isHookRecursionRestore(text, hook) {
+  const raw = String(text || '');
+  const removeFn = hook?.type === 'add_filter' ? 'remove_filter' : 'remove_action';
+  const addFn = hook?.type === 'add_filter' ? 'add_filter' : 'add_action';
+  let cursor = 0;
+  while (cursor < raw.length) {
+    const removeAt = hookCallIndex(raw,removeFn,hook?.hook,hook?.callback,cursor);
+    if (removeAt < 0) return false;
+    const restoreAt = hookCallIndex(raw,addFn,hook?.hook,hook?.callback,removeAt + 1);
+    if (restoreAt < 0) return false;
+    const between = raw.slice(removeAt,restoreAt);
+    if (/\bwp_(?:update_post|insert_post|delete_post|set_post_terms)\s*\(/.test(between)) return true;
+    cursor = removeAt + 1;
+  }
+  return false;
+}
+
 async function phpDuplicatePreflight(api, projectRef, patch) {
   const errors = [], warnings = [], checked = [];
   const files = diffFiles(patch).filter(file => /\.php$/i.test(file.path));
@@ -170,11 +195,17 @@ async function phpDuplicatePreflight(api, projectRef, patch) {
       }
     }
 
+    const addedText = file.added.join('\n');
     const removedHooks = new Set(hookRegistrations(file.removed).map(item => `${item.type}:${item.hook}:${item.callback}`));
     for (const hook of hookRegistrations(file.added)) {
       const key = `${hook.type}:${hook.hook}:${hook.callback}`;
       if (removedHooks.has(key) || !hook.callback) continue;
-      checked.push({ type:'hook', ...hook, path:file.path });
+      if (isHookRecursionRestore(addedText,hook)) {
+        checked.push({ type:'hook', ...hook, path:file.path, classification:'safe_recursion_restore' });
+        warnings.push({ code:'PHP_HOOK_RECURSION_RESTORE_SAFE', ...hook, path:file.path });
+        continue;
+      }
+      checked.push({ type:'hook', ...hook, path:file.path, classification:'registration' });
       if (typeof api.search !== 'function') {
         warnings.push({ code:'PHP_DUPLICATE_HOOK_CHECK_UNAVAILABLE', ...hook, path:file.path });
         continue;
@@ -474,6 +505,7 @@ module.exports = {
   HARDENING_RULES,
   extractPersistedElementIds,
   extractPatchEvidenceRefs,
+  isHookRecursionRestore,
   phpDuplicatePreflight,
   lintPatch,
   verificationState,
