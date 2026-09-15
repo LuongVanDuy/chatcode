@@ -1,3 +1,5 @@
+const { detectBricksVersion } = require('./bricks-spec');
+
 const PROFILE_VERSION = 1;
 const DECISION_LIMIT = 12;
 const DECISION_VALUE_LIMIT = 320;
@@ -83,27 +85,30 @@ function relevantSourceText(inspect = {}) {
   return (inspect?.relevant_files || []).map(item => String(item?.content || '')).filter(Boolean).join('\n').slice(0, 500000);
 }
 
-function detectBricksVersion(inspect = {}) {
-  const joined = `${frameworkStrings(inspect).join('\n')}\n${relevantSourceText(inspect)}`;
-  const explicit = joined.match(/\bBricks(?:\s+Builder)?\s*(?:version|v)?\s*[:=]?\s*(\d+\.\d+(?:\.\d+)?)/i);
-  if (explicit) return explicit[1];
-  const styleHeader = relevantSourceText(inspect).match(/^\s*Version\s*:\s*(\d+\.\d+(?:\.\d+)?)/mi);
-  return styleHeader?.[1] || '';
-}
-
-function detectCptProductModel(inspect = {}) {
-  if (inspect?.wordpress?.woocommerce) return '';
-  const text = relevantSourceText(inspect);
+function detectCptProductModels(inspect = {}) {
+  const source = relevantSourceText(inspect);
   const slugs = [];
   const re = /\bregister_post_type\s*\(\s*(['"])([^'"]+)\1/gi;
   let match;
-  while ((match = re.exec(text))) {
+  while ((match = re.exec(source))) {
     const slug = String(match[2] || '').trim();
     if (slug && !slugs.includes(slug)) slugs.push(slug);
-    if (slugs.length >= 20) break;
+    if (slugs.length >= 24) break;
   }
-  const productish = slugs.filter(slug => /product|san[-_]?pham|sản[-_]?phẩm|sp[-_]/i.test(slug));
-  return productish.length === 1 ? productish[0] : '';
+  return slugs.filter(slug => /product|san[-_]?pham|sản[-_]?phẩm|sp[-_]/i.test(slug)).slice(0,6);
+}
+
+function productModelDecision(decisions = []) {
+  const rows = normalizeDecisions(decisions).slice().reverse();
+  for (const item of rows) {
+    const haystack = `${item.key} ${item.value}`;
+    if (!/(?:product|catalog|catalogue|sản\s*phẩm|san[-_\s]?pham)/i.test(haystack)) continue;
+    if (/\bwc_product\b|woocommerce\s+(?:native\s+)?product/i.test(item.value)) return 'wc_product';
+    const explicit = item.value.match(/\b(?:cpt|custom\s+post\s+type|post[_\s-]?type)\s*(?:is|=|:|uses?|dùng|dung)?\s*[`'\"]?([a-z0-9_-]{2,80})/i)
+      || item.value.match(/\buses?\s+(?:the\s+)?(?:cpt|post\s+type)\s+[`'\"]?([a-z0-9_-]{2,80})/i);
+    if (explicit?.[1] && !/^(?:woocommerce|product|products|native)$/i.test(explicit[1])) return explicit[1];
+  }
+  return '';
 }
 
 function detectCssOwner(inspect = {}) {
@@ -122,14 +127,14 @@ function detectSharedProductRenderer(inspect = {}) {
     if (!names.includes(name)) names.push(name);
   }
   if (!names.length) {
-    const text = relevantSourceText(inspect), re = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*(?:product[A-Za-z0-9_]*(?:card|item)|(?:card|item)[A-Za-z0-9_]*product)[A-Za-z0-9_]*)\s*\(/gi;
+    const source = relevantSourceText(inspect), re = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*(?:product[A-Za-z0-9_]*(?:card|item)|(?:card|item)[A-Za-z0-9_]*product)[A-Za-z0-9_]*)\s*\(/gi;
     let match;
-    while ((match = re.exec(text))) if (!names.includes(match[1])) names.push(match[1]);
+    while ((match = re.exec(source))) if (!names.includes(match[1])) names.push(match[1]);
   }
   return names.length === 1 ? names[0] : '';
 }
 
-function deriveProjectFacts(inspect = {}, currentFacts = {}, project = {}) {
+function deriveProjectFacts(inspect = {}, currentFacts = {}, project = {}, decisions = []) {
   const facts = { ...normalizeFacts(currentFacts) };
   const sources = {};
   const set = (key, value, source) => {
@@ -147,7 +152,7 @@ function deriveProjectFacts(inspect = {}, currentFacts = {}, project = {}) {
 
   if (facts.builder === 'bricks') {
     const version = detectBricksVersion(inspect);
-    if (version) set('bricks_version', version, 'retrieved-source');
+    if (version) set('bricks_version', version, 'bricks-spec.detector');
   }
 
   const child = (wp.childThemes || [])[0];
@@ -161,15 +166,30 @@ function deriveProjectFacts(inspect = {}, currentFacts = {}, project = {}) {
     if (bricksParent) set('parent_theme', bricksParent.slug || bricksParent.name, 'wordpress-profile');
   }
 
-  if (wp.woocommerce) {
-    set('commerce','woocommerce','wordpress-profile');
+  const wooActive = !!wp.woocommerce;
+  const cptModels = detectCptProductModels(inspect);
+  const decidedModel = productModelDecision(decisions);
+  if (wooActive) set('commerce','woocommerce','wordpress-profile');
+  else if (cptModels.length === 1) set('commerce','custom_cpt','retrieved-source');
+
+  if (decidedModel) {
+    set('product_model',decidedModel,'project-decision');
+    if (!wooActive && decidedModel !== 'wc_product') set('commerce','custom_cpt','project-decision');
+  } else if (wooActive && cptModels.length === 0) {
     set('product_model','wc_product','wordpress-profile');
-  } else {
-    const cptProduct = detectCptProductModel(inspect);
-    if (cptProduct) {
-      set('commerce','custom_cpt','retrieved-source');
-      set('product_model',cptProduct,'retrieved-source');
+  } else if (!wooActive && cptModels.length === 1) {
+    set('product_model',cptModels[0],'retrieved-source');
+  } else if (wooActive && cptModels.length) {
+    const existing = String(currentFacts?.product_model || '');
+    if (existing && existing !== 'wc_product' && existing !== 'mixed_unresolved' && cptModels.includes(existing)) {
+      set('product_model',existing,'existing-confirmed-mixed-model');
+    } else {
+      set('product_model','mixed_unresolved','mixed-commerce-evidence');
     }
+  } else if (cptModels.length > 1) {
+    const existing = String(currentFacts?.product_model || '');
+    if (existing && cptModels.includes(existing)) set('product_model',existing,'existing-confirmed-cpt-model');
+    else set('product_model','mixed_unresolved','multiple-productish-cpts');
   }
 
   const cssOwner = detectCssOwner(inspect);
@@ -203,7 +223,7 @@ function refreshProjectProfile(store, projectId, inspect = {}) {
   if (index < 0) return readProjectProfile(store, projectId);
   const project = state.projects[index];
   const current = normalizeProjectProfile(project.projectProfile, project.projectRules);
-  const derived = deriveProjectFacts(inspect, current.facts, project);
+  const derived = deriveProjectFacts(inspect, current.facts, project, current.decisions);
   const next = normalizeProjectProfile({
     ...current,
     facts:derived.facts,
@@ -258,13 +278,13 @@ function selectRelevantDecisions(profile, request, type = '', preferredKeys = []
 }
 
 function selectRelevantFacts(profile, request, type = '') {
-  const facts = normalizeFacts(profile?.facts || {}), text = `${String(request || '').toLowerCase()} ${String(type || '').toLowerCase()}`;
+  const facts = normalizeFacts(profile?.facts || {}), query = `${String(request || '').toLowerCase()} ${String(type || '').toLowerCase()}`;
   const keys = new Set(['cms','builder','commerce','product_model','child_theme']);
-  if (/bricks|builder|template|element|control|header|footer|archive|single/.test(text)) ['bricks_version','child_theme_root','parent_theme'].forEach(key => keys.add(key));
-  if (/css|style|font|layout|container|card|renderer|homepage|home/.test(text)) ['global_css_owner','page_css_pattern','shared_product_renderer','shared_post_renderer'].forEach(key => keys.add(key));
-  if (/data|cpt|seed|migration|import|database|db|product/.test(text)) ['database','product_model','commerce'].forEach(key => keys.add(key));
-  if (/production|deploy|ftp|sftp|hosting|live|cache/.test(text)) ['source','production_deploy','php_runtime'].forEach(key => keys.add(key));
-  if (/php|lint|runtime/.test(text)) ['php_runtime','primary_language'].forEach(key => keys.add(key));
+  if (/bricks|builder|template|element|control|header|footer|archive|single/.test(query)) ['bricks_version','child_theme_root','parent_theme'].forEach(key => keys.add(key));
+  if (/css|style|font|layout|container|card|renderer|homepage|home/.test(query)) ['global_css_owner','page_css_pattern','shared_product_renderer','shared_post_renderer'].forEach(key => keys.add(key));
+  if (/data|cpt|seed|migration|import|database|db|product/.test(query)) ['database','product_model','commerce'].forEach(key => keys.add(key));
+  if (/production|deploy|ftp|sftp|hosting|live|cache/.test(query)) ['source','production_deploy','php_runtime'].forEach(key => keys.add(key));
+  if (/php|lint|runtime/.test(query)) ['php_runtime','primary_language'].forEach(key => keys.add(key));
   const out = {};
   for (const key of keys) if (facts[key]) out[key] = facts[key];
   return Object.fromEntries(Object.entries(out).slice(0, PROFILE_CONTEXT_FACT_LIMIT));
