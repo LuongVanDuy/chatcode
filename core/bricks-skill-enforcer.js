@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { chatError } = require('./errors');
 const { WORDPRESS_BRICKS_SKILL_ID, hasBricksProjectEvidence } = require('./skill-runtime');
 const { isBuiltinRef } = require('./builtin-skills-project');
@@ -36,8 +37,10 @@ function hardenSkill(skill) {
   if (!skill || skill.id !== WORDPRESS_BRICKS_SKILL_ID) return skill;
   const existing = String(skill.instructions || '').trim();
   const instructions = `${HARD_RULES}\n\n${existing}`.trim();
+  const skillPackageVersion = Number(skill?.version || 0);
   return {
     ...skill,
+    skill_package_version:skillPackageVersion,
     contract_version:CONTRACT_VERSION,
     enforcement:'task-bound',
     user_acknowledgement_required:ACK_TEXT,
@@ -75,7 +78,7 @@ function createBricksSkillEnforcerApi(api, store) {
   const modern = !!original.prepareTask && !!original.completeTask;
   const receipts = new Map();
   const detection = new Map();
-  let internalMutationDepth = 0;
+  const internalScope = new AsyncLocalStorage();
 
   function now() { return Date.now(); }
   function prune() {
@@ -91,6 +94,25 @@ function createBricksSkillEnforcerApi(api, store) {
     try { p = project(ref); } catch { return false; }
     return !!receipt && [receipt.project_id,receipt.project_name].map(normalizeRef).includes(normalizeRef(p.id))
       || !!receipt && [receipt.project_id,receipt.project_name].map(normalizeRef).includes(normalizeRef(p.name));
+  }
+  function bootstrapContext(ref) {
+    const p = project(ref);
+    return {
+      mode:'prepare',
+      project_id:String(p.id || ''),
+      project_name:String(p.name || ''),
+      project_root_fingerprint:receiptRootFingerprint(p),
+      start_work_used:false
+    };
+  }
+  function bootstrapMatches(context, ref) {
+    if (!context || context.mode !== 'prepare' || !projectMatches(context,ref)) return false;
+    let p;
+    try { p = project(ref); } catch { return false; }
+    return !context.project_root_fingerprint || context.project_root_fingerprint === receiptRootFingerprint(p);
+  }
+  function isInternalComplete() {
+    return internalScope.getStore()?.mode === 'complete';
   }
   async function detect(ref) {
     if (isBuiltinRef(ref)) return { active:false, inspect:null };
@@ -128,13 +150,15 @@ function createBricksSkillEnforcerApi(api, store) {
     const p = project(ref);
     const taskId = String(result?.task_id || result?.work_session_id || '');
     const spec = skill?.bricks_spec || {};
+    const skillPackageVersion = Number(skill?.version || skill?.skill_package_version || 0);
     return {
       task_id:taskId,
       project_id:String(p.id || ''),
       project_name:String(p.name || ''),
       project_root_fingerprint:receiptRootFingerprint(p),
       skill_id:WORDPRESS_BRICKS_SKILL_ID,
-      skill_version:Number(skill?.version || 0),
+      skill_package_version:skillPackageVersion,
+      skill_version:skillPackageVersion,
       contract_version:CONTRACT_VERSION,
       domains:(skill?.domains || []).slice(0,2),
       bricks_detected_version:spec.detected_version || null,
@@ -162,31 +186,33 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.prepareTask) {
     api.prepareTask = async (ref, request, limit, options) => {
-      const result = await original.prepareTask(ref, request, limit, options);
-      const evidence = hasBricksProjectEvidence(result?.context || {});
-      if (!evidence.active) return result;
-      const skills = (Array.isArray(result.skills) ? result.skills : []).map(hardenSkill);
-      const skill = skills.find(item => item?.id === WORDPRESS_BRICKS_SKILL_ID && item?.mandatory !== false);
-      if (!skill) required(ref,'prepare_task',{ reason:'wordpress-bricks skill was not attached' });
-      const receipt = makeReceipt(ref,result,skill);
-      if (!receipt.task_id) required(ref,'prepare_task',{ reason:'task_id missing after preparation' });
-      receipts.set(receipt.task_id,{ ...receipt, at:now() });
-      const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
-      return {
-        ...result,
-        skills,
-        skill_receipt:receipt,
-        skill_policy:policyShape(receipt,true),
-        user_acknowledgement_required:ACK_TEXT,
-        agent_contract:{
-          ...(result.agent_contract || {}),
-          guidance:[
-            `Bắt buộc nói với người dùng: "${ACK_TEXT}"`,
-            'Skill receipt chỉ hợp lệ cho task_id/project/root/domains hiện tại; task khác phải prepare lại.',
-            ...guidance
-          ]
-        }
-      };
+      return internalScope.run(bootstrapContext(ref), async () => {
+        const result = await original.prepareTask(ref, request, limit, options);
+        const evidence = hasBricksProjectEvidence(result?.context || {});
+        if (!evidence.active) return result;
+        const skills = (Array.isArray(result.skills) ? result.skills : []).map(hardenSkill);
+        const skill = skills.find(item => item?.id === WORDPRESS_BRICKS_SKILL_ID && item?.mandatory !== false);
+        if (!skill) required(ref,'prepare_task',{ reason:'wordpress-bricks skill was not attached' });
+        const receipt = makeReceipt(ref,result,skill);
+        if (!receipt.task_id) required(ref,'prepare_task',{ reason:'task_id missing after preparation' });
+        receipts.set(receipt.task_id,{ ...receipt, at:now() });
+        const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
+        return {
+          ...result,
+          skills,
+          skill_receipt:receipt,
+          skill_policy:policyShape(receipt,true),
+          user_acknowledgement_required:ACK_TEXT,
+          agent_contract:{
+            ...(result.agent_contract || {}),
+            guidance:[
+              `Bắt buộc nói với người dùng: "${ACK_TEXT}"`,
+              'Skill receipt chỉ hợp lệ cho task_id/project/root/domains hiện tại; task khác phải prepare lại.',
+              ...guidance
+            ]
+          }
+        };
+      });
     };
   }
 
@@ -194,7 +220,7 @@ function createBricksSkillEnforcerApi(api, store) {
     api.completeTask = async (taskId, ...args) => {
       prune();
       const id = String(taskId || '');
-      let receipt = receiptValid(id);
+      const receipt = receiptValid(id);
       if (!receipt && original.workStatus) {
         let status = null;
         try { status = await original.workStatus(id); } catch {}
@@ -204,25 +230,26 @@ function createBricksSkillEnforcerApi(api, store) {
           if (policy.active) required(ref,'complete_task',{ task_id:id, reason:'no valid task-bound skill receipt' });
         }
       }
-      internalMutationDepth++;
-      try {
-        const result = await original.completeTask(taskId,...args);
-        if (receipt) {
-          const clean = { ...receipt }; delete clean.at;
-          result.skill_receipt = clean;
-          result.skill_policy = policyShape(clean,true);
-        }
-        if (terminalStatus(result?.status)) receipts.delete(id);
-        return result;
-      } finally {
-        internalMutationDepth--;
+      const result = await internalScope.run({ mode:'complete', task_id:id }, () => original.completeTask(taskId,...args));
+      if (receipt) {
+        const clean = { ...receipt }; delete clean.at;
+        result.skill_receipt = clean;
+        result.skill_policy = policyShape(clean,true);
       }
+      if (terminalStatus(result?.status)) receipts.delete(id);
+      return result;
     };
   }
 
   if (original.startWork) {
     api.startWork = async (ref, ...args) => {
-      if (internalMutationDepth > 0 || !modern) return original.startWork(ref,...args);
+      const scoped = internalScope.getStore();
+      if (isInternalComplete() || !modern) return original.startWork(ref,...args);
+      if (bootstrapMatches(scoped,ref)) {
+        if (scoped.start_work_used) required(ref,'start_work',{ reason:'prepare_task bootstrap may create only one Work Session' });
+        scoped.start_work_used = true;
+        return original.startWork(ref,...args);
+      }
       const policy = await detect(ref);
       if (policy.active) required(ref,'start_work',{ reason:'use prepare_task so the skill/domain contract is attached before the Work Session starts' });
       return original.startWork(ref,...args);
@@ -231,7 +258,7 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.applyPatch) {
     api.applyPatch = async (ref, patch, sessionId = '', ...rest) => {
-      if (internalMutationDepth > 0 || !modern) return original.applyPatch(ref,patch,sessionId,...rest);
+      if (isInternalComplete() || !modern) return original.applyPatch(ref,patch,sessionId,...rest);
       const policy = await detect(ref);
       if (policy.active && !receiptValid(sessionId,ref)) required(ref,'apply_patch',{ task_id:String(sessionId || ''), reason:'patch is not bound to a prepared Bricks task' });
       return original.applyPatch(ref,patch,sessionId,...rest);
@@ -240,7 +267,7 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.applyAndVerify) {
     api.applyAndVerify = async (ref, ...args) => {
-      if (internalMutationDepth > 0 || !modern) return original.applyAndVerify(ref,...args);
+      if (isInternalComplete() || !modern) return original.applyAndVerify(ref,...args);
       const policy = await detect(ref);
       if (policy.active) required(ref,'apply_and_verify',{ reason:'compatibility fast path has no task receipt; use prepare_task -> complete_task' });
       return original.applyAndVerify(ref,...args);
@@ -250,7 +277,7 @@ function createBricksSkillEnforcerApi(api, store) {
   for (const name of ['writeFile','deleteFile','renameFile','runTask']) {
     if (!original[name]) continue;
     api[name] = async (ref, ...args) => {
-      if (internalMutationDepth > 0 || !modern) return original[name](ref,...args);
+      if (isInternalComplete() || !modern) return original[name](ref,...args);
       const policy = await detect(ref);
       if (policy.active) required(ref,name,{ reason:'low-level operation has no task_id/skill receipt' });
       return original[name](ref,...args);
@@ -259,7 +286,7 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.exec) {
     api.exec = async (ref, command, opts = {}) => {
-      if (internalMutationDepth > 0 || !modern) return original.exec(ref,command,opts);
+      if (isInternalComplete() || !modern) return original.exec(ref,command,opts);
       const policy = await detect(ref);
       if (policy.active) {
         const sessionId = String(opts?.work_session_id || '');
