@@ -11,7 +11,7 @@ function parseInput(input) {
 }
 
 function looksLikeNode(value) {
-  return isObject(value) && typeof value.name === 'string' && Object.prototype.hasOwnProperty.call(value, 'id') && Object.prototype.hasOwnProperty.call(value, 'parent');
+  return isObject(value) && typeof value.name === 'string' && Object.prototype.hasOwnProperty.call(value, 'id');
 }
 
 function extractNodes(value) {
@@ -39,20 +39,36 @@ function walkSettings(value, visitor, path = 'settings') {
   }
   if (!isObject(value)) return;
   visitor(value, path);
-  for (const [key, child] of Object.entries(value)) {
-    if (child && typeof child === 'object') walkSettings(child, visitor, `${path}.${key}`);
-  }
+  for (const [key, child] of Object.entries(value)) if (child && typeof child === 'object') walkSettings(child, visitor, `${path}.${key}`);
 }
 
+function nodeParent(node) {
+  if (!Object.prototype.hasOwnProperty.call(node || {}, 'parent') || node.parent == null || node.parent === '') return '0';
+  return String(node.parent);
+}
+
+function nodeChildren(node) { return Array.isArray(node?.children) ? node.children.map(String) : []; }
+function nodeSettings(node) { return isObject(node?.settings) ? node.settings : {}; }
+
+function slotChildIds(node) {
+  const out = [];
+  if (!isObject(node?.slotChildren)) return out;
+  for (const value of Object.values(node.slotChildren)) {
+    if (Array.isArray(value)) out.push(...value.map(String));
+  }
+  return out;
+}
+
+function childRefs(node) { return [...new Set([...nodeChildren(node), ...slotChildIds(node)])]; }
+
 function hiddenClasses(node) {
-  const raw = node?.settings?._hidden?._cssClasses;
+  const raw = nodeSettings(node)?._hidden?._cssClasses;
   if (Array.isArray(raw)) return raw.map(String);
   return String(raw || '').split(/\s+/).filter(Boolean);
 }
 
-function descendants(node, byId, limit = 300) {
-  const out = [], queue = [...(Array.isArray(node?.children) ? node.children : [])];
-  const seen = new Set();
+function descendants(node, byId, limit = 500) {
+  const out = [], queue = childRefs(node), seen = new Set();
   while (queue.length && out.length < limit) {
     const id = String(queue.shift());
     if (seen.has(id)) continue;
@@ -60,51 +76,73 @@ function descendants(node, byId, limit = 300) {
     const child = byId.get(id);
     if (!child) continue;
     out.push(child);
-    queue.push(...(Array.isArray(child.children) ? child.children : []));
+    queue.push(...childRefs(child));
   }
   return out;
 }
 
-function validateShapeSettings(node, spec, exactShapes, customBreakpoints, errors, warnings) {
-  const settings = node.settings;
-  if (!isObject(settings)) {
-    errors.push({ code:'BRICKS_SETTINGS_OBJECT', node_id:String(node.id || ''), message:'Element settings must be an object.' });
-    return;
-  }
-  if (!exactShapes) return;
+function configuredBreakpoints(inspect, spec) {
+  const defaults = new Set();
+  const rows = spec?.breakpoints?.defaults || [];
+  for (const item of rows) defaults.add(String(item?.key || item || ''));
+  const local = [
+    ...(inspect?.bricks?.breakpoints || []),
+    ...(inspect?.wordpress?.bricks_breakpoints || []),
+    ...(inspect?.wordpress?.breakpoints || [])
+  ];
+  for (const item of local) defaults.add(String(item?.key || item?.name || item || ''));
+  return new Set([...defaults].filter(Boolean));
+}
 
-  const defaults = new Set(spec?.breakpoints?.defaults || []);
-  const invalidAliases = new Set(spec?.breakpoints?.known_invalid_aliases || []);
-  const pseudos = new Set(['hover','active','focus','before','after','focus-within','focus-visible','visited','checked']);
+function configuredPseudoTokens(inspect, spec) {
+  const values = new Set();
+  const add = value => {
+    const raw = String(value || '').trim();
+    if (!raw) return;
+    values.add(raw.replace(/^:+/,'').replace(/\($/, '('));
+  };
+  for (const item of spec?.pseudo?.common_valid || []) add(item);
+  for (const item of spec?.pseudo?.default_global || spec?.pseudo_classes || []) add(item);
+  for (const item of inspect?.bricks?.pseudo_classes || inspect?.wordpress?.bricks_pseudo_classes || []) add(item?.selector || item?.value || item);
+  for (const item of ['hover','active','focus','before','after','focus-within','focus-visible','visited','checked']) add(item);
+  return values;
+}
+
+function settingSuffixWarnings(node, key, breakpoints, pseudos, warnings) {
+  const parts = String(key).split(':');
+  if (parts.length <= 1) return;
+  for (const raw of parts.slice(1)) {
+    const suffix = String(raw || '').trim();
+    if (!suffix || suffix.startsWith('variant-')) continue;
+    if (breakpoints.has(suffix)) continue;
+    if (pseudos.has(suffix) || [...pseudos].some(token => token.endsWith('(') && suffix.startsWith(token))) continue;
+    warnings.push({ code:'BRICKS_SETTING_SUFFIX_UNKNOWN', node_id:String(node.id), setting:key, suffix, message:`Unknown Bricks setting suffix ${suffix}; confirm it is a configured breakpoint, pseudo selector, or component variant in the target project.` });
+  }
+}
+
+function validateShapeSettings(node, spec, exactShapes, inspect, errors, warnings) {
+  const settings = nodeSettings(node);
+  const breakpoints = configuredBreakpoints(inspect, spec);
+  const pseudos = configuredPseudoTokens(inspect, spec);
 
   for (const [key,value] of Object.entries(settings)) {
-    const parts = String(key).split(':');
-    if (parts.length > 1) {
-      const suffix = parts[1];
-      if (!pseudos.has(suffix) && invalidAliases.has(suffix)) {
-        errors.push({ code:'BRICKS_BREAKPOINT_ALIAS', node_id:String(node.id), setting:key, message:`${suffix} is not a verified default Bricks breakpoint key.` });
-      } else if (!pseudos.has(suffix) && !defaults.has(suffix) && !customBreakpoints.has(suffix)) {
-        warnings.push({ code:'BRICKS_BREAKPOINT_UNKNOWN', node_id:String(node.id), setting:key, message:`Unknown breakpoint ${suffix}; confirm it exists in the target project.` });
-      }
+    settingSuffixWarnings(node, key, breakpoints, pseudos, warnings);
+    if (!exactShapes) continue;
+
+    const plainKey = String(key).split(':')[0];
+    if (plainKey === '_typography') {
+      if (!isObject(value)) errors.push({ code:'BRICKS_TYPOGRAPHY_SHAPE', node_id:String(node.id || ''), setting:key, message:'_typography must be an object.' });
+      else for (const prop of Object.keys(value)) if (/[A-Z]/.test(prop)) errors.push({ code:'BRICKS_TYPOGRAPHY_CAMELCASE', node_id:String(node.id), setting:`${key}.${prop}`, message:'Bricks typography uses CSS property names, not camelCase.' });
     }
 
-    if (key === '_typography') {
-      if (!isObject(value)) errors.push({ code:'BRICKS_TYPOGRAPHY_SHAPE', node_id:String(node.id), setting:key, message:'_typography must be an object.' });
-      else {
-        for (const prop of Object.keys(value)) {
-          if (/[A-Z]/.test(prop)) errors.push({ code:'BRICKS_TYPOGRAPHY_CAMELCASE', node_id:String(node.id), setting:`${key}.${prop}`, message:'Bricks typography uses CSS property names, not camelCase.' });
-        }
-      }
-    }
-
-    if (key === '_boxShadow' && isObject(value)) {
+    if (plainKey === '_boxShadow' && isObject(value)) {
       if (['offsetX','offsetY','blur','spread'].some(prop => Object.prototype.hasOwnProperty.call(value, prop))) {
         errors.push({ code:'BRICKS_SHADOW_VALUES', node_id:String(node.id), setting:key, message:'Box-shadow offsets/blur/spread belong under _boxShadow.values.' });
       }
       if (value.values != null && !isObject(value.values)) errors.push({ code:'BRICKS_SHADOW_VALUES_OBJECT', node_id:String(node.id), setting:key, message:'_boxShadow.values must be an object.' });
     }
 
-    if (key === '_gradient' && isObject(value)) {
+    if (plainKey === '_gradient' && isObject(value)) {
       if (Array.isArray(value.stops)) errors.push({ code:'BRICKS_GRADIENT_STOPS', node_id:String(node.id), setting:key, message:'Verified Bricks gradient shape uses colors[], not stops[].' });
       if (value.colors != null && !Array.isArray(value.colors)) errors.push({ code:'BRICKS_GRADIENT_COLORS', node_id:String(node.id), setting:key, message:'_gradient.colors must be an array.' });
       for (const stop of Array.isArray(value.colors) ? value.colors : []) {
@@ -116,25 +154,66 @@ function validateShapeSettings(node, spec, exactShapes, customBreakpoints, error
     }
   }
 
-  if (isObject(settings.icon) && settings.icon.library) {
-    const icon = settings.icon;
-    if (icon.library === 'svg') {
-      if (!isObject(icon.svg)) errors.push({ code:'BRICKS_ICON_SVG', node_id:String(node.id), message:'SVG icon controls require an svg media object.' });
-    } else if (!String(icon.icon || '').trim()) {
-      errors.push({ code:'BRICKS_ICON_VALUE', node_id:String(node.id), message:'Icon controls require an icon value for the selected library.' });
+  if (!exactShapes || !isObject(settings.icon) || !settings.icon.library) return;
+  const icon = settings.icon;
+  if (icon.library === 'svg') {
+    if (!isObject(icon.svg)) errors.push({ code:'BRICKS_ICON_SVG', node_id:String(node.id), message:'SVG icon controls require an svg media object.' });
+  } else if (icon.library === 'dynamicData') {
+    if (!String(icon.dynamicData || '').trim()) errors.push({ code:'BRICKS_ICON_DYNAMIC_DATA', node_id:String(node.id), message:'Dynamic Data icon controls require dynamicData.' });
+  } else if (!String(icon.icon || '').trim()) {
+    errors.push({ code:'BRICKS_ICON_VALUE', node_id:String(node.id), message:'Icon controls require an icon value for the selected built-in/custom icon library.' });
+  }
+}
+
+function validateQuerySettings(node, spec, exactShapes, byId, errors, warnings) {
+  if (!exactShapes) return;
+  const settings = nodeSettings(node);
+  if (settings.hasLoop === true || settings.hasLoop === 'true' || settings.hasLoop === 1) {
+    if (!isObject(settings.query)) {
+      errors.push({ code:'BRICKS_QUERY_OBJECT', node_id:String(node.id), message:'Native query loops require a query object.' });
+    } else if (!String(settings.query.objectType || '').trim() && !String(settings.query.id || '').trim()) {
+      errors.push({ code:'BRICKS_QUERY_OBJECT_TYPE', node_id:String(node.id), message:'Local query loops require query.objectType; Global Query references may use query.id.' });
     }
   }
 
-  if (settings.hasLoop === true || settings.hasLoop === 'true' || settings.hasLoop === 1) {
-    if (!isObject(settings.query) || !String(settings.query.objectType || '').trim()) {
-      errors.push({ code:'BRICKS_QUERY_OBJECT_TYPE', node_id:String(node.id), message:'Native query loops require query.objectType.' });
+  for (const targetKey of spec?.query?.target_keys || ['queryId','filterQueryId']) {
+    if (!settings[targetKey]) continue;
+    const target = String(settings[targetKey]);
+    const special = spec?.query?.special_targets?.[String(node.name)]?.[targetKey] || [];
+    if (special.includes(target)) continue;
+    if (byId.has(target)) continue;
+    if (spec?.query?.component_runtime_target_suffix && /^[a-f0-9]{6}-[a-f0-9]{6}(?:-[a-f0-9]{6})*$/i.test(target)) {
+      warnings.push({ code:'BRICKS_QUERY_RUNTIME_TARGET', node_id:String(node.id), setting:targetKey, target_id:target, message:'Component runtime query target cannot be fully validated against the persisted raw tree.' });
+      continue;
     }
+    errors.push({ code:'BRICKS_QUERY_TARGET_MISSING', node_id:String(node.id), setting:targetKey, target_id:target, message:`${targetKey} targets missing element ${target}.` });
+  }
+}
+
+function validateCanonicalPresence(node, mode, errors, warnings) {
+  const strict = mode === 'write' || mode === 'canonical';
+  const id = String(node?.id || '');
+  for (const [key,fallback] of [['parent',0],['children',[]],['settings',{}]]) {
+    if (Object.prototype.hasOwnProperty.call(node,key)) continue;
+    const code = `BRICKS_${key.toUpperCase()}_IMPLICIT`;
+    const message = `Bricks can read this node with implicit ${key}; generated/rewritten nodes should persist canonical ${key}.`;
+    (strict ? errors : warnings).push({ code, node_id:id, message, normalized_to:fallback });
+  }
+  if (Object.prototype.hasOwnProperty.call(node,'children') && !Array.isArray(node.children)) {
+    errors.push({ code:'BRICKS_CHILDREN_ARRAY', node_id:id, message:'Element children must be an array when present.' });
+  }
+  if (Object.prototype.hasOwnProperty.call(node,'settings') && !isObject(node.settings)) {
+    errors.push({ code:'BRICKS_SETTINGS_OBJECT', node_id:id, message:'Element settings must be an object when present.' });
+  }
+  if (Object.prototype.hasOwnProperty.call(node,'slotChildren') && !isObject(node.slotChildren)) {
+    errors.push({ code:'BRICKS_SLOT_CHILDREN_OBJECT', node_id:id, message:'slotChildren must be an object keyed by slot element ID.' });
   }
 }
 
 function validateBricksJson(input, inspect = {}, options = {}) {
   const parsed = parseInput(input);
   const resolution = options.resolution || resolveBricksSpec(inspect);
+  const mode = String(options.mode || 'read').toLowerCase();
   const errors = [], warnings = [];
   if (parsed.parse_error) {
     return { recognized:true, ok:false, format:'invalid-json', errors:[{ code:'BRICKS_JSON_PARSE', message:parsed.parse_error }], warnings, spec:resolution };
@@ -147,42 +226,48 @@ function validateBricksJson(input, inspect = {}, options = {}) {
   const exactShapes = !!resolution?.exact_shapes;
   const byId = new Map();
   const knownElements = allKnownElements(spec);
-  const customBreakpoints = new Set((inspect?.bricks?.breakpoints || inspect?.wordpress?.bricks_breakpoints || []).map(item => String(item?.key || item?.name || item || '')));
+  const idPattern = exactShapes && spec?.node?.id_pattern ? new RegExp(spec.node.id_pattern) : null;
 
   for (const node of nodes) {
     if (!looksLikeNode(node)) {
-      errors.push({ code:'BRICKS_NODE_SHAPE', message:'Every Bricks entry must include id, name and parent.' });
+      errors.push({ code:'BRICKS_NODE_SHAPE', message:'Every Bricks entry must include id and name.' });
       continue;
     }
+    validateCanonicalPresence(node, mode, errors, warnings);
     const id = String(node.id || '');
     if (!id) errors.push({ code:'BRICKS_ID_REQUIRED', message:'Element id is required.' });
     else if (byId.has(id)) errors.push({ code:'BRICKS_ID_DUPLICATE', node_id:id, message:`Duplicate element id ${id}.` });
     else byId.set(id,node);
-    if (!Array.isArray(node.children)) errors.push({ code:'BRICKS_CHILDREN_ARRAY', node_id:id, message:'Element children must be an array.' });
-    if (resolution?.exact_shapes && spec?.node?.id_pattern && id && !(new RegExp(spec.node.id_pattern)).test(id)) {
-      warnings.push({ code:'BRICKS_ID_FORMAT', node_id:id, message:'Element id does not match the verified six-character alphanumeric format; preserve existing legacy IDs, but generate new IDs in the verified format.' });
+
+    if (idPattern && id && !idPattern.test(id)) {
+      const issue = { code:'BRICKS_ID_FORMAT', node_id:id, message:'New Bricks 2.3.13 element IDs use six-character lowercase hexadecimal hashes. Preserve existing IDs, but generate new IDs in canonical format.' };
+      (mode === 'write' || mode === 'canonical' ? errors : warnings).push(issue);
     }
     if (exactShapes && knownElements.size && !knownElements.has(String(node.name))) {
-      warnings.push({ code:'BRICKS_ELEMENT_UNKNOWN', node_id:id, element:String(node.name), message:'Element name is not in the bundled verified core catalog; confirm against local Bricks/plugin registration.' });
+      warnings.push({ code:'BRICKS_ELEMENT_UNKNOWN', node_id:id, element:String(node.name), message:'Element name is not in the source-verified native Bricks/Woo catalog; confirm a custom/third-party element registration in the target project.' });
     }
-    validateShapeSettings(node, spec, exactShapes, customBreakpoints, errors, warnings);
+    if (Array.isArray(spec?.legacy_prefer_nested) && spec.legacy_prefer_nested.includes(String(node.name))) {
+      warnings.push({ code:'BRICKS_LEGACY_ELEMENT', node_id:id, element:String(node.name), message:`${node.name} remains native but newer work should prefer the nested equivalent when appropriate; do not rewrite existing content without request.` });
+    }
+    validateShapeSettings(node, spec, exactShapes, inspect, errors, warnings);
   }
 
   for (const node of nodes) {
     if (!looksLikeNode(node)) continue;
     const id = String(node.id);
-    const parent = String(node.parent);
-    const isRoot = node.parent === 0 || parent === '0';
+    const parent = nodeParent(node);
+    const isRoot = ['0',''].includes(parent);
     if (!isRoot && !byId.has(parent)) errors.push({ code:'BRICKS_PARENT_MISSING', node_id:id, parent_id:parent, message:`Parent ${parent} does not exist.` });
     if (!isRoot) {
       const parentNode = byId.get(parent);
-      if (parentNode && !(parentNode.children || []).map(String).includes(id)) errors.push({ code:'BRICKS_PARENT_CHILD_RECIPROCITY', node_id:id, parent_id:parent, message:'Parent does not list this node in children.' });
+      if (parentNode && !childRefs(parentNode).includes(id)) {
+        errors.push({ code:'BRICKS_PARENT_CHILD_RECIPROCITY', node_id:id, parent_id:parent, message:'Parent does not list this node in children or slotChildren.' });
+      }
     }
-    for (const childIdRaw of Array.isArray(node.children) ? node.children : []) {
-      const childId = String(childIdRaw);
+    for (const childId of childRefs(node)) {
       const child = byId.get(childId);
       if (!child) errors.push({ code:'BRICKS_CHILD_MISSING', node_id:id, child_id:childId, message:`Child ${childId} does not exist.` });
-      else if (String(child.parent) !== id) errors.push({ code:'BRICKS_CHILD_PARENT_RECIPROCITY', node_id:id, child_id:childId, message:'Child parent does not point back to this node.' });
+      else if (nodeParent(child) !== id) errors.push({ code:'BRICKS_CHILD_PARENT_RECIPROCITY', node_id:id, child_id:childId, message:'Child parent does not point back to this node.' });
     }
     if (String(node.name) === 'section' && !isRoot) errors.push({ code:'BRICKS_SECTION_NESTED', node_id:id, message:'section must remain a root-level Bricks layout element.' });
   }
@@ -198,15 +283,7 @@ function validateBricksJson(input, inspect = {}, options = {}) {
     }
   }
 
-  for (const node of nodes) {
-    const settings = node?.settings;
-    if (!isObject(settings)) continue;
-    for (const targetKey of spec?.query?.target_keys || ['queryId','filterQueryId']) {
-      if (!settings[targetKey]) continue;
-      const target = String(settings[targetKey]);
-      if (!byId.has(target)) errors.push({ code:'BRICKS_QUERY_TARGET_MISSING', node_id:String(node.id), setting:targetKey, target_id:target, message:`${targetKey} targets missing element ${target}.` });
-    }
-  }
+  for (const node of nodes) if (looksLikeNode(node)) validateQuerySettings(node, spec, exactShapes, byId, errors, warnings);
 
   const wrapper = extracted.wrapper;
   if (isObject(wrapper) && ['clipboard','template'].includes(extracted.format)) {
@@ -214,7 +291,7 @@ function validateBricksJson(input, inspect = {}, options = {}) {
     const availableClasses = new Set((Array.isArray(wrapper[classKey]) ? wrapper[classKey] : []).map(item => String(item?.id || '')).filter(Boolean));
     const usedClasses = new Set();
     for (const node of nodes) {
-      const classes = node?.settings?._cssGlobalClasses;
+      const classes = nodeSettings(node)?._cssGlobalClasses;
       if (Array.isArray(classes)) classes.forEach(id => usedClasses.add(String(id)));
     }
     for (const id of usedClasses) if (!availableClasses.has(id)) errors.push({ code:'BRICKS_GLOBAL_CLASS_MISSING', class_id:id, message:`Referenced global class ${id} is not bundled in ${classKey}.` });
@@ -224,6 +301,8 @@ function validateBricksJson(input, inspect = {}, options = {}) {
   if (extracted.format === 'template' && exactShapes) {
     const expectedKey = extracted.template_type === 'header' ? 'header' : extracted.template_type === 'footer' ? 'footer' : 'content';
     if (!Array.isArray(wrapper?.[expectedKey])) errors.push({ code:'BRICKS_TEMPLATE_ELEMENT_KEY', template_type:extracted.template_type, message:`Template type ${extracted.template_type} requires the ${expectedKey} element array.` });
+    const knownTypes = new Set([...(spec?.templates?.core_types || spec?.templates?.types || []), ...(spec?.templates?.woocommerce_types || [])]);
+    if (knownTypes.size && !knownTypes.has(extracted.template_type)) warnings.push({ code:'BRICKS_TEMPLATE_TYPE_UNKNOWN', template_type:extracted.template_type, message:'Template type is not in the source-verified Bricks 2.3.13 catalog; confirm project/plugin registration.' });
   }
 
   if (resolution?.source_required) warnings.push({ code:'BRICKS_SPEC_LOCAL_EVIDENCE_REQUIRED', message:`Bundled spec ${resolution.spec_version || 'unknown'} is not exact for detected version ${resolution.detected_version || 'unknown'}; only invariant validation is authoritative until local source confirms shapes.` });
@@ -235,7 +314,8 @@ function validateBricksJson(input, inspect = {}, options = {}) {
     node_count:nodes.length,
     errors,
     warnings,
-    spec:{ source:resolution?.source, status:resolution?.status, detected_version:resolution?.detected_version, spec_version:resolution?.spec_version, exact_shapes:!!resolution?.exact_shapes }
+    spec:{ source:resolution?.source, status:resolution?.status, detected_version:resolution?.detected_version, spec_version:resolution?.spec_version, exact_shapes:!!resolution?.exact_shapes },
+    validation_mode:mode
   };
 }
 

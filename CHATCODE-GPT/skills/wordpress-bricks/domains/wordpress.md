@@ -6,14 +6,16 @@ Use for PHP/theme/plugin structure, hooks, admin/settings behavior, routing and 
 
 1. Reuse the current project owner, bootstrap pattern and naming convention.
 2. Prefer WordPress public APIs/hooks over load-time side effects or direct core edits.
-3. Keep `functions.php`/plugin bootstrap thin when the project already has clear owners; do not refactor structure merely because a different architecture is possible.
-4. Prefix only public/global collision, storage or security boundaries. Internal/local identifiers stay concise.
-5. Sanitize input, enforce capability/nonce where authorization matters, and escape output at render boundaries.
-6. Keep admin-only/setup-only work off ordinary frontend requests.
+3. Keep child-theme `functions.php` thin: bootstrap/require/enqueue. Small fixes to existing owned code may stay, but new features, migrations, large inline JS and unrelated renderers go to the correct functional module.
+4. Before adding a public function/class/hook, inspect existing project symbols/hooks so the task does not create a duplicate owner or fatal redeclaration.
+5. Prefix only public/global collision, storage or security boundaries. Internal/local identifiers stay concise.
+6. Sanitize input, enforce capability/nonce where authorization matters, and escape output at render boundaries.
+7. Keep admin-only/setup-only work off ordinary frontend requests.
 
 ## Verification
 
-- PHP syntax for touched PHP files.
+- `php -l` for touched PHP files.
+- New public function/class/hook does not duplicate an existing project symbol/owner.
 - Hook executes in the intended context only.
 - No duplicate owner/bootstrap or unnecessary new file.
 - No frontend request receives one-time/admin-only work.

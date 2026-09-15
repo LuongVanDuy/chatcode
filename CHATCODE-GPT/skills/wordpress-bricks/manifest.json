@@ -2,8 +2,11 @@
   "id": "wordpress-bricks",
   "name": "WordPress + Bricks Native Delivery",
   "version": 5,
+  "contract_version": 6,
   "entry": "SKILL.md",
   "max_domains": 2,
+  "enforcement": "task-bound",
+  "acknowledgement": "Tôi sẽ sử dụng Bricks skill.",
   "domains": {
     "wordpress": "domains/wordpress.md",
     "bricks": "domains/bricks.md",
@@ -14,41 +17,14 @@
   },
   "data": {
     "ui_guidelines": "data/ui-guidelines.json",
-    "bricks_spec": "data/bricks-spec-2.3.6.json"
+    "bricks_spec": "data/bricks-spec-2.3.13.json",
+    "bricks_specs": {"2.3.6":"data/bricks-spec-2.3.6.json","2.3.13":"data/bricks-spec-2.3.13.json"}
   },
   "resources": [
-    "resources/core-checklist.md",
-    "resources/retrieval-scope.md",
-    "resources/code-organization.md",
-    "resources/design-system.md",
-    "resources/builder-editability.md",
-    "resources/media-icons.md",
-    "resources/data-seeding.md",
-    "resources/templates.md",
-    "resources/woocommerce.md",
-    "resources/migrations.md",
-    "resources/validation.md",
-    "resources/snippets.md",
-    "resources/patterns.md"
+    "resources/core-checklist.md","resources/retrieval-scope.md","resources/code-organization.md","resources/design-system.md","resources/builder-editability.md","resources/media-icons.md","resources/data-seeding.md","resources/templates.md","resources/woocommerce.md","resources/migrations.md","resources/validation.md","resources/snippets.md","resources/patterns.md"
   ],
   "activation": {
     "frameworks": ["WordPress", "WooCommerce", "Bricks"],
-    "keywords": [
-      "bricks",
-      "bricks builder",
-      "template",
-      "query loop",
-      "dynamic data",
-      "archive",
-      "single post",
-      "woocommerce",
-      "product archive",
-      "single product",
-      "cart",
-      "checkout",
-      "thankyou",
-      "mini cart",
-      "nav menu"
-    ]
+    "keywords": ["bricks","bricks builder","template","query loop","dynamic data","archive","single post","woocommerce","product archive","single product","cart","checkout","thankyou","mini cart","nav menu"]
   }
 }

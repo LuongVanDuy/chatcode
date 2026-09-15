@@ -1,56 +1,54 @@
-# Media and icon contract
+# Media & Icons — WordPress + Bricks
 
-Use this resource only when a WordPress + Bricks task imports/copies reference images, assigns media to repeated items, or adds functional/brand icons.
+Legacy/compatibility resource. Modern tasks receive `domains/media.md`, but the same evidence rules apply here.
 
-## Media: resolve slots, do not guess globally
+## Attachment ID safety
 
-Before importing or assigning reference media, build an explicit mapping for every intended slot:
+WordPress attachment IDs are site-local database identifiers.
+
+- Never hardcode an attachment ID from chat history, a previous task/project, a file name, a source URL, screenshot or visual guess.
+- Before persisting an ID into Bricks settings, PHP, post meta or options, verify that ID directly against the **current prepared WordPress project** during the same task.
+- If the target media cannot be proven, keep the slot unresolved and report it instead of substituting an old/nearby attachment.
+- Cross-site/reference URLs may identify the source asset, but they are not target-site attachment IDs.
+
+Use a slot mapping for multi-image work:
 
 ```text
-slot -> reference component/selector -> source URL -> attachment ID -> allow_reuse
+semantic slot -> reference/source asset -> current-project attachment -> verified ID -> allow_reuse
 ```
 
-Rules:
+Default `allow_reuse=false`. Reuse one attachment only when the design intentionally uses the same asset in multiple semantic slots.
 
-- A slot is a semantic position such as `brand:inax`, `category:bon-cau`, `hero:slide-2`, not merely an image filename.
-- Default `allow_reuse = false`. Reuse is allowed only when the reference clearly uses the same asset or the user explicitly requests reuse.
-- Resolve from the named reference component/DOM context first. Do not scrape the whole page, score unrelated images by keywords, then silently choose the highest score.
-- Keep source URL/identity long enough to verify the import. Cache only a resolved mapping with enough identity to invalidate a wrong result; never let one bad cached attachment become permanent truth.
-- If the exact slot cannot be resolved, return it as unresolved. Do not substitute the first image, a placeholder, or another slot's attachment and claim completion.
+## Import/mapping checks
 
-After import/assignment verify:
+After import or mapping, verify:
 
-- every required slot resolved;
-- distinct slots did not accidentally collapse to the same attachment;
-- source URL/component matches the intended reference;
-- dimensions/aspect ratio are plausible for the slot;
-- attachment exists and is readable;
-- alt text is appropriate when meaningful.
+- target attachment exists in current project;
+- source URL/file corresponds to the intended semantic slot;
+- dimensions/aspect ratio suit the design intent;
+- alt text is appropriate;
+- unrelated repeated items did not receive the same attachment ID accidentally.
 
-For repeaters/grids/sliders, check duplicate attachment IDs across items. Duplicate media is a failure unless `allow_reuse` is true for those slots.
+Do not stretch media to satisfy layout. Define the display ratio independently and use `cover`/`contain` according to whether frame fill or full-subject preservation matters.
 
-## Bricks icon policy
+## Functional icons
 
-Use the narrowest native representation:
+Prefer Bricks-native icon infrastructure:
 
-1. Functional UI icon in editable Builder content -> Bricks Icon element or the installed Bricks icon control `{ library, icon }`.
-2. Icon inside a repeater/custom element -> expose a Bricks icon control and render that control value.
-3. Fixed functional icon in project code -> use a verified class from an icon library that the installed Bricks/site already loads; do not invent class names.
-4. Brand marks, certifications, DMCA/Bộ Công Thương/Zalo/logo artwork -> use a real media/SVG asset with a stable asset owner.
+1. Bricks Icon element or icon control.
+2. Verified icon library/set already registered by the target project.
+3. Bricks 2.3.13 custom icon sets or Dynamic Data when the project uses them.
+4. SVG/media assets for brand marks, certifications and unique logos.
 
 Do not:
 
-- concatenate `<i class="...">` into an ordinary text value merely to get an icon;
-- hard-code one icon when the element is supposed to be Builder-editable;
-- paste a large SVG/data URI into PHP for a reusable brand asset;
-- fetch a random web SVG when Bricks already provides the required functional icon.
+- infer an icon library from a class copied from another site;
+- embed `<i>` markup inside ordinary text fields;
+- store large SVG data URIs in PHP;
+- treat built-in Themify/FontAwesome/Ionicons as a closed list when custom icon sets exist.
 
-## Asset ownership
+Builder-editable repeaters/custom elements should expose icon/media controls when those values are ordinary editor-owned content.
 
-A downloaded/imported reference image belongs to WordPress Media Library or the established project asset owner. A project-owned static SVG belongs in a real asset file, not a long PHP string. Do not create an upload helper for each section: reuse one media service/helper, but require slot-level identity at each call site.
+## Completion
 
-## Acceptance
-
-PASS means the implementation can answer which reference asset belongs to each slot, duplicate IDs are intentional, and functional icons use Bricks/native verified icon infrastructure.
-
-FAIL means several unrelated items share one attachment because of a fallback/default array, a whole-page keyword scorer selected ambiguous media, or PHP/text contains avoidable hard-coded icon markup/data URIs.
+A media task is not complete merely because an upload/write succeeded. Verify the current project attachment mapping and, when a live rendered check is available, confirm the actual frontend crop/source. If live verification cannot run, state that limitation rather than claiming visual PASS.

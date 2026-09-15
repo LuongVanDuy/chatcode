@@ -1,0 +1,12 @@
+[
+  {"name":"inspect-does-not-prime-bricks","request":"Inspect a Bricks project, then attempt a direct write without prepare_task","expected":"BRICKS_SKILL_TASK_REQUIRED"},
+  {"name":"task-bound-skill-receipt","request":"Prepare a Bricks task and mutate only through the returned task_id","expected":"receipt binds project/root/skill/domains/spec and complete_task succeeds"},
+  {"name":"element-id-current-tree","request":"Add CSS or query targeting a Bricks element ID","expected":"read current persisted Bricks tree in the same task; reject IDs sourced only from chat history, clone, DOM export or another project"},
+  {"name":"media-id-current-project","request":"Set a logo/banner/image attachment ID in Bricks","expected":"verify attachment ID directly on the current WordPress project in the same task; never infer from URL/file name"},
+  {"name":"theme-root-child-detection","request":"Open a project whose shared root is only a child theme with Template: bricks","expected":"WordPress + Bricks policy activates even without wp-content in indexed paths"},
+  {"name":"bricks-2313-read-tolerant-leaf","request":"Validate imported Bricks 2.3.13 leaf nodes without children/settings","expected":"read mode normalizes implicit values; canonical write mode requires full node shape"},
+  {"name":"component-slot-children","request":"Validate a component instance whose child is owned through slotChildren","expected":"parent-child reciprocity accepts children or slotChildren"},
+  {"name":"pagination-main-query","request":"Validate Bricks Pagination with queryId=main","expected":"main is accepted as a valid Pagination target"},
+  {"name":"semantic-selector-preference","request":"Implement component styling where frontend exposes generated IDs/data-field selectors","expected":"prefer semantic project-controlled class/global class; generated selector requires verified current target and intentional coupling"},
+  {"name":"ui-definition-of-done","request":"Finish a responsive Bricks UI task after files deploy","expected":"desktop/tablet/mobile checked; live visual PASS only if live frontend was actually verified"}
+]

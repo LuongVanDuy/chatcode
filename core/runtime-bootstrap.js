@@ -13,6 +13,11 @@ function installRuntimePatches() {
   // Project Brain may still index broadly; only content reads are narrowed.
   const { installRetrievalScopePatches } = require('./retrieval-scope');
   installRetrievalScopePatches();
+  // Detect Bricks even when the shared project root is the Bricks parent/child theme
+  // itself instead of the full WordPress root. This must run before Agent captures
+  // inspectProject so prepare_task always sees the real Builder framework.
+  const { installBricksProjectDetectionPatches } = require('./bricks-project-detection');
+  installBricksProjectDetectionPatches();
   const { installAgentRuntimePatches } = require('./agent-runtime');
   installAgentRuntimePatches();
   // A completed Work Session may deploy only its changed files through the project's
@@ -29,9 +34,13 @@ function installRuntimePatches() {
   // the original 13 tools. It adds CHATCODE-GPT as a read-only virtual project.
   const { installBuiltinSkillsProjectPatches } = require('./builtin-skills-project');
   installBuiltinSkillsProjectPatches();
-  // Mandatory WordPress + Bricks policy must see both modern and legacy paths.
+  // Base mandatory policy attaches/routs WordPress + Bricks skill content.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
+  // Final Bricks enforcement layer upgrades mandatory from project-level priming to
+  // task-bound receipts: inspect/read never authorize mutation; prepare_task does.
+  const { installBricksSkillEnforcerPatches } = require('./bricks-skill-enforcer');
+  installBricksSkillEnforcerPatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');

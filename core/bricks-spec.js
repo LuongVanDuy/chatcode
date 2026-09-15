@@ -1,15 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const SPEC_PATH = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills', 'wordpress-bricks', 'data', 'bricks-spec-2.3.6.json');
-let bundledCache = null;
-
-function readBundledSpec() {
-  if (bundledCache) return bundledCache;
-  try { bundledCache = JSON.parse(fs.readFileSync(SPEC_PATH, 'utf8')); }
-  catch { bundledCache = null; }
-  return bundledCache;
-}
+const SPEC_DIR = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills', 'wordpress-bricks', 'data');
+const SPEC_REGISTRY = Object.freeze({
+  '2.3.6':path.join(SPEC_DIR, 'bricks-spec-2.3.6.json'),
+  '2.3.13':path.join(SPEC_DIR, 'bricks-spec-2.3.13.json')
+});
+// Backward-compatible export: legacy tests/tools expect SPEC_PATH/readBundledSpec() to
+// resolve the original baseline. Runtime resolution below selects the exact version.
+const SPEC_PATH = SPEC_REGISTRY['2.3.6'];
+const CURRENT_STABLE_SPEC_VERSION = '2.3.13';
+const bundledCache = new Map();
 
 function normalizeVersion(value) {
   const match = String(value || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/);
@@ -21,40 +22,103 @@ function versionParts(value) {
   return normalized ? normalized.split('.').map(Number) : [];
 }
 
+function readSpecFile(file) {
+  if (!file) return null;
+  if (bundledCache.has(file)) return bundledCache.get(file);
+  try {
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    bundledCache.set(file, value);
+    return value;
+  } catch {
+    bundledCache.set(file, null);
+    return null;
+  }
+}
+
+function readBundledSpec(version = '2.3.6') {
+  const normalized = normalizeVersion(version) || '2.3.6';
+  return readSpecFile(SPEC_REGISTRY[normalized]);
+}
+
+function availableBundledSpecs() {
+  return Object.keys(SPEC_REGISTRY).filter(version => !!readBundledSpec(version));
+}
+
+function relevantSourceText(inspect = {}) {
+  return (inspect?.relevant_files || [])
+    .map(item => `${item?.path || item?.file || ''}\n${item?.content || ''}`)
+    .join('\n')
+    .slice(0, 1200000);
+}
+
+function bricksParentThemeVersion(inspect = {}) {
+  const wp = inspect?.wordpress || {};
+  const parents = [...(wp.parentThemes || []), ...(wp.parent_themes || [])];
+  for (const theme of parents) {
+    const identity = `${theme?.slug || ''} ${theme?.name || ''} ${theme?.root || ''}`;
+    if (!/(?:^|\s|\/)bricks(?:\s|\/|$)/i.test(identity)) continue;
+    const version = normalizeVersion(theme?.version);
+    if (version) return version;
+  }
+  return '';
+}
+
+function frameworkBricksVersion(inspect = {}) {
+  for (const item of inspect?.frameworks || []) {
+    if (!/\bbricks(?:\s+builder)?\b/i.test(String(item?.name || item || ''))) continue;
+    const version = normalizeVersion(item?.version);
+    if (version) return version;
+    const evidenceVersion = normalizeVersion(item?.evidence);
+    if (evidenceVersion) return evidenceVersion;
+  }
+  return '';
+}
+
+function sourceBricksVersion(inspect = {}) {
+  const source = relevantSourceText(inspect);
+  const constant = source.match(/\bBRICKS_VERSION\b[^\n]{0,80}['"](\d+\.\d+(?:\.\d+)?)['"]/i);
+  if (constant) return normalizeVersion(constant[1]);
+
+  for (const item of inspect?.relevant_files || []) {
+    const file = String(item?.path || item?.file || '').replace(/\\/g,'/');
+    if (!/(?:^|\/)bricks\/style\.css$/i.test(file) && !/(?:^|\/)wp-content\/themes\/bricks\/style\.css$/i.test(file)) continue;
+    const version = String(item?.content || '').match(/^\s*Version\s*:\s*(\d+\.\d+(?:\.\d+)?)/mi);
+    if (version) return normalizeVersion(version[1]);
+  }
+  return '';
+}
+
+function suspiciousChildThemeProfileVersion(inspect = {}, profileVersion = '') {
+  if (!profileVersion) return false;
+  const wp = inspect?.wordpress || {};
+  const children = [...(wp.childThemes || []), ...(wp.child_themes || [])];
+  return children.some(theme => {
+    if (!/\bbricks\b/i.test(String(theme?.template || ''))) return false;
+    return normalizeVersion(theme?.version) === profileVersion;
+  });
+}
+
 function detectBricksVersion(inspect = {}) {
   const direct = [
-    inspect?.project_profile?.facts?.bricks_version,
-    inspect?.projectProfile?.facts?.bricks_version,
     inspect?.bricks_version,
     inspect?.bricks?.version,
+    inspect?.wordpress?.bricksVersion,
     inspect?.wordpress?.bricks_version
   ].map(normalizeVersion).find(Boolean);
   if (direct) return direct;
 
-  const wp = inspect?.wordpress || {};
-  const themes = [
-    ...(wp.childThemes || []), ...(wp.parentThemes || []),
-    ...(wp.child_themes || []), ...(wp.parent_themes || [])
-  ];
-  for (const theme of themes) {
-    if (!/bricks/i.test(`${theme?.slug || ''} ${theme?.name || ''} ${theme?.template || ''}`)) continue;
-    const version = normalizeVersion(theme?.version);
-    if (version) return version;
-  }
+  const parent = bricksParentThemeVersion(inspect);
+  if (parent) return parent;
 
-  const plugins = [...(wp.customPlugins || []), ...(wp.custom_plugins || [])];
-  for (const plugin of plugins) {
-    if (!/bricks/i.test(`${plugin?.slug || ''} ${plugin?.name || ''}`)) continue;
-    const version = normalizeVersion(plugin?.version);
-    if (version) return version;
-  }
+  const framework = frameworkBricksVersion(inspect);
+  if (framework) return framework;
 
-  const frameworkText = [
-    ...(inspect?.framework_names || []),
-    ...(inspect?.frameworks || []).flatMap(item => [item?.name || item || '', item?.version || '', item?.evidence || ''])
-  ].join('\n');
-  const explicit = frameworkText.match(/\bBricks(?:\s+Builder)?[^\d]{0,24}(\d+\.\d+(?:\.\d+)?)/i);
-  return normalizeVersion(explicit?.[1]);
+  const source = sourceBricksVersion(inspect);
+  if (source) return source;
+
+  const profile = normalizeVersion(inspect?.project_profile?.facts?.bricks_version || inspect?.projectProfile?.facts?.bricks_version);
+  if (profile && !suspiciousChildThemeProfileVersion(inspect, profile)) return profile;
+  return '';
 }
 
 function normalizeLocalSpec(raw) {
@@ -63,8 +127,27 @@ function normalizeLocalSpec(raw) {
   return raw;
 }
 
+function closestBundledSpec(detectedVersion = '') {
+  const detected = versionParts(detectedVersion);
+  const versions = availableBundledSpecs();
+  if (!versions.length) return { version:'', spec:null };
+  if (!detected.length) {
+    const version = versions.includes(CURRENT_STABLE_SPEC_VERSION) ? CURRENT_STABLE_SPEC_VERSION : versions[versions.length - 1];
+    return { version, spec:readBundledSpec(version) };
+  }
+  const sameMinor = versions.filter(version => {
+    const [major,minor] = versionParts(version);
+    return major === detected[0] && minor === detected[1];
+  });
+  const pool = sameMinor.length ? sameMinor : versions;
+  const version = pool.sort((a,b) => {
+    const aa=versionParts(a), bb=versionParts(b);
+    return (bb[0]-aa[0]) || (bb[1]-aa[1]) || (bb[2]-aa[2]);
+  })[0];
+  return { version, spec:readBundledSpec(version) };
+}
+
 function resolveBricksSpec(inspect = {}) {
-  const bundled = readBundledSpec();
   const local = normalizeLocalSpec(inspect?.bricks_spec || inspect?.bricks?.spec || inspect?.wordpress?.bricks_spec);
   const detectedVersion = detectBricksVersion(inspect);
 
@@ -74,36 +157,41 @@ function resolveBricksSpec(inspect = {}) {
       source:'local-project-evidence',
       detected_version:detectedVersion || normalizeVersion(local.bricks_version),
       spec_version:normalizeVersion(local.bricks_version),
-      status:'local',
-      confidence:1,
-      exact_shapes:true,
-      source_required:false
+      status:'local', confidence:1, exact_shapes:true, source_required:false
     };
   }
 
-  if (!bundled) {
+  if (detectedVersion && SPEC_REGISTRY[detectedVersion]) {
+    const spec = readBundledSpec(detectedVersion);
+    if (spec) {
+      return {
+        spec, source:'bundled-source-verified', detected_version:detectedVersion,
+        spec_version:detectedVersion, status:'exact', confidence:0.995,
+        exact_shapes:true, source_required:false
+      };
+    }
+  }
+
+  const fallback = closestBundledSpec(detectedVersion);
+  if (!fallback.spec) {
     return { spec:null, source:'none', detected_version:detectedVersion, spec_version:'', status:'missing', confidence:0, exact_shapes:false, source_required:true };
   }
 
-  const specVersion = normalizeVersion(bundled.bricks_version);
-  const [dm, dn, dp] = versionParts(detectedVersion);
-  const [sm, sn, sp] = versionParts(specVersion);
-
-  if (detectedVersion && dm === sm && dn === sn && dp === sp) {
-    return { spec:bundled, source:'bundled-source-verified', detected_version:detectedVersion, spec_version:specVersion, status:'exact', confidence:0.98, exact_shapes:true, source_required:false };
-  }
+  const specVersion = normalizeVersion(fallback.spec.bricks_version || fallback.version);
+  const [dm,dn] = versionParts(detectedVersion);
+  const [sm,sn] = versionParts(specVersion);
   if (detectedVersion && dm === sm && dn === sn) {
-    return { spec:bundled, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'compatible-version-different-patch', confidence:0.72, exact_shapes:false, source_required:true };
+    return { spec:fallback.spec, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'compatible-version-different-patch', confidence:0.76, exact_shapes:false, source_required:true };
   }
   if (detectedVersion) {
-    return { spec:bundled, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'version-mismatch', confidence:0.45, exact_shapes:false, source_required:true };
+    return { spec:fallback.spec, source:'bundled-invariants-only', detected_version:detectedVersion, spec_version:specVersion, status:'version-mismatch', confidence:0.45, exact_shapes:false, source_required:true };
   }
-  return { spec:bundled, source:'bundled-invariants-only', detected_version:'', spec_version:specVersion, status:'version-unknown', confidence:0.5, exact_shapes:false, source_required:true };
+  return { spec:fallback.spec, source:'bundled-invariants-only', detected_version:'', spec_version:specVersion, status:'version-unknown', confidence:0.5, exact_shapes:false, source_required:true };
 }
 
 function tokenize(value) {
   const stop = new Set(['the','and','for','with','from','this','that','into','trong','cho','cua','của','voi','với','sua','sửa','them','thêm','tao','tạo','lam','làm','phần','phan']);
-  return [...new Set(String(value || '').toLowerCase().split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 2 && !stop.has(token)))].slice(0,24);
+  return [...new Set(String(value || '').toLowerCase().split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 2 && !stop.has(token)))].slice(0,28);
 }
 
 function searchBricksKnowledge(request, resolution, limit = 3) {
@@ -145,16 +233,19 @@ function formatBricksKnowledge(results, resolution) {
 function allKnownElements(spec) {
   const groups = spec?.elements || {};
   const values = [];
-  for (const [key, list] of Object.entries(groups)) {
-    if (key === 'legacy_avoid' || !Array.isArray(list)) continue;
-    values.push(...list.map(String));
-  }
+  for (const list of Object.values(groups)) if (Array.isArray(list)) values.push(...list.map(String));
+  if (Array.isArray(spec?.legacy_avoid)) values.push(...spec.legacy_avoid.map(String));
+  if (Array.isArray(spec?.legacy_prefer_nested)) values.push(...spec.legacy_prefer_nested.map(String));
   return new Set(values);
 }
 
 module.exports = {
+  SPEC_DIR,
+  SPEC_REGISTRY,
   SPEC_PATH,
+  CURRENT_STABLE_SPEC_VERSION,
   readBundledSpec,
+  availableBundledSpecs,
   normalizeVersion,
   detectBricksVersion,
   resolveBricksSpec,
