@@ -7,10 +7,12 @@ on:
       - 'CHATCODE-GPT/skills/wordpress-bricks/**'
       - 'core/bricks-project-detection.js'
       - 'core/bricks-skill-enforcer.js'
+      - 'core/bricks-evidence.js'
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/runtime-bootstrap.js'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
+      - 'scripts/smoke-wordpress-bricks-hardening.cjs'
       - 'package.json'
       - '.github/workflows/test-wordpress-bricks-v6.yml'
   pull_request:
@@ -18,10 +20,12 @@ on:
       - 'CHATCODE-GPT/skills/wordpress-bricks/**'
       - 'core/bricks-project-detection.js'
       - 'core/bricks-skill-enforcer.js'
+      - 'core/bricks-evidence.js'
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/runtime-bootstrap.js'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
+      - 'scripts/smoke-wordpress-bricks-hardening.cjs'
       - 'package.json'
       - '.github/workflows/test-wordpress-bricks-v6.yml'
 
@@ -36,16 +40,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check v6 enforcement and spec
+      - name: Syntax check v6 enforcement, evidence and spec
         run: |
           node --check core/bricks-project-detection.js
           node --check core/bricks-skill-enforcer.js
+          node --check core/bricks-evidence.js
           node --check core/bricks-spec.js
           node --check core/bricks-validator.js
           node --check core/runtime-bootstrap.js
           node --check scripts/smoke-wordpress-bricks-v6.cjs
+          node --check scripts/smoke-wordpress-bricks-hardening.cjs
       - name: Bricks 2.3.13 and mandatory task-bound regression
         run: node scripts/smoke-wordpress-bricks-v6.cjs
+      - name: Bricks evidence hardening regression
+        run: node scripts/smoke-wordpress-bricks-hardening.cjs
       - name: Existing WordPress Bricks regression suite
         run: npm run test:wordpress-bricks-skill
       - name: Existing Bricks spec regression suite
