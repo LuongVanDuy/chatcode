@@ -1,0 +1,37 @@
+name: Patch v151 Core
+
+on:
+  push:
+    branches:
+      - feature/v1.0.51-unified-execution-db
+    paths:
+      - '.github/workflows/patch-v151-core.yml'
+      - 'scripts/patch-v151-core.cjs'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.51-unified-execution-db
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply bounded runtime patch
+        run: |
+          node scripts/patch-v151-core.cjs
+          node --check core/database-runtime.js
+          node --check core/ftp-deploy.js
+          node --check core/runtime-bootstrap.js
+          node --check core/project-scope.js
+      - name: Commit runtime patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/ftp-deploy.js tools/deploy-ftp.ps1 core/runtime-bootstrap.js core/project-scope.js
+          git commit -m "feat: wire bounded database fallback into project runtime"
+          git push origin HEAD:feature/v1.0.51-unified-execution-db
