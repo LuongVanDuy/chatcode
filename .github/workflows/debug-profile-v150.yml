@@ -1,0 +1,39 @@
+name: Debug Project Profile v150
+
+on:
+  push:
+    branches:
+      - feature/v1.0.50-multiproject-hardening
+    paths:
+      - 'core/project-profile.js'
+      - 'scripts/smoke-project-profile.cjs'
+      - '.github/workflows/debug-profile-v150.yml'
+
+jobs:
+  debug-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Capture project profile smoke output
+        shell: bash
+        run: |
+          set +e
+          node scripts/smoke-project-profile.cjs > project-profile-debug.txt 2>&1
+          code=$?
+          echo "$code" > project-profile-exit.txt
+          cat project-profile-debug.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: project-profile-debug
+          path: |
+            project-profile-debug.txt
+            project-profile-exit.txt
+      - name: Preserve smoke failure state
+        shell: bash
+        run: |
+          code=$(cat project-profile-exit.txt)
+          exit "$code"
