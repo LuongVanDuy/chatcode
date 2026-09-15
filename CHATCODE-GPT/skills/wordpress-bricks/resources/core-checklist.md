@@ -8,8 +8,9 @@ Loaded for every WordPress + Bricks task. Keep only cross-task rules here; domai
 - When Bricks is detected, tell the user exactly: **“Tôi sẽ sử dụng Bricks skill.”**
 - Confirm the prepared project identity/root from current workspace evidence. Do not trust only chat history or a prior project's context.
 - Use current project evidence; do not guess owner, template ID, Builder tree, media ID or path.
-- **Bricks element IDs are task-local evidence.** Before using an ID in CSS/selectors/query targets/migrations, read the current persisted Bricks tree in the same task. Never reuse an ID from chat history, a cloned element, frontend export/DOM or another project.
-- **Attachment/media IDs are site-local evidence.** Verify them directly against the current WordPress project in the same task; never infer an ID from a URL/file name or reuse another task/project ID.
+- **Bricks element IDs are task-local evidence.** Before using an existing ID in CSS/selectors/query targets/migrations, read the current persisted Bricks tree in the same task. The evidence ledger blocks unverified IDs before mutation.
+- Never reuse an element ID from chat history, a cloned element, frontend export/DOM or another project. New IDs defined by the same canonical patch are separate from references to existing IDs.
+- **Attachment/media IDs are live site-local evidence.** Numeric media IDs introduced by the patch must be verified as current WordPress `attachment` posts in this task/project; URL/file name or old code does not prove existence.
 - Search/Brain first, then read project-owned code. Open Bricks/Woo/WP core only for a concrete missing dependency.
 - Keep external references scoped: use the named source first and do not broad-search unrelated websites.
 - Reuse the correct functional owner, not merely the first existing file or candidate. Existing small fixes normally create zero new source files.
@@ -23,7 +24,7 @@ Keep local names short. The theme/project folder already supplies project identi
 - Files/classes: `home.css`, `home.php`, `.home-hero`, not brand-prefixed local names.
 - Prefix only real collision/storage boundaries: public PHP symbols, hooks/handles, option/meta keys, custom element names.
 - Do not create per-section/helper/fix/v2 owner files.
-- Prefer semantic classes/global classes controlled by the project. Avoid new selectors tied to `#brxe-*`, generated IDs or `[data-field-id]` unless the current target was verified and that coupling is intentional.
+- Prefer semantic classes/global classes controlled by the project. New `#brxe-*` references must be evidenced; `[data-field-id]` coupling is rejected unless the current user task explicitly requires it.
 
 ## During editing
 
@@ -33,14 +34,17 @@ Keep local names short. The theme/project folder already supplies project identi
 - Before creating a Bricks template, resolve/adopt the existing intended template by stable ID/marker, type and conditions.
 - Global tokens stay in the global CSS owner; page/component rules stay local. Do not append unrelated overrides to `style.css`.
 - Builder-editable UI must remain editable through the Bricks tree/controls.
+- New top-level PHP function/class/interface/trait declarations are checked against current Project Brain symbols before patching. New hook registrations receive duplicate-owner/callback search.
 
 ## Completion
 
 - `complete_task` owns scoped syntax/structural verification and configured changed-files FTP deploy.
-- For touched PHP, run syntax checks and check for duplicate public function/class/hook ownership when new symbols/hooks were introduced.
-- UI/layout work checks desktop, tablet and mobile.
+- Bricks evidence lint runs before mutation; missing element/media evidence or unstable unrequested selectors must fail before files change.
+- For touched PHP, syntax checks and duplicate public symbol/hook ownership checks are separate requirements.
+- UI/layout work requires desktop, tablet and mobile verification.
 - Do not duplicate successful FTP, Git, browser, DB or snapshot work manually.
-- A successful write/upload is not proof the frontend is correct. Claim live/visual PASS only when the live frontend was actually verified; otherwise state the limitation.
+- Definition of Done is split into **code verification**, **deployment**, **responsive verification** and **live frontend verification**. A successful write/upload is not proof the frontend is correct.
+- If live/browser proof is unavailable, completion must remain `code_verified_not_live_verified`; do not claim live/visual PASS.
 - Verify only touched scope and direct dependencies. If verification passes, stop.
 - If verification fails, correct the identified cause in the same task. A repeated unchanged failure is a reason to stop and report the blocker, not prepare again or invent another workflow.
 
