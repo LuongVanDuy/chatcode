@@ -1,0 +1,38 @@
+name: Patch v151 DB Safety
+
+on:
+  push:
+    branches:
+      - feature/v1.0.51-unified-execution-db
+    paths:
+      - '.github/workflows/patch-v151-db-safety.yml'
+      - 'scripts/patch-v151-db-safety.cjs'
+      - 'scripts/patch-v151-db-safety-test.cjs'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.51-unified-execution-db
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply Bricks DB compare-and-set safety
+        run: |
+          node scripts/patch-v151-db-safety.cjs
+          node scripts/patch-v151-db-safety-test.cjs
+          node --check core/database-runtime.js
+          node --check scripts/smoke-database-runtime.cjs
+          node scripts/smoke-database-runtime.cjs
+      - name: Commit safety patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/database-runtime.js scripts/smoke-database-runtime.cjs
+          git commit -m "feat: add Bricks database compare-and-set and read-back verification"
+          git push origin HEAD:feature/v1.0.51-unified-execution-db
