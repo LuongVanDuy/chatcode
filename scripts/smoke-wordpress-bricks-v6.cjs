@@ -5,6 +5,7 @@ const { readBundledSpec, resolveBricksSpec, detectBricksVersion, allKnownElement
 const { validateBricksJson } = require('../core/bricks-validator');
 const { augmentThemeRootInspection, createBricksProjectDetectionApi } = require('../core/bricks-project-detection');
 const { createBricksSkillEnforcerApi, CONTRACT_VERSION, ACK_TEXT, HARD_RULES } = require('../core/bricks-skill-enforcer');
+const { createAgentRuntime } = require('../core/agent-runtime');
 const { hasBricksProjectEvidence } = require('../core/skill-runtime');
 
 const skillRoot = path.join(__dirname, '..', 'CHATCODE-GPT', 'skills', 'wordpress-bricks');
@@ -126,6 +127,9 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
 
   const prepared = await enforced.prepareTask('p1','Create Bricks section',8,{});
   assert.equal(prepared.skill_receipt.contract_version,6);
+  assert.equal(prepared.skill_receipt.skill_package_version,5);
+  assert.equal(prepared.skill_receipt.skill_version,5,'legacy skill_version alias must remain compatible');
+  assert.equal(prepared.skills[0].skill_package_version,5);
   assert.equal(prepared.skill_policy.acknowledgement_text,ACK_TEXT);
   assert.match(prepared.skills[0].instructions,/element ID/i);
   await assert.rejects(() => enforced.writeFile('p1','x.php','x'), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
@@ -137,7 +141,54 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(completes,1);
   assert.equal(completed.skill_receipt.contract_version,6);
 
-  console.log('WordPress + Bricks v6 PASS: 2.3.13 exact spec + tolerant tree + slot/query/component rules + child-theme detection + task-bound hard gate');
+  // Real orchestration regression: Agent prepareFresh calls api.startWork internally.
+  // The Bricks guard must allow only that async call-chain, while a concurrent public
+  // start_work stays blocked and repeated prepare reuses the active session.
+  let bootstrapStarts = 0;
+  let signalStart;
+  let releaseStart;
+  const startEntered = new Promise(resolve => { signalStart = resolve; });
+  const startRelease = new Promise(resolve => { releaseStart = resolve; });
+  const orchestrationApi = {
+    async inspectProject(){ return { ...bricksContext }; },
+    async startWork(ref){
+      bootstrapStarts++;
+      signalStart();
+      await startRelease;
+      return { work_session_id:'task-bootstrap', project_id:String(ref), workspace_mode:'trusted', baseline:{} };
+    },
+    async workStatus(){ return { status:'active', project_id:'p1', project:'fixture', changed_files:[] }; },
+    async workMeta(){ return { status:'active', project_id:'p1', project:'fixture', changed_files:[] }; },
+    async readFile(){ throw new Error('not needed'); },
+    async finishWork(){ return { status:'cancelled' }; },
+    async applyPatch(){ return { ok:true, changed_files:[] }; },
+    async exec(){ return { status:'completed', exit_code:0, stdout:'', stderr:'' }; }
+  };
+  const runtime = createAgentRuntime(orchestrationApi);
+  orchestrationApi.prepareTask = (...args) => runtime.prepareTask(...args);
+  orchestrationApi.completeTask = (...args) => runtime.completeTask(...args);
+  const integrated = createBricksSkillEnforcerApi(orchestrationApi,store);
+
+  const pendingPrepare = integrated.prepareTask('p1','read-only test task for Bricks workflow',8,{});
+  await startEntered;
+  await assert.rejects(
+    () => integrated.startWork('p1','concurrent public bypass'),
+    error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED',
+    'public start_work must stay blocked while another prepare_task is bootstrapping'
+  );
+  releaseStart();
+  const bootstrapped = await pendingPrepare;
+  assert.equal(bootstrapped.task_id,'task-bootstrap');
+  assert.equal(bootstrapped.work_session_id,'task-bootstrap');
+  assert.equal(bootstrapped.skill_receipt.skill_id,'wordpress-bricks');
+  assert.equal(bootstrapped.skill_receipt.contract_version,6);
+  assert.equal(bootstrapStarts,1,'fresh prepare_task must create exactly one Work Session');
+
+  const reused = await integrated.prepareTask('p1','read-only test task for Bricks workflow',8,{});
+  assert.equal(reused.task_id,'task-bootstrap');
+  assert.equal(bootstrapStarts,1,'active task reuse must not start a second Work Session');
+
+  console.log('WordPress + Bricks v6 PASS: 2.3.13 exact spec + async-scoped prepare bootstrap + task-bound hard gate');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
