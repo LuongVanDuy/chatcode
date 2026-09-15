@@ -44,9 +44,9 @@ const baseApi = {
     return { status:'completed', exit_code:0, stdout:'' };
   },
   async findSymbols(_ref, query) {
-    return query === 'duplicateFn'
-      ? [{ name:'duplicateFn', kind:'function', path:'inc/existing.php', line:2 }]
-      : [];
+    if (query === 'duplicateFn') return [{ name:'duplicateFn', kind:'function', path:'inc/existing.php', line:2 }];
+    if (query === 'DuplicateStatus') return [{ name:'DuplicateStatus', kind:'enum', path:'inc/status.php', line:4 }];
+    return [];
   },
   async search(_ref, query) {
     if (/save_post_tai_lieu/.test(query) && /htc_document_save_meta/.test(query)) {
@@ -60,7 +60,7 @@ const baseApi = {
   const api = createBricksEvidenceApi(baseApi,store);
   const prepared = await api.prepareTask('p1','Fix responsive UI',8,{});
   assert.equal(prepared.bricks_evidence.hardening_version,HARDENING_VERSION);
-  assert.equal(HARDENING_VERSION,2);
+  assert.equal(HARDENING_VERSION,3);
   assert.equal(prepared.bricks_evidence.element_ids.length,0);
   assert.equal(prepared.verification_requirements.responsive,true);
   assert.match(prepared.skills[0].instructions,/evidence hardening/i);
@@ -104,6 +104,57 @@ const baseApi = {
   assert.deepEqual(mediaCheck.bricks_evidence_recorded.media_ids,['77']);
   await api.completeTask('t1',mediaPatch,[],{});
 
+  const apiMediaRefs = extractPatchEvidenceRefs([
+    '--- a/media.php',
+    '+++ b/media.php',
+    '@@ -0,0 +1,6 @@',
+    "+wp_get_attachment_image_url(101, 'full');",
+    '+get_attached_file(102);',
+    '+get_post_mime_type(103);',
+    "+set_post_thumbnail($post_id, 104);",
+    "+wp_get_attachment_image(105, 'large');",
+    "+wp_get_attachment_image_src(106, 'full');"
+  ].join('\n'));
+  assert.deepEqual(new Set(apiMediaRefs.media_refs),new Set(['101','102','103','104','105','106']),'all direct media APIs must produce media refs');
+
+  const bricksControlRefs = extractPatchEvidenceRefs([
+    '--- a/element.php',
+    '+++ b/element.php',
+    '@@ -0,0 +1,8 @@',
+    "+$this->controls['image'] = [",
+    "+  'type' => 'image',",
+    "+  'default' => [",
+    "+    'id' => 107,",
+    "+  ],",
+    "+];"
+  ].join('\n'));
+  assert.ok(bricksControlRefs.media_refs.includes('107'),'Bricks image control default id must be media evidence-gated');
+
+  const bricksJsonRefs = extractPatchEvidenceRefs([
+    '--- a/tree.json',
+    '+++ b/tree.json',
+    '@@ -0,0 +1,7 @@',
+    '+{"settings":{',
+    '+  "image":{',
+    '+    "id":108,',
+    '+    "size":"full"',
+    '+  }',
+    '+}}'
+  ].join('\n'));
+  assert.ok(bricksJsonRefs.media_refs.includes('108'),'Bricks persisted image object id must be media evidence-gated');
+
+  const unknownImageUrlPatch = [
+    '--- a/x.php',
+    '+++ b/x.php',
+    '@@ -0,0 +1 @@',
+    "+$url = wp_get_attachment_image_url(999999, 'full');"
+  ].join('\n');
+  await assert.rejects(
+    () => api.completeTask('t1',unknownImageUrlPatch,[],{}),
+    error => error?.code === 'BRICKS_EVIDENCE_REQUIRED'
+      && error.details.errors.some(item => item.code === 'WORDPRESS_MEDIA_ID_UNVERIFIED' && item.ids.includes('999999'))
+  );
+
   const duplicatePatch = [
     '--- a/x.php',
     '+++ b/x.php',
@@ -114,6 +165,18 @@ const baseApi = {
     () => api.completeTask('t1',duplicatePatch,[],{}),
     error => error?.code === 'BRICKS_EVIDENCE_REQUIRED'
       && error.details.errors.some(item => item.code === 'PHP_DUPLICATE_PUBLIC_SYMBOL')
+  );
+
+  const enumPatch = [
+    '--- a/x.php',
+    '+++ b/x.php',
+    '@@ -0,0 +1 @@',
+    '+enum DuplicateStatus: string { case Active = "active"; }'
+  ].join('\n');
+  await assert.rejects(
+    () => api.completeTask('t1',enumPatch,[],{}),
+    error => error?.code === 'BRICKS_EVIDENCE_REQUIRED'
+      && error.details.errors.some(item => item.code === 'PHP_DUPLICATE_PUBLIC_SYMBOL' && item.kind === 'enum')
   );
 
   const unstableSelectorPatch = [
@@ -170,7 +233,7 @@ const baseApi = {
   );
 
   assert.ok(completeCount >= 3);
-  console.log('WordPress + Bricks hardening PASS: task evidence + media proof + safe recursion hook classification + explicit verification states');
+  console.log('WordPress + Bricks hardening PASS: media scanner v2 + enum guard + task evidence + safe recursion + explicit verification states');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

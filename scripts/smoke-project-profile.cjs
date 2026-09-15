@@ -47,8 +47,8 @@ const cptInspect = {
   wordpress:{
     isWordPress:true,
     woocommerce:false,
-    childThemes:[{ slug:'eupharma-child', name:'EU Pharma Child', template:'bricks', root:'wp-content/themes/eupharma-child' }],
-    parentThemes:[{ slug:'bricks', name:'Bricks', root:'wp-content/themes/bricks' }]
+    childThemes:[{ slug:'eupharma-child', name:'EU Pharma Child', template:'bricks', version:'9.9.9', root:'wp-content/themes/eupharma-child' }],
+    parentThemes:[{ slug:'bricks', name:'Bricks', version:'2.3.13', root:'wp-content/themes/bricks' }]
   },
   relevant_files:[
     { path:'wp-content/themes/eupharma-child/functions.php', content:"<?php register_post_type('eup_product', []); function eup_product_card() {}" },
@@ -59,6 +59,7 @@ const cptInspect = {
 const derived = deriveProjectFacts(cptInspect, {}, { root:'D:/Sites/eupharma' });
 assert.equal(derived.facts.cms, 'wordpress');
 assert.equal(derived.facts.builder, 'bricks');
+assert.equal(derived.facts.bricks_version, '2.3.13', 'parent Bricks version must win over child theme version');
 assert.equal(derived.facts.commerce, 'custom_cpt');
 assert.equal(derived.facts.product_model, 'eup_product');
 assert.equal(derived.facts.child_theme, 'eupharma-child');
@@ -77,8 +78,30 @@ const wooInspect = {
   top_symbols:[]
 };
 const wooDerived = deriveProjectFacts(wooInspect, derived.facts, { root:'D:/Sites/eupharma' });
-assert.equal(wooDerived.facts.commerce, 'woocommerce', 'fresh Woo evidence must supersede stale CPT fact');
+assert.equal(wooDerived.facts.commerce, 'woocommerce', 'fresh Woo evidence must supersede stale CPT commerce fact');
 assert.equal(wooDerived.facts.product_model, 'wc_product');
+
+const mixedInspect = {
+  ...cptInspect,
+  wordpress:{ ...cptInspect.wordpress, woocommerce:true },
+  relevant_files:[
+    { path:'wp-content/themes/eupharma-child/inc/content-types/products.php', content:"<?php register_post_type('eup_product', []);" },
+    { path:'wp-content/plugins/woocommerce/woocommerce.php', content:'<?php // Woo active' }
+  ],
+  top_symbols:[]
+};
+const mixedNoDecision = deriveProjectFacts(mixedInspect, { builder:'bricks' }, { root:'D:/Sites/eupharma' });
+assert.equal(mixedNoDecision.facts.commerce, 'woocommerce');
+assert.equal(mixedNoDecision.facts.product_model, 'mixed_unresolved', 'Woo + product-like CPT must not be guessed as wc_product');
+
+const mixedDecision = deriveProjectFacts(
+  mixedInspect,
+  { builder:'bricks', product_model:'wc_product' },
+  { root:'D:/Sites/eupharma' },
+  [{ key:'primary-product-model', value:'Catalogue uses CPT eup_product, not WooCommerce product.' }]
+);
+assert.equal(mixedDecision.facts.commerce, 'woocommerce');
+assert.equal(mixedDecision.facts.product_model, 'eup_product', 'durable product-model decision must beat weak Woo inference');
 
 const store = makeStore({ id:'p1', name:'Profile Fixture', root:'D:/Sites/eupharma', projectRules:legacy });
 const first = refreshProjectProfile(store, 'p1', cptInspect);
@@ -108,4 +131,4 @@ assert.deepEqual(uiContext.decisions.map(item => item.key), ['reuse-product-card
 assert.equal(Object.prototype.hasOwnProperty.call(uiContext.facts, 'production_deploy'), false);
 assert.ok(JSON.stringify(uiContext).length < 3000, 'task profile context should stay compact');
 
-console.log('Project Profile smoke test: PASS (facts + legacy migration + keyed decisions + relevant-only context)');
+console.log('Project Profile smoke test: PASS (shared Bricks version detector + mixed Woo/CPT + durable decisions + relevant-only context)');

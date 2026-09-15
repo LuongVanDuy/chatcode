@@ -2,15 +2,15 @@ const { chatError } = require('./errors');
 const { extractNodes } = require('./bricks-validator');
 const { WORDPRESS_BRICKS_SKILL_ID } = require('./skill-runtime');
 
-const HARDENING_VERSION = 2;
+const HARDENING_VERSION = 3;
 const MAX_EVIDENCE_ITEMS = 800;
 
 const HARDENING_RULES = [
   'Bricks evidence hardening:',
   '- Existing Bricks element IDs used by selectors/query targets/migrations must be evidenced from the current task persisted tree. Reading chat history or frontend DOM does not count.',
-  '- Numeric WordPress media IDs introduced by the patch must be verified as live attachment posts in the current WordPress project (for example WP-CLI `wp post get <id> --field=post_type` returning `attachment`).',
+  '- Numeric WordPress media IDs introduced by WordPress media APIs, thumbnail assignment, Bricks media controls/defaults or persisted media objects must be verified as live attachment posts in the current project.',
   '- `#brxe-*` and `[data-field-id]` selectors are linted before mutation. Prefer semantic/global classes; unverified generated IDs are blocked.',
-  '- New top-level PHP function/class/interface/trait names are checked against Project Brain before the patch is applied. Matching remove -> post mutation -> restore hook patterns are classified as safe recursion guards.',
+  '- New top-level PHP function/class/interface/trait/enum names are checked before mutation. Matching remove -> post mutation -> restore hook patterns are classified as safe recursion guards.',
   '- Completion distinguishes code verification, deployment and live/responsive verification. ChatCode never promotes write/upload success to live visual PASS.'
 ].join('\n');
 
@@ -39,7 +39,6 @@ function extractPersistedElementIds(text) {
       }
     } catch {}
   }
-  // Support source/export files that contain PHP/JSON-like Bricks node arrays.
   const re = /["']id["']\s*(?::|=>)\s*["']([A-Za-z0-9]{6})["']/g;
   let match;
   while ((match = re.exec(raw))) {
@@ -78,6 +77,32 @@ function collectDefinedElementIds(text) {
   return ids;
 }
 
+function collectMediaRefs(text, mediaRefs) {
+  const raw = String(text || '');
+  const patterns = [
+    /\bwp_get_attachment_(?:url|image|image_url|image_src|metadata|caption)\s*\(\s*(\d{1,12})\b/g,
+    /\b(?:get_attached_file|get_post_mime_type)\s*\(\s*(\d{1,12})\b/g,
+    /\bset_post_thumbnail\s*\(\s*[^,\n]{1,500},\s*(\d{1,12})\b/g,
+    /\bupdate_post_meta\s*\([^,]+,\s*["']_thumbnail_id["']\s*,\s*(\d{1,12})\b/g,
+    /["']attachment_id["']\s*(?::|=>)\s*(\d{1,12})\b/g
+  ];
+  for (const re of patterns) {
+    let match;
+    while ((match = re.exec(raw))) mediaRefs.add(match[1]);
+  }
+
+  const numericId = /["']id["']\s*(?::|=>)\s*(\d{1,12})\b/g;
+  let match;
+  while ((match = numericId.exec(raw))) {
+    const around = raw.slice(Math.max(0,match.index - 520), Math.min(raw.length,numericId.lastIndex + 520));
+    const typedMediaControl = /["']type["']\s*(?::|=>)\s*["'](?:image|gallery|file|audio|video)["']/i.test(around);
+    const mediaOwner = /["'](?:image|media|attachment|logo|thumbnail|background|gallery|video|audio)["']\s*(?::|=>)\s*(?:\[|\{)/i.test(around);
+    const canonicalMediaShape = /(?:image|media|attachment|logo|thumbnail|background|gallery|video|audio)/i.test(around)
+      && /["'](?:url|size|filename|full|src|alt)["']\s*(?::|=>)/i.test(around);
+    if (typedMediaControl || mediaOwner || canonicalMediaShape) mediaRefs.add(match[1]);
+  }
+}
+
 function extractPatchEvidenceRefs(patch) {
   const files = diffFiles(patch);
   const elementRefs = new Set(), mediaRefs = new Set(), generatedSelectors = new Set();
@@ -99,18 +124,7 @@ function extractPatchEvidenceRefs(patch) {
       for (const id of match[1].match(/[A-Za-z0-9]{6}/g) || []) elementRefs.add(id);
     }
     dataFieldSelectorCount += (added.match(/\[data-field-id(?:\s*=|\])/g) || []).length;
-
-    const mediaCall = /\bwp_get_attachment_(?:url|image|metadata|caption|image_src)\s*\(\s*(\d{1,12})\b/g;
-    while ((match = mediaCall.exec(added))) mediaRefs.add(match[1]);
-    const thumb = /\bupdate_post_meta\s*\([^,]+,\s*["']_thumbnail_id["']\s*,\s*(\d{1,12})\b/g;
-    while ((match = thumb.exec(added))) mediaRefs.add(match[1]);
-    const attachment = /["']attachment_id["']\s*(?::|=>)\s*(\d{1,12})\b/g;
-    while ((match = attachment.exec(added))) mediaRefs.add(match[1]);
-    const numericId = /["']id["']\s*(?::|=>)\s*(\d{1,12})\b/g;
-    while ((match = numericId.exec(added))) {
-      const around = added.slice(Math.max(0,match.index - 260), Math.min(added.length,numericId.lastIndex + 300));
-      if (/(?:image|media|attachment|logo|thumbnail|background)/i.test(around) && /(?:url|filename|size|full)/i.test(around)) mediaRefs.add(match[1]);
-    }
+    collectMediaRefs(added,mediaRefs);
   }
   for (const id of defined) elementRefs.delete(id);
   return {
@@ -128,7 +142,7 @@ function symbolDeclarations(lines = []) {
   for (const line of lines) {
     let match = /^function\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line);
     if (match) out.push({ name:match[1], kind:'function' });
-    match = /^(?:(?:final|abstract)\s+)?(class|interface|trait)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line);
+    match = /^(?:(?:final|abstract|readonly)\s+)?(class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line);
     if (match) out.push({ name:match[2], kind:match[1] });
   }
   return out;
@@ -171,6 +185,21 @@ function isHookRecursionRestore(text, hook) {
   return false;
 }
 
+async function symbolMatches(api, projectRef, symbol) {
+  let matches = [];
+  if (typeof api.findSymbols === 'function') {
+    try { matches = asArray(await api.findSymbols(projectRef,symbol.name,symbol.kind === 'function' ? 'function' : symbol.kind,20)); } catch {}
+  }
+  const exact = matches.filter(item => String(item?.name || '') === symbol.name);
+  if (exact.length || symbol.kind !== 'enum' || typeof api.search !== 'function') return exact;
+  let rows = [];
+  try { rows = asArray(await api.search(projectRef,`enum ${symbol.name}`)); } catch {}
+  const re = new RegExp(`\\benum\\s+${escapeRegex(symbol.name)}\\b`);
+  return rows.filter(row => re.test(String(row?.snippet || row?.content || ''))).map(row => ({
+    name:symbol.name, kind:'enum', path:row.path || row.file || '', line:row.line || null, owner:row.owner || null
+  }));
+}
+
 async function phpDuplicatePreflight(api, projectRef, patch) {
   const errors = [], warnings = [], checked = [];
   const files = diffFiles(patch).filter(file => /\.php$/i.test(file.path));
@@ -180,13 +209,11 @@ async function phpDuplicatePreflight(api, projectRef, patch) {
       const key = `${symbol.kind}:${symbol.name}`;
       if (removedNames.has(key)) continue;
       checked.push({ type:'symbol', ...symbol, path:file.path });
-      if (typeof api.findSymbols !== 'function') {
+      if (typeof api.findSymbols !== 'function' && typeof api.search !== 'function') {
         warnings.push({ code:'PHP_DUPLICATE_SYMBOL_CHECK_UNAVAILABLE', symbol:symbol.name, kind:symbol.kind, path:file.path });
         continue;
       }
-      let matches = [];
-      try { matches = asArray(await api.findSymbols(projectRef,symbol.name,symbol.kind === 'function' ? 'function' : symbol.kind,20)); } catch {}
-      const exact = matches.filter(item => String(item?.name || '') === symbol.name);
+      const exact = await symbolMatches(api,projectRef,symbol);
       if (exact.length) {
         errors.push({
           code:'PHP_DUPLICATE_PUBLIC_SYMBOL', symbol:symbol.name, kind:symbol.kind, path:file.path,
@@ -287,7 +314,7 @@ function lintPatch(ledger, patch) {
   });
   if (missingMedia.length) errors.push({
     code:'WORDPRESS_MEDIA_ID_UNVERIFIED', ids:missingMedia,
-    message:'Patch introduces WordPress media IDs that were not verified as live attachments in the current task/project.'
+    message:'Patch introduces WordPress/Bricks media IDs that were not verified as live attachments in the current task/project.'
   });
   if (refs.data_field_selector_count) {
     const intentional = /data-field-id/i.test(String(ledger.request || ''));
@@ -384,7 +411,7 @@ function createBricksEvidenceApi(api, store = null) {
       bricks_evidence_policy:{
         hardening_version:HARDENING_VERSION,
         element_id:'Existing IDs must be evidenced from the current task persisted Bricks tree.',
-        media_id:'Numeric attachment IDs must be live-verified in the current WordPress project.',
+        media_id:'Numeric attachment IDs from WordPress APIs or Bricks media shapes must be live-verified in the current WordPress project.',
         task_reads:'Task-bound reads count automatically when this project has one active Bricks receipt; WP-CLI evidence must use the current work_session_id.',
         patch_lint:true,
         php_duplicate_preflight:true,

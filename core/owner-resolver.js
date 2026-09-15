@@ -19,11 +19,11 @@ function requestFlags(request = '') {
     homepage:/homepage|home\s*page|trang\s+chủ|trang\s+chu|front[-\s]?page/i.test(q),
     header:/\bheader\b|đầu\s+trang|dau\s+trang/i.test(q),
     footer:/\bfooter\b|chân\s+trang|chan\s+trang/i.test(q),
-    archive:/\barchive\b|taxonomy|danh\s+mục|danh\s+muc/i.test(q),
+    archive:/\barchive\b|taxonomy|danh\s+mục|danh\s+muc|catalogue|catalog/i.test(q),
     single:/single(?:\s+product|\s+post)?|chi\s+tiết|chi\s+tiet/i.test(q),
     product:/product|sản\s*phẩm|san\s*pham/i.test(q),
-    productCard:/product\s+card|card\s+sản\s*phẩm|card\s+san\s*pham|thẻ\s+sản\s*phẩm|the\s+san\s*pham|product\s+item/i.test(q),
-    style:/\bcss\b|style|font|typography|spacing|padding|margin|width|container|responsive|layout|màu|mau/i.test(q),
+    productCard:/product\s+cards?|cards?\s+sản\s*phẩm|cards?\s+san\s*pham|thẻ\s+sản\s*phẩm|the\s+san\s*pham|product\s+items?/i.test(q),
+    style:/\bcss\b|style|font|typography|spacing|padding|margin|width|container|responsive|layout|màu|mau|gap/i.test(q),
     template:/\btemplate\b|bricks\s+template/i.test(q),
     builder:/bricks|builder|controls?|set_controls|repeater|custom\s+element|element/i.test(q),
     data:/\bcpt\b|custom\s+post\s+type|post[-\s]?type|database|\bdb\b|seed|migration|import|data|dữ\s+liệu|du\s+lieu/i.test(q),
@@ -37,6 +37,7 @@ function fileRows(inspect = {}) {
     index,
     path:norm(item?.path || item?.file || ''),
     lower:norm(item?.path || item?.file || '').toLowerCase(),
+    content:String(item?.content || ''),
     symbols:Array.isArray(item?.symbols) ? item.symbols : []
   })).filter(row => row.path);
 }
@@ -73,6 +74,16 @@ function exactFile(rows, ownerPath) {
   return p ? rows.find(row => row.lower === p) || null : null;
 }
 
+function canonicalProjectPath(rows, ownerPath) {
+  const wanted = norm(ownerPath);
+  if (!wanted) return null;
+  const exact = exactFile(rows,wanted);
+  if (exact) return exact;
+  const lower = wanted.toLowerCase();
+  const suffix = rows.filter(row => row.lower.endsWith(`/${lower}`));
+  return suffix.length === 1 ? suffix[0] : null;
+}
+
 function uniquePathMatch(rows, predicate) {
   const matches = rows.filter(row => predicate(row.lower, row));
   return matches.length === 1 ? matches[0] : null;
@@ -97,7 +108,7 @@ function findSymbolOwner(inspect, name) {
 }
 
 function requestTokens(request) {
-  const stop = new Set(['the','and','for','with','this','that','from','into','trong','cho','của','cua','với','voi','một','mot','phần','phan','sửa','sua','chỉnh','chinh','thêm','them','tạo','tao']);
+  const stop = new Set(['the','and','for','with','this','that','from','into','trong','cho','của','cua','với','voi','một','mot','phần','phan','sửa','sua','chỉnh','chinh','thêm','them','tạo','tao','page','trang']);
   return unique(text(request).split(/[^a-z0-9À-ỹ_-]+/i).filter(token => token.length >= 3 && !stop.has(token))).slice(0,16);
 }
 
@@ -122,6 +133,135 @@ function componentOwner(rows, request) {
   return ranked[0]?.row || null;
 }
 
+function semanticCssClasses(content = '') {
+  const common = new Set(['container','wrapper','active','current','button','image','title','content','inner','item','row','column']);
+  const classes = [];
+  const re = /\.([A-Za-z][A-Za-z0-9_-]{3,80})\b/g;
+  let match;
+  while ((match = re.exec(String(content || '')))) {
+    const name = match[1];
+    if (!common.has(name.toLowerCase()) && !classes.includes(name)) classes.push(name);
+    if (classes.length >= 40) break;
+  }
+  return classes;
+}
+
+function directRelationEvidence(row, rows, inspect = {}) {
+  const evidence = [];
+  const path = row.path, lower = row.lower;
+  for (const relation of inspect?.relevant_relations || []) {
+    const source = norm(relation?.source || relation?.from || '');
+    const target = norm(relation?.target || relation?.to || '');
+    const kind = String(relation?.kind || relation?.type || 'relation');
+    if ([source,target].some(value => value && (value === path || value.endsWith(`/${lower}`) || lower.endsWith(`/${value.toLowerCase()}`)))) {
+      evidence.push(`${kind} relation from project graph`);
+    }
+  }
+
+  if (/\.(?:css|scss|sass|less)$/i.test(path)) {
+    const basename = path.split('/').pop();
+    for (const source of rows) {
+      if (source.path === path || !source.content) continue;
+      if (/\.(?:php|js|cjs|mjs)$/i.test(source.path)
+        && /\b(?:wp_enqueue_style|wp_register_style|enqueue_style)\s*\(/i.test(source.content)
+        && source.content.toLowerCase().includes(String(basename || '').toLowerCase())) {
+        evidence.push(`stylesheet is directly enqueued/referenced by ${source.path}`);
+        if (/\b(?:is_page|is_post_type_archive|is_tax|is_singular|is_front_page|is_home)\s*\(/i.test(source.content)) {
+          evidence.push(`stylesheet enqueue is scoped by page/template condition in ${source.path}`);
+        }
+      }
+    }
+    const classes = semanticCssClasses(row.content);
+    outer: for (const className of classes) {
+      const classRe = new RegExp(`\\b${className.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`);
+      for (const renderer of rows) {
+        if (renderer.path === path || !renderer.content || !/\.(?:php|html?|js|cjs|mjs)$/i.test(renderer.path)) continue;
+        if (classRe.test(renderer.content) && /class\s*=|className\s*=|classList\.|<[^>]+class/i.test(renderer.content)) {
+          evidence.push(`renderer ${renderer.path} emits .${className} styled by this file`);
+          break outer;
+        }
+      }
+    }
+  }
+  return unique(evidence).slice(0,4);
+}
+
+function cssKindForFlags(flags) {
+  if (flags.header) return 'header_css';
+  if (flags.footer) return 'footer_css';
+  if (flags.homepage) return 'homepage_css';
+  if (flags.product || flags.productCard) return 'product_css';
+  return 'component_css';
+}
+
+function cssTargetAffinity(row, rows, flags) {
+  const haystack = `${row.lower}\n${row.content}`.toLowerCase();
+  const basename = String(row.path.split('/').pop() || '').toLowerCase();
+  let scoped = false, score = 0;
+
+  if (flags.homepage) {
+    scoped = true;
+    if (/(?:^|[\/_-])(?:home|homepage|front-page)(?:[\/_.-]|$)|home[-_]?hero/.test(haystack)) score += 120;
+    for (const source of rows) {
+      if (!source.content || !source.content.toLowerCase().includes(basename)) continue;
+      if (/\b(?:is_front_page|is_home)\s*\(/i.test(source.content)) score += 160;
+    }
+  }
+  if (flags.header) {
+    scoped = true;
+    if (/header|site[-_]?nav|main[-_]?nav/.test(haystack)) score += 120;
+  }
+  if (flags.footer) {
+    scoped = true;
+    if (/footer|site[-_]?footer/.test(haystack)) score += 120;
+  }
+  if (flags.product || flags.productCard) {
+    scoped = true;
+    if (/product|products|catalog|catalogue|san[-_]?pham|sản[-_]?phẩm/.test(haystack)) score += 120;
+  }
+  return { scoped, score };
+}
+
+function relatedCssOwner(rows, inspect, request, flags, facts = {}) {
+  const tokens = requestTokens(request).filter(token => !['css','style','spacing','padding','margin','layout','responsive','product','products','card','cards','sản','phẩm','san','pham'].includes(token));
+  const childRoot = norm(facts.child_theme_root || '').toLowerCase();
+  const ranked = rows.filter(row => /\.(?:css|scss|sass|less)$/i.test(row.path)).map(row => {
+    const relation = directRelationEvidence(row,rows,inspect);
+    const affinity = cssTargetAffinity(row,rows,flags);
+    if (affinity.scoped && affinity.score === 0) return { row, relation, score:-1 };
+    let score = relation.length * 100 + affinity.score;
+    if (childRoot && row.lower.startsWith(childRoot)) score += 20;
+    for (const token of tokens) {
+      if (row.lower.includes(token)) score += 10;
+      if (row.content.toLowerCase().includes(token)) score += 2;
+    }
+    if (/\/(?:main|global|base|style)\.css$/i.test(row.lower) && !flags.globalStyle && !relation.length) score -= 15;
+    return { row, relation, score };
+  }).filter(item => item.score >= 40).sort((a,b) => b.score - a.score || a.row.index - b.row.index);
+  return ranked[0] || null;
+}
+
+function decisionPathEntries(projectProfile, rows, flags) {
+  const out = [];
+  for (const decision of projectProfile?.decisions || []) {
+    for (const candidate of explicitUserPaths(String(decision?.value || ''))) {
+      const row = canonicalProjectPath(rows,candidate);
+      if (!row) continue;
+      let kind = 'builder_component';
+      if (/\.(?:css|scss|sass|less)$/i.test(row.path)) kind = cssKindForFlags(flags);
+      else if (/post-type|content-types?|\bcpt\b/i.test(`${decision?.key || ''} ${decision?.value || ''} ${row.path}`)) kind = 'data_model';
+      out.push(evidenceEntry(kind, {
+        path:row.path,
+        status:OWNER_STATUS.CONFIRMED,
+        confidence:0.97,
+        source:'project_profile.decision',
+        basis:[`durable decision ${decision.key || 'owner'} resolves to current project path`]
+      }));
+    }
+  }
+  return out;
+}
+
 function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
   if (taskType === 'PRODUCTION') return ['deployment'];
   if (taskType === 'DATA') return ['data_model'];
@@ -135,14 +275,14 @@ function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
     return ['builder_component'];
   }
   if (taskType === 'FAST_UI') {
-    if (flags.header && flags.style) return ['header_css','global_css'];
-    if (flags.footer && flags.style) return ['footer_css','global_css'];
-    if (flags.homepage && flags.style) return ['homepage_css','global_css'];
-    if (flags.productCard && flags.style) return ['product_css','product_renderer'];
-    if (flags.productCard) return ['product_renderer','product_css'];
+    if (flags.header && flags.style) return ['header_css','component_css','global_css'];
+    if (flags.footer && flags.style) return ['footer_css','component_css','global_css'];
+    if (flags.homepage && flags.style) return ['homepage_css','component_css','global_css'];
+    if (flags.productCard && flags.style) return ['product_css','component_css','product_renderer'];
+    if (flags.productCard) return ['product_renderer','product_css','component_css'];
     if (flags.globalStyle && flags.style) return ['global_css'];
-    if (flags.product) return ['product_renderer','product_css'];
-    if (flags.style) return ['global_css'];
+    if (flags.product) return ['product_renderer','product_css','component_css'];
+    if (flags.style) return ['component_css','global_css'];
     return primaryKind ? [primaryKind] : [];
   }
   if (flags.production) return ['deployment'];
@@ -153,15 +293,15 @@ function allowedKindsForTask(flags, primaryKind = '', taskType = '') {
   if (flags.archive && flags.single && flags.template) return ['archive_template','single_template'];
   if (flags.archive && flags.template) return ['archive_template'];
   if (flags.single && flags.template) return ['single_template'];
-  if (flags.header && flags.style) return ['header_css','global_css'];
-  if (flags.footer && flags.style) return ['footer_css','global_css'];
-  if (flags.homepage && flags.style) return ['homepage_css','global_css'];
-  if (flags.productCard && flags.style) return ['product_css','product_renderer'];
-  if (flags.productCard) return ['product_renderer','product_css'];
+  if (flags.header && flags.style) return ['header_css','component_css','global_css'];
+  if (flags.footer && flags.style) return ['footer_css','component_css','global_css'];
+  if (flags.homepage && flags.style) return ['homepage_css','component_css','global_css'];
+  if (flags.productCard && flags.style) return ['product_css','component_css','product_renderer'];
+  if (flags.productCard) return ['product_renderer','product_css','component_css'];
   if (flags.builder) return ['builder_component'];
   if (flags.globalStyle && flags.style) return ['global_css'];
-  if (flags.product) return ['product_renderer','product_css'];
-  if (flags.style) return ['global_css'];
+  if (flags.product) return ['product_renderer','product_css','component_css'];
+  if (flags.style) return ['component_css','global_css'];
   return primaryKind ? [primaryKind] : [];
 }
 
@@ -174,24 +314,30 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
   const add = entry => {
     if (!entry) return;
     const key = `${entry.kind}:${entry.path || ''}:${entry.symbol || ''}`;
-    if (map.some(item => `${item.kind}:${item.path || ''}:${item.symbol || ''}` === key)) return;
+    const existing = map.find(item => `${item.kind}:${item.path || ''}:${item.symbol || ''}` === key);
+    if (existing) {
+      if (entry.confidence > existing.confidence) Object.assign(existing,entry);
+      return;
+    }
     map.push(entry);
   };
 
   for (const explicitPath of explicitUserPaths(request)) {
+    const canonical = canonicalProjectPath(rows,explicitPath);
+    const rootQualified = /^(?:wp-content|wp-admin|wp-includes|\.chatcode|CHATCODE-GPT)(?:\/|$)/i.test(explicitPath);
     add(evidenceEntry('explicit_path', {
-      path:explicitPath,
-      status:OWNER_STATUS.CONFIRMED,
-      confidence:1,
-      source:'user-explicit-path',
-      basis:['exact file path supplied by the user; no unrelated existing owner is required']
+      path:canonical?.path || explicitPath,
+      status:canonical || rootQualified ? OWNER_STATUS.CONFIRMED : OWNER_STATUS.CANDIDATE,
+      confidence:canonical || rootQualified ? 1 : 0.68,
+      source:canonical ? 'user-explicit-path:canonical' : 'user-explicit-path',
+      basis:[canonical ? 'user path resolves uniquely to a current project file' : rootQualified ? 'project-root-qualified path supplied by the user' : 'relative user path needs canonical project resolution']
     }));
   }
 
   if (facts.global_css_owner) {
-    const current = exactFile(rows, facts.global_css_owner);
+    const current = canonicalProjectPath(rows,facts.global_css_owner);
     add(evidenceEntry('global_css', {
-      path:facts.global_css_owner,
+      path:current?.path || facts.global_css_owner,
       status:current ? OWNER_STATUS.CONFIRMED : OWNER_STATUS.DETECTED,
       confidence:current ? 1 : 0.88,
       source:'project_profile.fact',
@@ -216,22 +362,33 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     }));
   }
 
+  const addCss = (kind,row,confidence,basis) => {
+    if (!row) return;
+    const relation = directRelationEvidence(row,rows,inspect);
+    add(evidenceEntry(kind, {
+      path:row.path,
+      confidence:relation.length ? Math.max(confidence,0.985) : confidence,
+      source:relation.length ? 'project-relation' : 'inspection',
+      basis:[...relation,...basis]
+    }));
+  };
+
   const homeCss = firstPathMatch(rows, [
     lower => /(?:^|\/)(?:home|homepage|front-page)\.(?:css|scss|sass|less)$/.test(lower),
     lower => /\/css\/(?:home|homepage|front-page)[-_.]/.test(lower)
   ]);
-  if (homeCss) add(evidenceEntry('homepage_css', { path:homeCss.path, confidence:0.96, basis:['page-specific CSS path matches homepage target'] }));
+  addCss('homepage_css',homeCss,0.96,['page-specific CSS path matches homepage target']);
 
   const headerCss = firstPathMatch(rows, [
     lower => /(?:^|\/)(?:header|header-footer)\.(?:css|scss|sass|less)$/.test(lower),
     lower => /\/css\/[^/]*header[^/]*\.(?:css|scss|sass|less)$/.test(lower)
   ]);
-  if (headerCss) add(evidenceEntry('header_css', { path:headerCss.path, confidence:0.94, basis:['header-specific CSS owner path'] }));
+  addCss('header_css',headerCss,0.94,['header-specific CSS owner path']);
   const footerCss = firstPathMatch(rows, [
     lower => /(?:^|\/)(?:footer|header-footer)\.(?:css|scss|sass|less)$/.test(lower),
     lower => /\/css\/[^/]*footer[^/]*\.(?:css|scss|sass|less)$/.test(lower)
   ]);
-  if (footerCss) add(evidenceEntry('footer_css', { path:footerCss.path, confidence:0.94, basis:['footer-specific CSS owner path'] }));
+  addCss('footer_css',footerCss,0.94,['footer-specific CSS owner path']);
 
   const headerTemplate = firstPathMatch(rows, [
     lower => /(?:^|\/)inc\/templates\/header\.php$/.test(lower),
@@ -261,7 +418,20 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     lower => /\/css\/[^/]*(?:product|products|product-card|product-item)[^/]*\.(?:css|scss|sass|less)$/.test(lower),
     lower => /(?:^|\/)(?:products?|product-card|product-item)\.(?:css|scss|sass|less)$/.test(lower)
   ]);
-  if (productCss) add(evidenceEntry('product_css', { path:productCss.path, confidence:0.88, basis:['product component CSS path'] }));
+  addCss('product_css',productCss,0.88,['product component CSS path']);
+
+  if (flags.style && !flags.globalStyle) {
+    const related = relatedCssOwner(rows,inspect,request,flags,facts);
+    if (related) add(evidenceEntry(cssKindForFlags(flags), {
+      path:related.row.path,
+      status:OWNER_STATUS.CONFIRMED,
+      confidence:0.995,
+      source:'project-relation',
+      basis:related.relation.length ? related.relation : ['request target matches project-owned stylesheet responsibility']
+    }));
+  }
+
+  for (const entry of decisionPathEntries(projectProfile,rows,flags)) add(entry);
 
   if (flags.builder && (!taskType || isBuilderTask)) {
     const component = componentOwner(rows, request);
@@ -287,8 +457,8 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
 
   const choose = kinds => {
     for (const kind of kinds) {
-      const entry = map.find(item => item.kind === kind && item.path);
-      if (entry) return entry;
+      const entries = map.filter(item => item.kind === kind && item.path).sort((a,b) => b.confidence - a.confidence);
+      if (entries[0]) return entries[0];
     }
     return null;
   };
@@ -303,14 +473,14 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     else if (flags.single && flags.template) primary = choose(['single_template']);
     else primary = choose(['builder_component']);
   } else if (!primary && taskType === 'FAST_UI') {
-    if (flags.header && flags.style) primary = choose(['header_css','global_css']);
-    else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
-    else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
-    else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
-    else if (flags.productCard) primary = choose(['product_renderer','product_css']);
+    if (flags.header && flags.style) primary = choose(['header_css','component_css','global_css']);
+    else if (flags.footer && flags.style) primary = choose(['footer_css','component_css','global_css']);
+    else if (flags.homepage && flags.style) primary = choose(['homepage_css','component_css','global_css']);
+    else if (flags.productCard && flags.style) primary = choose(['product_css','component_css','product_renderer']);
+    else if (flags.productCard) primary = choose(['product_renderer','product_css','component_css']);
     else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
-    else if (flags.product) primary = choose(['product_renderer','product_css']);
-    else if (flags.style) primary = choose(['global_css']);
+    else if (flags.product) primary = choose(['product_renderer','product_css','component_css']);
+    else if (flags.style) primary = choose(['component_css','global_css']);
   } else if (!primary) {
     if (flags.production) primary = choose(['deployment']);
     else if (flags.data) primary = choose(['data_model']);
@@ -318,17 +488,17 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     else if (flags.footer && flags.template) primary = choose(['footer_template']);
     else if (flags.archive && flags.template) primary = choose(['archive_template']);
     else if (flags.single && flags.template) primary = choose(['single_template']);
-    else if (flags.header && flags.style) primary = choose(['header_css','global_css']);
-    else if (flags.footer && flags.style) primary = choose(['footer_css','global_css']);
-    else if (flags.homepage && flags.style) primary = choose(['homepage_css','global_css']);
-    else if (flags.productCard && flags.style) primary = choose(['product_css','product_renderer']);
-    else if (flags.productCard) primary = choose(['product_renderer','product_css']);
+    else if (flags.header && flags.style) primary = choose(['header_css','component_css','global_css']);
+    else if (flags.footer && flags.style) primary = choose(['footer_css','component_css','global_css']);
+    else if (flags.homepage && flags.style) primary = choose(['homepage_css','component_css','global_css']);
+    else if (flags.productCard && flags.style) primary = choose(['product_css','component_css','product_renderer']);
+    else if (flags.productCard) primary = choose(['product_renderer','product_css','component_css']);
     else if (flags.builder) primary = choose(['builder_component']);
     else if (flags.globalStyle && flags.style) primary = choose(['global_css']);
   }
 
-  if (!primary && taskType !== 'DATA' && flags.product) primary = choose(['product_renderer','product_css']);
-  if (!primary && taskType !== 'DATA' && flags.style && !flags.homepage && !flags.header && !flags.footer) primary = choose(['global_css']);
+  if (!primary && taskType !== 'DATA' && flags.product) primary = choose(['product_renderer','product_css','component_css']);
+  if (!primary && taskType !== 'DATA' && flags.style && !flags.homepage && !flags.header && !flags.footer) primary = choose(['component_css','global_css']);
 
   if (!primary) {
     const fallback = (fallbackCandidates || []).find(item => item?.path);
@@ -338,7 +508,7 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
         status:OWNER_STATUS.CANDIDATE,
         confidence:0.55,
         source:'task_ranking',
-        basis:['highest ranked existing task-context file']
+        basis:['highest ranked existing task-context file after responsibility evidence was exhausted']
       });
       add(primary);
     }
@@ -358,16 +528,17 @@ function ownershipMap({ request = '', inspect = {}, projectProfile = {}, fallbac
     .map(item => item.path)
   ).slice(0,4);
 
+  const explicitConfirmed = primary?.kind === 'explicit_path' && primary?.status === OWNER_STATUS.CONFIRMED;
   return {
-    version:4,
+    version:5,
     primary,
     entries:scoped,
     companion_paths:companionPaths,
     enforce_paths:enforcePaths,
-    owner_set_mode:primary?.kind === 'explicit_path' ? 'explicit-user-path' : enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
+    owner_set_mode:explicitConfirmed ? 'explicit-user-path' : enforcePaths.length ? 'any-evidence-backed-owner' : 'candidate-advisory',
     task_type:taskType || null,
     fallback_used:primary?.status === OWNER_STATUS.CANDIDATE,
-    requires_owner_read:!!(primary?.path && primary?.kind !== 'explicit_path' && !exactFile(rows, primary.path))
+    requires_owner_read:!!(primary?.path && (primary.status === OWNER_STATUS.CANDIDATE || (primary.kind !== 'explicit_path' && !exactFile(rows, primary.path))))
   };
 }
 

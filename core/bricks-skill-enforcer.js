@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { chatError } = require('./errors');
 const { WORDPRESS_BRICKS_SKILL_ID, hasBricksProjectEvidence } = require('./skill-runtime');
+const { resolveBricksSpec } = require('./bricks-spec');
 const { isBuiltinRef } = require('./builtin-skills-project');
 
 const CONTRACT_VERSION = 6;
@@ -146,11 +147,13 @@ function createBricksSkillEnforcerApi(api, store) {
     if (receipt.project_root_fingerprint && receipt.project_root_fingerprint !== receiptRootFingerprint(p)) return null;
     return receipt;
   }
-  function makeReceipt(ref, result, skill) {
+  function makeReceipt(ref, result, skill, inspect = null) {
     const p = project(ref);
     const taskId = String(result?.task_id || result?.work_session_id || '');
     const spec = skill?.bricks_spec || {};
+    const fallbackSpec = inspect ? resolveBricksSpec(inspect) : null;
     const skillPackageVersion = Number(skill?.version || skill?.skill_package_version || 0);
+    const profileVersion = result?.project_profile?.facts?.bricks_version || result?.context?.project_profile?.facts?.bricks_version || null;
     return {
       task_id:taskId,
       project_id:String(p.id || ''),
@@ -161,9 +164,9 @@ function createBricksSkillEnforcerApi(api, store) {
       skill_version:skillPackageVersion,
       contract_version:CONTRACT_VERSION,
       domains:(skill?.domains || []).slice(0,2),
-      bricks_detected_version:spec.detected_version || null,
-      bricks_spec_version:spec.spec_version || null,
-      bricks_spec_status:spec.status || null,
+      bricks_detected_version:spec.detected_version || skill?.bricks_detected_version || profileVersion || fallbackSpec?.detected_version || null,
+      bricks_spec_version:spec.spec_version || skill?.bricks_spec_version || fallbackSpec?.spec_version || null,
+      bricks_spec_status:spec.status || skill?.bricks_spec_status || fallbackSpec?.status || null,
       execution_path:result?.execution_path || result?.task_card?.execution?.path || null,
       prepared_at:new Date().toISOString()
     };
@@ -193,7 +196,11 @@ function createBricksSkillEnforcerApi(api, store) {
         const skills = (Array.isArray(result.skills) ? result.skills : []).map(hardenSkill);
         const skill = skills.find(item => item?.id === WORDPRESS_BRICKS_SKILL_ID && item?.mandatory !== false);
         if (!skill) required(ref,'prepare_task',{ reason:'wordpress-bricks skill was not attached' });
-        const receipt = makeReceipt(ref,result,skill);
+        let versionInspect = null;
+        if (!skill?.bricks_detected_version && !skill?.bricks_spec?.detected_version && !result?.project_profile?.facts?.bricks_version) {
+          try { versionInspect = (await detect(ref))?.inspect || null; } catch {}
+        }
+        const receipt = makeReceipt(ref,result,skill,versionInspect);
         if (!receipt.task_id) required(ref,'prepare_task',{ reason:'task_id missing after preparation' });
         receipts.set(receipt.task_id,{ ...receipt, at:now() });
         const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
@@ -315,8 +322,6 @@ function createBricksSkillEnforcerApi(api, store) {
 
   if (original.rollbackWork) {
     api.rollbackWork = async (taskId, ...args) => {
-      // Recovery must stay available even if the skill receipt expired or was lost.
-      // The hard gate protects new mutations; it must never trap a user inside a bad task.
       const id = String(taskId || '');
       const result = await original.rollbackWork(taskId,...args);
       receipts.delete(id);
