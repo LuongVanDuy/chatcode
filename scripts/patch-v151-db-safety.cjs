@@ -19,7 +19,6 @@ rep('core/database-runtime.js',
       if (!validation.recognized || !validation.ok) throw chatError('DATABASE_BRICKS_TREE_INVALID','Bricks persisted tree is not canonical/valid for write.', { errors:validation.errors?.slice?.(0,8) || [] });
     }
   }`);
-
 rep('core/database-runtime.js',
 "if ($op === 'update_meta' || $op === 'bricks_update_meta') {\n  $id = intval($p['post_id']); $key = (string)$p['key']; $exists = metadata_exists('post',$id,$key); $before = $exists ? get_post_meta($id,$key,true) : null;\n  $result = update_post_meta($id,$key,$p['value']);\n  cc_out(array('ok'=>$result !== false,'changed'=>$result !== false,'recovery'=>array('kind'=>'restore_meta','post_id'=>$id,'key'=>$key,'existed'=>$exists,'value'=>$before)), $result !== false ? 200 : 409);\n}",
 `if ($op === 'update_meta' || $op === 'bricks_update_meta') {
@@ -61,9 +60,8 @@ rep('core/database-runtime.js',
     }
   }
   $wpdb->query('COMMIT');`);
-
 rep('core/database-runtime.js',
-"  BRICKS_META_KEYS,\n  classifyDbHost,",
-"  BRICKS_TREE_META_KEYS,\n  BRICKS_META_KEYS,\n  classifyDbHost,");
+"  HELPER_RE,\n  classifyDbHost,",
+"  HELPER_RE,\n  BRICKS_TREE_META_KEYS,\n  BRICKS_META_KEYS,\n  classifyDbHost,");
 
 console.log('Bricks DB compare-and-set and read-back safety staged');
