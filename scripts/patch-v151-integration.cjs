@@ -6,6 +6,7 @@ function replaceAllChecked(s,before,after,label){if(!s.includes(before))throw ne
 patch('core/database-runtime.js',s=>s
   .replace("const HELPER_RE = /^wp-content\\/mu-plugins\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;","const HELPER_RE = /^wp-content\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;")
   .replace("const rel = `wp-content/mu-plugins/chatcode-db-once-${nonce}.php`;","const rel = `wp-content/chatcode-db-once-${nonce}.php`;")
+  .replace("require_once dirname(__DIR__, 2) . '/wp-load.php';","require_once dirname(__DIR__) . '/wp-load.php';")
   .replace("const deployed = await deployImpl(api,store,project.id,[rel],id);","const deployed = await deployImpl(api,store,project.id,[rel],id,{ explicit:true, owned_helper:true });"));
 patch('core/ftp-deploy.js',s=>s.replace("const OWNED_DB_HELPER_RE = /^wp-content\\/mu-plugins\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;","const OWNED_DB_HELPER_RE = /^wp-content\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;"));
 patch('tools/deploy-ftp.ps1',s=>replaceAllChecked(s,'wp-content/mu-plugins/chatcode-db-once-','wp-content/chatcode-db-once-','owned helper prefix'));
