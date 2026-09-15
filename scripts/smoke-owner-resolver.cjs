@@ -14,16 +14,16 @@ const inspect = {
     parentThemes:[{ slug:'bricks', root:'wp-content/themes/bricks' }]
   },
   relevant_files:[
-    { path:'wp-content/plugins/duyanhwebpro/modules/multilingual/class-multilingual.php', score:200, symbols:[{ name:'Bricks_Multilingual_Element', kind:'class', line:5 }] },
-    { path:'wp-content/themes/fixture-child/assets/css/home.css', score:100, symbols:[] },
-    { path:'wp-content/themes/fixture-child/assets/css/main.css', score:98, symbols:[] },
-    { path:'wp-content/themes/fixture-child/assets/css/header-footer.css', score:96, symbols:[] },
-    { path:'wp-content/themes/fixture-child/assets/css/products.css', score:94, symbols:[] },
-    { path:'wp-content/themes/fixture-child/inc/product/card.php', score:92, symbols:[{ name:'eup_product_card', kind:'function', line:10 }] },
-    { path:'wp-content/themes/fixture-child/elements/featured-products.php', score:90, symbols:[{ name:'Featured_Products_Element', kind:'class', line:5 }] },
-    { path:'wp-content/themes/fixture-child/inc/templates/header.php', score:88, symbols:[] },
-    { path:'wp-content/themes/fixture-child/inc/templates/footer.php', score:86, symbols:[] },
-    { path:'wp-content/themes/fixture-child/inc/product/post-type.php', score:84, symbols:[] }
+    { path:'wp-content/plugins/duyanhwebpro/modules/multilingual/class-multilingual.php', score:200, content:'<?php class Bricks_Multilingual_Element {}', symbols:[{ name:'Bricks_Multilingual_Element', kind:'class', line:5 }] },
+    { path:'wp-content/themes/fixture-child/assets/css/home.css', score:100, content:'.home-hero{max-width:1200px}', symbols:[] },
+    { path:'wp-content/themes/fixture-child/assets/css/main.css', score:98, content:':root{--container:1200px}', symbols:[] },
+    { path:'wp-content/themes/fixture-child/assets/css/header-footer.css', score:96, content:'.site-header{display:flex}', symbols:[] },
+    { path:'wp-content/themes/fixture-child/assets/css/products.css', score:94, content:'.product-card{display:grid;gap:16px}', symbols:[] },
+    { path:'wp-content/themes/fixture-child/inc/product/card.php', score:92, content:"<?php function eup_product_card(){ echo '<article class=\"product-card\"></article>'; }", symbols:[{ name:'eup_product_card', kind:'function', line:10 }] },
+    { path:'wp-content/themes/fixture-child/elements/featured-products.php', score:90, content:'<?php class Featured_Products_Element {}', symbols:[{ name:'Featured_Products_Element', kind:'class', line:5 }] },
+    { path:'wp-content/themes/fixture-child/inc/templates/header.php', score:88, content:'<?php // header template', symbols:[] },
+    { path:'wp-content/themes/fixture-child/inc/templates/footer.php', score:86, content:'<?php // footer template', symbols:[] },
+    { path:'wp-content/themes/fixture-child/inc/product/post-type.php', score:84, content:"<?php register_post_type('eup_product', []);", symbols:[] }
   ],
   top_symbols:[
     { name:'eup_product_card', kind:'function', path:'wp-content/themes/fixture-child/inc/product/card.php', line:10 }
@@ -39,6 +39,7 @@ const profile = {
     builder:'bricks',
     commerce:'custom_cpt',
     product_model:'eup_product',
+    child_theme_root:'wp-content/themes/fixture-child',
     global_css_owner:'wp-content/themes/fixture-child/assets/css/main.css',
     shared_product_renderer:'eup_product_card'
   },
@@ -71,6 +72,7 @@ const productStyleOwner = ownershipMap({ request:'Sửa spacing CSS của produc
 assert.equal(productStyleOwner.primary.kind, 'product_css');
 assert.ok(productStyleOwner.primary.path.endsWith('/assets/css/products.css'));
 assert.ok(productStyleOwner.entries.some(item => item.kind === 'product_renderer'));
+assert.equal(productStyleOwner.primary.source, 'project-relation', 'renderer-selector relation should strengthen CSS ownership');
 
 const headerStyle = ownershipMap({ request:'Sửa spacing header trên mobile', inspect, projectProfile:profile });
 assert.equal(headerStyle.primary.kind, 'header_css');
@@ -100,6 +102,11 @@ assert.equal(explicitOwner.primary.confidence, 1);
 assert.equal(explicitOwner.requires_owner_read, false);
 assert.equal(explicitOwner.owner_set_mode, 'explicit-user-path');
 assert.equal(explicitOwner.entries.some(item => /duyanhwebpro/.test(item.path || '')), false, 'explicit new file must not inherit unrelated plugin owner');
+
+const canonicalRelative = ownershipMap({ request:'Sửa `assets/css/products.css` cho product card', inspect, projectProfile:profile, taskType:'FAST_UI' });
+assert.equal(canonicalRelative.primary.kind, 'explicit_path');
+assert.equal(canonicalRelative.primary.path, 'wp-content/themes/fixture-child/assets/css/products.css', 'relative user path must canonicalize to unique current project path');
+assert.equal(canonicalRelative.primary.status, OWNER_STATUS.CONFIRMED);
 
 const explicitCard = buildTaskCard({ request:explicitRequest, inspect, projectProfile:profile, projectRules:[] });
 assert.equal(explicitCard.execution.path, EXECUTION_PATHS.FAST);
@@ -177,4 +184,40 @@ const unrelatedCheck = validatePatchAgainstTaskCard(homeCard, unrelatedPatch);
 assert.equal(unrelatedCheck.ok, false, 'Home task must still reject unrelated ownership');
 assert.ok(unrelatedCheck.violations.some(item => /bypasses resolved homepage_css/i.test(item)));
 
-console.log('Owner Resolver smoke test: PASS (explicit path > evidence owner > ranked fallback + Fast scope gate)');
+const relationInspect = {
+  ...inspect,
+  relevant_files:[
+    { path:'wp-content/plugins/seo-suite/src/catalogue-product-analysis.php', score:500, content:'<?php // huge product SEO module', symbols:[] },
+    { path:'wp-content/plugins/multilingual-suite/src/product-translation.php', score:450, content:'<?php // huge translation module', symbols:[] },
+    {
+      path:'wp-content/themes/fixture-child/functions.php', score:80, symbols:[],
+      content:"<?php if ( is_page( 'san-pham' ) ) { wp_enqueue_style( 'catalogue-layout', get_stylesheet_directory_uri() . '/assets/css/catalogue-layout.css' ); }"
+    },
+    {
+      path:'wp-content/themes/fixture-child/inc/catalogue/render.php', score:75, symbols:[],
+      content:"<?php echo '<article class=\"catalogue-card product-card\"></article>';"
+    },
+    {
+      path:'wp-content/themes/fixture-child/assets/css/catalogue-layout.css', score:40, symbols:[],
+      content:'.catalogue-card.product-card{display:grid;gap:16px}'
+    }
+  ],
+  top_symbols:[],
+  relevant_relations:[]
+};
+const relationProfile = { version:1, facts:{ cms:'wordpress', builder:'bricks', child_theme_root:'wp-content/themes/fixture-child' }, decisions:[] };
+const responsibilityOwner = ownershipMap({
+  request:'Increase spacing between product cards on catalogue page.',
+  inspect:relationInspect,
+  projectProfile:relationProfile,
+  fallbackCandidates:relationInspect.relevant_files,
+  taskType:'FAST_UI'
+});
+assert.equal(responsibilityOwner.primary.kind,'product_css');
+assert.equal(responsibilityOwner.primary.path,'wp-content/themes/fixture-child/assets/css/catalogue-layout.css');
+assert.equal(responsibilityOwner.primary.status,OWNER_STATUS.CONFIRMED);
+assert.ok(responsibilityOwner.primary.confidence >= 0.98);
+assert.equal(responsibilityOwner.primary.source,'project-relation');
+assert.equal(/plugins\//.test(responsibilityOwner.primary.path),false,'large generic plugin must not beat direct stylesheet responsibility');
+
+console.log('Owner Resolver smoke test: PASS (canonical paths + responsibility graph > semantic ranking + Fast scope gate)');
