@@ -9,6 +9,7 @@ Mandatory umbrella contract for WordPress + Bricks. Runtime adds task-specific d
 - When Bricks is detected, tell the user exactly: **“Tôi sẽ sử dụng Bricks skill.”**
 - `inspect_project`/reads are discovery only; each coding task prepares the real project/root again. Re-plan changed scope with the same `task_id`.
 - Use project evidence/Owner Resolver and preserve unrelated Builder edits.
+- Best practice is not a permission boundary: HARD blocks are for destructive/cross-project/corrupt/irreversible risk; otherwise take one targeted proof and use a bounded, reversible fallback in the same task.
 - Do not broaden into Git, external research, migration, refactor or deployment unless the task requires it.
 - When a reference site/domain is named, keep it scoped unless unavailable or wider research is requested.
 
@@ -34,7 +35,7 @@ Normal container/grid/image/icon/text/button/slider/query composition is not a c
 - Reuse the correct functional owner, not merely the first existing file.
 - Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. Small fixes to existing code may stay in place; new features/migrations/large inline JS do not belong there.
 - Global tokens stay in the global owner; page/component CSS stays in its established owner.
-- Zero new source files is an ordinary-edit default, not a reason to choose the wrong owner; explicit user scope still applies.
+- Zero new source files is a preference, not a blocker; one bounded correct owner is allowed when evidence shows it is needed.
 
 ## Domain routing
 
@@ -57,9 +58,10 @@ UI tasks receive bounded deterministic matches; project tokens/components remain
 
 - Prefix only collision/storage/public boundaries.
 - One-time setup/migration must reach a terminal no-op state.
+- For FTP mirrors, classify DB topology; prefer the server-side database capability. A temporary helper is only an authenticated one-shot fallback and must be cleaned in the same task.
 - Bricks 2.3.13 exact shapes require exact version evidence; otherwise use invariants/local evidence. Read existing data tolerantly; generate canonical nodes.
 - `complete_task` owns scoped verification and changed-file FTP deployment; do not duplicate successful sync.
 - Completion separates code verification, deployment, responsive and live verification. UI work requires desktop/tablet/mobile; write/upload success is not live visual PASS.
-- Verify touched scope only. PASS means STOP; retry only after correcting a known cause.
+- Verify touched scope only. Same root cause gets one corrective pass; if unchanged failure repeats, stop that path and choose a different bounded fallback without opening a new task.
 
 Persist only durable user-confirmed decisions. Never store guesses/credentials. Report unavailable checks exactly.
