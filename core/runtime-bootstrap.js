@@ -41,6 +41,11 @@ function installRuntimePatches() {
   // task-bound receipts: inspect/read never authorize mutation; prepare_task does.
   const { installBricksSkillEnforcerPatches } = require('./bricks-skill-enforcer');
   installBricksSkillEnforcerPatches();
+  // Evidence hardening runs after the receipt enforcer so it can prove current-task
+  // Bricks element/media IDs, lint generated selectors, preflight PHP ownership and
+  // keep code/deploy/live verification states separate.
+  const { installBricksEvidencePatches } = require('./bricks-evidence');
+  installBricksEvidencePatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');
