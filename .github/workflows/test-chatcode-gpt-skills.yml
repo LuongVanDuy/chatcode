@@ -10,6 +10,8 @@ on:
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
+      - 'core/bricks-skill-enforcer.js'
+      - 'core/bricks-evidence.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
       - 'core/owner-resolver.js'
@@ -40,6 +42,8 @@ on:
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-wordpress-bricks-v6.cjs'
+      - 'scripts/smoke-wordpress-bricks-hardening.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -57,6 +61,8 @@ on:
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/skill-policy.js'
+      - 'core/bricks-skill-enforcer.js'
+      - 'core/bricks-evidence.js'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
       - 'core/owner-resolver.js'
@@ -87,6 +93,8 @@ on:
       - 'scripts/smoke-regression.cjs'
       - 'scripts/smoke-wordpress-brain-scope.cjs'
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
+      - 'scripts/smoke-wordpress-bricks-v6.cjs'
+      - 'scripts/smoke-wordpress-bricks-hardening.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -115,6 +123,8 @@ jobs:
           node --check core/bricks-spec.js
           node --check core/bricks-validator.js
           node --check core/skill-policy.js
+          node --check core/bricks-skill-enforcer.js
+          node --check core/bricks-evidence.js
           node --check core/project-scope.js
           node --check core/project-profile.js
           node --check core/owner-resolver.js
@@ -144,6 +154,8 @@ jobs:
           node --check scripts/smoke-regression.cjs
           node --check scripts/smoke-wordpress-brain-scope.cjs
           node --check scripts/smoke-wordpress-bricks-skill.cjs
+          node --check scripts/smoke-wordpress-bricks-v6.cjs
+          node --check scripts/smoke-wordpress-bricks-hardening.cjs
           node --check scripts/smoke-bricks-spec.cjs
           node --check scripts/smoke-renderer-foundation.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
