@@ -6,6 +6,7 @@ const { completionWithDeployStatus } = require('./completion-deploy-policy');
 const FTP_CONFIG_RELATIVE = '.vscode/sftp.json';
 const MAX_DEPLOY_FILES = 500;
 const MAX_TERMINAL_COMMAND_CHARS = 15000;
+const OWNED_DB_HELPER_RE = /^wp-content\/mu-plugins\/chatcode-db-once-[a-f0-9]{24}\.php$/;
 
 function isTrusted(project) {
   return project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
@@ -63,6 +64,15 @@ function buildFtpDeployCommand(runnerPath, projectRoot, manifestPath) {
   const script = String.raw`$ErrorActionPreference='Stop'
 $data=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
 & ([string]$data.runnerPath) -ProjectRoot ([string]$data.projectRoot) -Manifest ([string]$data.manifestPath)`;
+  return `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(script)}`;
+}
+
+function buildFtpOwnedDeleteCommand(runnerPath, projectRoot, relativePath) {
+  if (!OWNED_DB_HELPER_RE.test(String(relativePath || ''))) throw new Error('Remote delete is restricted to ChatCode-owned one-shot DB helpers.');
+  const payload = Buffer.from(JSON.stringify({ runnerPath, projectRoot, relativePath }), 'utf8').toString('base64');
+  const script = String.raw`$ErrorActionPreference='Stop'
+$data=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+& ([string]$data.runnerPath) -ProjectRoot ([string]$data.projectRoot) -DeleteOwned ([string]$data.relativePath)`;
   return `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(script)}`;
 }
 
@@ -161,19 +171,19 @@ function parseDeployResult(raw, files = [], skippedFiles = [], expectedFiles = f
   };
 }
 
-function autoDeployConfig(root) {
+function autoDeployConfig(root, { explicit = false } = {}) {
   const configPath = path.join(root, '.vscode', 'sftp.json');
   if (!fs.existsSync(configPath)) return { ok:true, status:'not_configured', reason:'config_missing' };
   let config;
   try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
   catch { return { ok:false, status:'failed', reason:'config_invalid', error:'Cannot read .vscode/sftp.json as JSON' }; }
-  if (config?.uploadOnSave !== true) return { ok:true, status:'skipped', reason:'upload_disabled' };
+  if (config?.uploadOnSave !== true && !explicit) return { ok:true, status:'skipped', reason:'upload_disabled' };
   const protocol = String(config?.protocol || '').trim().toLowerCase();
   if (protocol !== 'ftp') return { ok:true, status:'skipped', reason:`unsupported_protocol|${protocol || 'missing'}` };
   return { ok:true, status:'enabled' };
 }
 
-async function deployChangedFiles(api, store, projectRef, changedFiles) {
+async function deployChangedFiles(api, store, projectRef, changedFiles, workSessionId = '', options = {}) {
   const files = normalizeDeployFiles(changedFiles);
   if (!files.length) return { ok:true, status:'skipped', reason:'no_changed_files', changed_files:[] };
   if (files.length > MAX_DEPLOY_FILES) {
@@ -185,7 +195,7 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
   const root = String(project?.root || '');
   if (!root) return { ok:true, status:'not_configured', reason:'project_root_missing', changed_files:files };
 
-  const config = autoDeployConfig(root);
+  const config = autoDeployConfig(root, { explicit:options?.explicit === true });
   if (config.status !== 'enabled') return { ...config, changed_files:files };
   if (!isTrusted(project) || typeof api?.exec !== 'function') return { ok:false, status:'skipped', reason:'trusted_terminal_required', changed_files:files };
 
@@ -215,7 +225,7 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
     if (command.length > MAX_TERMINAL_COMMAND_CHARS) {
       return { ok:false, status:'failed', changed_files:files, uploaded:[], unchanged:[], deleted:[], skipped_files:skippedFiles, failures:[], error:'FTP runner invocation exceeds terminal guard' };
     }
-    const raw = await api.exec(project.id, command, { background:false, timeout_ms:180000 });
+    const raw = await api.exec(project.id, command, { background:false, timeout_ms:180000, ...(workSessionId ? { work_session_id:workSessionId } : {}) });
     return parseDeployResult(raw, files, skippedFiles, deployable);
   } catch (error) {
     return {
@@ -226,6 +236,26 @@ async function deployChangedFiles(api, store, projectRef, changedFiles) {
   } finally {
     cleanupDeployManifest(manifest.dir);
   }
+}
+
+async function deleteOwnedRemoteFile(api, store, projectRef, relativePath, workSessionId = '') {
+  const rel = String(relativePath || '').replace(/\\/g,'/').replace(/^\.\//,'').replace(/^\/+/, '');
+  if (!OWNED_DB_HELPER_RE.test(rel)) throw new Error('Remote delete is restricted to ChatCode-owned one-shot DB helpers.');
+  const project = store?.getProject?.(projectRef);
+  const root = String(project?.root || '');
+  if (!root || !isTrusted(project) || typeof api?.exec !== 'function') return { ok:false, status:'skipped', reason:'trusted_terminal_required', file:rel };
+  const config = autoDeployConfig(root, { explicit:true });
+  if (config.status !== 'enabled') return { ...config, file:rel };
+  const runnerPath = resolveFtpRunnerPath();
+  if (!runnerPath) return { ok:false, status:'failed', reason:'runner_missing', file:rel };
+  const command = buildFtpOwnedDeleteCommand(runnerPath, root, rel);
+  const raw = await api.exec(project.id, command, { background:false, timeout_ms:90000, ...(workSessionId ? { work_session_id:workSessionId } : {}) });
+  const stdout = String(raw?.stdout || '');
+  const start = stdout.indexOf('{');
+  let report = null;
+  if (start >= 0) try { report = JSON.parse(stdout.slice(start)); } catch {}
+  const ok = raw?.status === 'completed' && Number(raw?.exit_code) === 0 && report?.ok === true && report?.mode === 'owned_delete';
+  return { ok, status:ok ? 'completed' : 'failed', file:rel, deleted:report?.deleted === true, absent:report?.absent === true, ...(ok ? {} : { error:String(report?.error || raw?.stderr || 'Owned remote delete was not confirmed').slice(0,800) }) };
 }
 
 function shouldAttachFtpResult(ftp) {
@@ -254,7 +284,7 @@ function createFtpDeployApi(api, store) {
         const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
         const changedFiles = result?.changed_files || before?.changed_files || [];
         if (!projectRef) return result;
-        const ftp = await deployChangedFiles(api, store, projectRef, changedFiles);
+        const ftp = await deployChangedFiles(api, store, projectRef, changedFiles, workSessionId);
         const completed = shouldAttachFtpResult(ftp) ? completionWithDeployStatus({ ...result, ftp_deploy:ftp }) : result;
         finishedDeploys.set(workSessionId, completed);
         while (finishedDeploys.size > 200) finishedDeploys.delete(finishedDeploys.keys().next().value);
@@ -299,9 +329,12 @@ module.exports = {
   changedFilesFromLegacyChanges,
   resolveFtpRunnerPath,
   buildFtpDeployCommand,
+  buildFtpOwnedDeleteCommand,
   buildFtpDeployBatches,
   parseDeployResult,
   deployChangedFiles,
+  deleteOwnedRemoteFile,
+  OWNED_DB_HELPER_RE,
   createFtpDeployApi,
   installFtpDeployPatches
 };

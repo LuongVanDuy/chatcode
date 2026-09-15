@@ -46,6 +46,10 @@ function installRuntimePatches() {
   // keep code/deploy/live verification states separate.
   const { installBricksEvidencePatches } = require('./bricks-evidence');
   installBricksEvidencePatches();
+  // Optional WordPress database capability: bounded server-side bridge/one-shot fallback.
+  // It is installed before Project Scope so every action inherits the same task/project lane.
+  const { installDatabaseRuntimePatches } = require('./database-runtime');
+  installDatabaseRuntimePatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');

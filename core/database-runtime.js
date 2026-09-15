@@ -167,20 +167,20 @@ function cc_columns($data) {
 function cc_where_sql($where, &$values) {
   $where = cc_columns($where); $parts = array(); $values = array();
   foreach ($where as $key => $value) {
-    if (is_null($value)) $parts[] = '`' . $key . '` IS NULL';
-    else { $parts[] = '`' . $key . '` = %s'; $values[] = maybe_serialize($value); }
+    if (is_null($value)) $parts[] = $key . ' IS NULL';
+    else { $parts[] = $key . ' = %s'; $values[] = maybe_serialize($value); }
   }
   if (!$parts) cc_out(array('ok'=>false,'error'=>'empty_where'), 400);
   return implode(' AND ', $parts);
 }
 function cc_primary_key($table) {
   global $wpdb;
-  $rows = $wpdb->get_results("SHOW KEYS FROM `{$table}` WHERE Key_name='PRIMARY'", ARRAY_A);
+  $rows = $wpdb->get_results("SHOW KEYS FROM {$table} WHERE Key_name='PRIMARY'", ARRAY_A);
   return !empty($rows[0]['Column_name']) ? (string) $rows[0]['Column_name'] : '';
 }
 function cc_snapshot($table, $where, $max) {
   global $wpdb; $values = array(); $whereSql = cc_where_sql($where, $values);
-  $sql = "SELECT * FROM `{$table}` WHERE {$whereSql} LIMIT " . (intval($max) + 1);
+  $sql = "SELECT * FROM {$table} WHERE {$whereSql} LIMIT " . (intval($max) + 1);
   if ($values) $sql = $wpdb->prepare($sql, $values);
   $rows = $wpdb->get_results($sql, ARRAY_A);
   if (count($rows) > intval($max)) cc_out(array('ok'=>false,'error'=>'affected_set_too_large','affected_count'=>count($rows),'max_rows'=>intval($max)), 409);
@@ -277,7 +277,7 @@ if ($op === 'wpdb_update' || $op === 'wpdb_delete') {
   if ($result === false) { $wpdb->query('ROLLBACK'); cc_out(array('ok'=>false,'error'=>'mutation_failed'),409); }
   $ids = array_values(array_map(function($row) use($pk){ return $row[$pk]; }, $rows));
   $placeholders = implode(',', array_fill(0,count($ids),'%s'));
-  $verifySql = $wpdb->prepare("SELECT COUNT(*) FROM `{$table}` WHERE `{$pk}` IN ({$placeholders})", $ids);
+  $verifySql = $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE {$pk} IN ({$placeholders})", $ids);
   $remaining = intval($wpdb->get_var($verifySql));
   if ($op === 'wpdb_delete' && $remaining !== 0) { $wpdb->query('ROLLBACK'); cc_out(array('ok'=>false,'error'=>'verify_failed'),409); }
   if ($op === 'wpdb_update' && $remaining !== $count) { $wpdb->query('ROLLBACK'); cc_out(array('ok'=>false,'error'=>'verify_failed'),409); }

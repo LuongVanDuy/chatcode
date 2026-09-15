@@ -66,7 +66,7 @@ function createProjectScopeApi(api) {
   const methodNames = [
     'listProjects','listFiles','search','readFile','readFiles','projectBrain','findSymbols','findReferences','relatedFiles','projectContext',
     'prepareTask','completeTask','inspectProject','applyAndVerify','operationStatus','startWork','applyPatch','workStatus','finishWork','rollbackWork',
-    'writeFile','deleteFile','renameFile','runTask','exec','jobStatus','jobStop','gitStatus','gitDiff','gitStatusExplicit','gitDiffExplicit','gitStage','gitCommit'
+    'writeFile','deleteFile','renameFile','runTask','exec','databaseOp','jobStatus','jobStop','gitStatus','gitDiff','gitStatusExplicit','gitDiffExplicit','gitStage','gitCommit'
   ];
   const original = {};
   for (const name of methodNames) if (typeof api[name] === 'function') original[name] = api[name].bind(api);
@@ -389,6 +389,16 @@ function createProjectScopeApi(api) {
     api[name] = async (ref, ...args) => {
       await ensureProject(ref, name, 'write');
       return original[name](ref, ...args);
+    };
+  }
+
+  if (original.databaseOp) {
+    api.databaseOp = async (ref, input = {}) => {
+      const action = String(input?.action || 'inspect').toLowerCase();
+      const isMutation = action === 'mutate' || action === 'rollback' || !!input?.task_id;
+      await ensureProject(ref, 'databaseOp', isMutation ? 'write' : 'read');
+      if (input?.task_id) await guardSession(input.task_id, 'databaseOp', isMutation ? 'write' : 'read');
+      return original.databaseOp(ref, input);
     };
   }
 
