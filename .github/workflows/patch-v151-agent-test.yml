@@ -1,0 +1,35 @@
+name: Patch v151 Agent Test
+
+on:
+  push:
+    branches:
+      - feature/v1.0.51-unified-execution-db
+    paths:
+      - '.github/workflows/patch-v151-agent-test.yml'
+      - 'scripts/patch-v151-agent-test.cjs'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.51-unified-execution-db
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Add and run anti-loop regression
+        run: |
+          node scripts/patch-v151-agent-test.cjs
+          node --check scripts/smoke-agent.cjs
+          node scripts/smoke-agent.cjs
+      - name: Commit regression
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/smoke-agent.cjs
+          git commit -m "test: enforce one corrective pass before path exhaustion"
+          git push origin HEAD:feature/v1.0.51-unified-execution-db
