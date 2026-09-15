@@ -54,6 +54,7 @@ function activityMeta(tool, args = {}) {
     case 'work_status': return { category:'read', project:'', target:`Work ${String(args.work_session_id || '').slice(0,36)}` };
     case 'finish_work': return { category:'task', project:'', target:`Finish work ${String(args.work_session_id || '').slice(0,36)}` };
     case 'rollback_work': return { category:'manage', project:'', target:`Rollback work ${String(args.work_session_id || '').slice(0,36)}` };
+    case 'database': return { category:['mutate','rollback'].includes(String(args.action || '').toLowerCase()) ? 'write' : 'read', project, target:`Database ${String(args.action || 'inspect')} ${String(args.operation || '').slice(0,80)}`.trim() };
     case 'write_file': return { category:'write', project, target:String(args.path || '') };
     case 'delete_file': return { category:'manage', project, target:String(args.path || '') };
     case 'rename_file': return { category:'manage', project, target:`${String(args.from || '')} → ${String(args.to || '')}` };
@@ -76,7 +77,7 @@ export function activityTrace(tool, args = {}, value = null) {
     prepare_task:'prepare', start_work:'prepare',
     complete_task:'complete', apply_patch:'edit',
     run_task:'verify', exec:'terminal',
-    work_status:'status', finish_work:'finish', rollback_work:'rollback'
+    work_status:'status', finish_work:'finish', rollback_work:'rollback', database:'database'
   })[tool] || '';
   return {
     ...(taskId ? { taskId } : {}),
@@ -89,7 +90,7 @@ export function toolSucceeded(value) {
   if (!value || typeof value !== 'object') return true;
   if (value.ok !== false && value.status === 'stopped' && (value.stop_reason === 'user' || value.stop_requested)) return true;
   return value.ok !== false && value.verification_passed !== false
-    && !/^(?:failed|needs_fix|deploy_failed|verification_failed|timeout|timed_out|rollback_partial)$/.test(String(value.status || ''))
+    && !/^(?:failed|needs_fix|path_exhausted|deploy_failed|verification_failed|timeout|timed_out|rollback_partial)$/.test(String(value.status || ''))
     && (value.exit_code == null || Number(value.exit_code) === 0)
     && (value.code == null || typeof value.code !== 'number' || value.code === 0)
     && (value.ftp_deploy?.ok !== false && value.session?.ftp_deploy?.ok !== false);
@@ -142,6 +143,8 @@ function buildMcpServer(api) {
   server.registerTool('work_status',{ title:'Read work session', description:'Return session operations, changed files, commands and recovery points. Git status/diff is only available through explicit Git tools.', inputSchema:z.object({ work_session_id:z.string().min(1) }), annotations:LOCAL_READ },wrap(api,'work_status',({work_session_id})=>api.workStatus(work_session_id)));
   server.registerTool('finish_work',{ title:'Finish or stop work session', description:'Verify and finish work, or retry failed FTP on a completed session without applying its patch again. Successful FTP is not repeated. cancel:true closes active work and stops its attached terminal jobs, preserving local files without verification, deploy or rollback. Git is not inspected.', inputSchema:z.object({ work_session_id:z.string().min(1), verify_commands:z.array(z.string().min(1)).max(6).default([]), cancel:z.boolean().default(false) }), annotations:LOCAL_WRITE_OPEN_WORLD },wrap(api,'finish_work',({work_session_id,verify_commands,cancel})=>api.finishWork(work_session_id,verify_commands,{ cancel })));
   server.registerTool('rollback_work',{ title:'Rollback work session', description:'Restore all file states changed by the work session in reverse order, including files created during the session, then refresh Brain. Rollback does not depend on Git.', inputSchema:z.object({ work_session_id:z.string().min(1) }), annotations:LOCAL_WRITE },wrap(api,'rollback_work',({work_session_id})=>api.rollbackWork(work_session_id)));
+
+  server.registerTool('database',{ title:'WordPress database capability', description:'Inspect WordPress/FTP database topology, run bounded read-only queries, execute structured recoverable mutations, or rollback a mutation. FTP mirrors prefer an authenticated server-side WordPress path; local DB credentials are never returned. mutate/rollback require the current task_id.', inputSchema:z.object({ project:z.string(), action:z.enum(['inspect','query','mutate','rollback']).default('inspect'), task_id:z.string().min(1).optional(), sql:z.string().max(32000).optional(), params:z.array(z.any()).max(50).optional(), operation:z.enum(['insert_post','update_meta','update_option','wpdb_insert','wpdb_update','wpdb_delete','bricks_update_meta']).optional(), payload:z.record(z.string(),z.any()).optional(), recovery_id:z.string().min(1).optional(), max_rows:z.number().int().min(1).max(200).optional(), probe_remote:z.boolean().optional() }), annotations:LOCAL_WRITE_OPEN_WORLD },wrap(api,'database',({project,...input})=>api.databaseOp(project,input)));
 
   server.registerTool('write_file',{ title:'Create or replace file', description:'Create or replace UTF-8 text with approval/recovery behavior. WordPress + Bricks projects require the mandatory skill policy first.', inputSchema:z.object({ project:z.string(), path:z.string().min(1), content:z.string() }), annotations:LOCAL_WRITE },wrap(api,'write_file',({project,path,content})=>api.writeFile(project,path,content)));
   server.registerTool('delete_file',{ title:'Delete file', description:'Delete one file with existing permission/recovery behavior. WordPress + Bricks projects require the mandatory skill policy first.', inputSchema:z.object({ project:z.string(), path:z.string().min(1) }), annotations:LOCAL_WRITE },wrap(api,'delete_file',({project,path})=>api.deleteFile(project,path)));

@@ -199,7 +199,7 @@ try {
   $items = @()
   if ($DeleteOwned) {
     $rel = ([string]$DeleteOwned).Replace('\','/')
-    if ($rel -notmatch '^wp-content/mu-plugins/chatcode-db-once-[a-f0-9]{24}\.php
+    if ($rel -notmatch '^wp-content/chatcode-db-once-[a-f0-9]{24}\.php
     $probeName = 'chatcode-ftp-probe-' + [Guid]::NewGuid().ToString('N') + '.txt'
     $snapshot = Join-Path $scratch 'probe.txt'
     [IO.File]::WriteAllText($snapshot, "ChatCode FTP probe $probeName`r`n", $utf8)

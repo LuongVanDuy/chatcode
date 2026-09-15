@@ -8,7 +8,7 @@ const MAX_QUERY_ROWS = 200;
 const MAX_MUTATION_ROWS = 100;
 const MAX_RECOVERY_POINTS = 100;
 const HELPER_TTL_SEC = 300;
-const HELPER_RE = /^wp-content\/mu-plugins\/chatcode-db-once-[a-f0-9]{24}\.php$/;
+const HELPER_RE = /^wp-content\/chatcode-db-once-[a-f0-9]{24}\.php$/;
 const READ_SQL_RE = /^\s*(?:SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i;
 const SAFE_COLUMN_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const BRICKS_META_KEYS = new Set([
@@ -140,7 +140,7 @@ if (time() > $cc_expires) { @unlink(__FILE__); http_response_code(410); exit; }
 $cc_given = isset($_SERVER['HTTP_X_CHATCODE_TOKEN']) ? (string) $_SERVER['HTTP_X_CHATCODE_TOKEN'] : '';
 if (!$cc_given || !hash_equals($cc_token, $cc_given)) { http_response_code(401); exit; }
 register_shutdown_function(function () { @unlink(__FILE__); });
-require_once dirname(__DIR__, 2) . '/wp-load.php';
+require_once dirname(__DIR__) . '/wp-load.php';
 header('Content-Type: application/json; charset=utf-8');
 function cc_out($data, $status = 200) { http_response_code($status); echo wp_json_encode($data); exit; }
 function cc_alias($name) {
@@ -379,7 +379,7 @@ function createDatabaseApi(api, store, options = {}) {
     if (!base) throw chatError('DATABASE_SITE_URL_UNRESOLVED','Could not verify a WordPress site URL for this FTP mirror.', { candidates:topo.public.site_url_candidates, next_action:'Add siteUrl/websiteUrl to .vscode/sftp.json or configure chatcodeDatabase bridge.' });
     const nonce = crypto.randomBytes(12).toString('hex');
     const token = crypto.randomBytes(32).toString('hex');
-    const rel = `wp-content/mu-plugins/chatcode-db-once-${nonce}.php`;
+    const rel = `wp-content/chatcode-db-once-${nonce}.php`;
     const helper = buildOneShotHelper(token, Math.floor(Date.now()/1000) + HELPER_TTL_SEC);
     const createPatch = createFilePatch(rel,helper);
     const deletePatch = deleteFilePatch(rel,helper);
@@ -387,7 +387,7 @@ function createDatabaseApi(api, store, options = {}) {
     try {
       await api.applyPatch(project.id,createPatch,id);
       localCreated = true;
-      const deployed = await deployImpl(api,store,project.id,[rel],id);
+      const deployed = await deployImpl(api,store,project.id,[rel],id,{ explicit:true, owned_helper:true });
       if (deployed?.ok !== true) throw chatError('DATABASE_SERVER_PATH_UNAVAILABLE','Could not deploy guarded database helper.', { ftp_deploy:deployed });
       const response = await fetchImpl(`${base}/${rel}`, {
         method:'POST', redirect:'manual', signal:AbortSignal.timeout(20000),

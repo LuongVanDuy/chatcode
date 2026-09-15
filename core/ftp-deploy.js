@@ -6,7 +6,7 @@ const { completionWithDeployStatus } = require('./completion-deploy-policy');
 const FTP_CONFIG_RELATIVE = '.vscode/sftp.json';
 const MAX_DEPLOY_FILES = 500;
 const MAX_TERMINAL_COMMAND_CHARS = 15000;
-const OWNED_DB_HELPER_RE = /^wp-content\/mu-plugins\/chatcode-db-once-[a-f0-9]{24}\.php$/;
+const OWNED_DB_HELPER_RE = /^wp-content\/chatcode-db-once-[a-f0-9]{24}\.php$/;
 
 function isTrusted(project) {
   return project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
