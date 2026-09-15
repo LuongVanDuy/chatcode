@@ -8,6 +8,7 @@ on:
       - '.github/workflows/patch-v151-execution.yml'
       - 'scripts/patch-v151-execution.cjs'
       - 'scripts/patch-v151-agent.cjs'
+      - 'scripts/smoke-task-planner.cjs'
 
 permissions:
   contents: write
