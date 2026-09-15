@@ -1,0 +1,39 @@
+name: Debug Owner v150
+
+on:
+  push:
+    branches:
+      - feature/v1.0.50-multiproject-hardening
+    paths:
+      - 'core/owner-resolver.js'
+      - 'scripts/smoke-owner-resolver.cjs'
+      - '.github/workflows/debug-owner-v150.yml'
+
+jobs:
+  debug-owner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Capture owner smoke output
+        shell: bash
+        run: |
+          set +e
+          node scripts/smoke-owner-resolver.cjs > owner-debug.txt 2>&1
+          code=$?
+          echo "$code" > owner-exit.txt
+          cat owner-debug.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: owner-debug
+          path: |
+            owner-debug.txt
+            owner-exit.txt
+      - name: Preserve smoke failure state
+        shell: bash
+        run: |
+          code=$(cat owner-exit.txt)
+          exit "$code"
