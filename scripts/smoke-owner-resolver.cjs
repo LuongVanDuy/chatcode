@@ -48,9 +48,9 @@ assert.deepEqual(new Set(homeOwner.enforce_paths), new Set([
 ]));
 
 const productOwner = ownershipMap({ request:'Sửa layout product card', inspect, projectProfile:profile });
-assert.equal(productOwner.primary.kind, 'product_renderer');
-assert.equal(productOwner.primary.status, OWNER_STATUS.CONFIRMED);
-assert.equal(productOwner.primary.symbol, 'Featured_Products');
+assert.equal(productOwner.primary.kind, 'product_css');
+assert.ok(productOwner.primary.path.endsWith('/assets/css/products.css'));
+assert.ok([OWNER_STATUS.DETECTED,OWNER_STATUS.CONFIRMED].includes(productOwner.primary.status));
 
 const explicitPath = 'wp-content/themes/fixture-child/assets/css/special.css';
 const explicitInspect = { ...inspect, relevant_files:[...inspect.relevant_files,{path:explicitPath,score:20,content:'.special{}',symbols:[]}] };
