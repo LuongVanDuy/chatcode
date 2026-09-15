@@ -8,7 +8,7 @@ patch('core/database-runtime.js',s=>s
   .replace("const rel = `wp-content/mu-plugins/chatcode-db-once-${nonce}.php`;","const rel = `wp-content/chatcode-db-once-${nonce}.php`;")
   .replace("const deployed = await deployImpl(api,store,project.id,[rel],id);","const deployed = await deployImpl(api,store,project.id,[rel],id,{ explicit:true, owned_helper:true });"));
 patch('core/ftp-deploy.js',s=>s.replace("const OWNED_DB_HELPER_RE = /^wp-content\\/mu-plugins\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;","const OWNED_DB_HELPER_RE = /^wp-content\\/chatcode-db-once-[a-f0-9]{24}\\.php$/;"));
-patch('tools/deploy-ftp.ps1',s=>s.replace("^wp-content/mu-plugins/chatcode-db-once-[a-f0-9]{24}\\.php$","^wp-content/chatcode-db-once-[a-f0-9]{24}\\.php$"));
+patch('tools/deploy-ftp.ps1',s=>replaceAllChecked(s,'wp-content/mu-plugins/chatcode-db-once-','wp-content/chatcode-db-once-','owned helper prefix'));
 
 // Single MCP database tool.
 require('./patch-v151-mcp.cjs');
