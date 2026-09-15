@@ -93,11 +93,17 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   const project = { id:'p1', name:'fixture', root:'/srv/fixture' };
   const store = { getProject(ref){ if (['p1','fixture'].includes(String(ref))) return project; throw new Error('missing project'); } };
   const bricksContext = exactInspect;
-  const skill = { id:'wordpress-bricks', name:'WordPress + Bricks Native Delivery', version:5, mandatory:true, domains:['bricks'], bricks_spec:{ detected_version:'2.3.13', spec_version:'2.3.13', status:'exact' }, instructions:'base skill' };
+  const skill = {
+    id:'wordpress-bricks', name:'WordPress + Bricks Native Delivery', version:5, mandatory:true, domains:['bricks'],
+    bricks_detected_version:'2.3.13', bricks_spec_version:'2.3.13', bricks_spec_status:'exact', instructions:'base skill'
+  };
   let writes = 0, patches = 0, execs = 0, completes = 0, rollbacks = 0;
   const baseApi = {
     async inspectProject(){ return { ...bricksContext, skills:[skill] }; },
-    async prepareTask(){ return { ok:true, status:'ready', task_id:'task-1', work_session_id:'task-1', execution_path:'DEEP', context:bricksContext, skills:[skill], agent_contract:{ guidance:[] } }; },
+    async prepareTask(){ return {
+      ok:true, status:'ready', task_id:'task-1', work_session_id:'task-1', execution_path:'DEEP', context:bricksContext,
+      project_profile:{ facts:{ bricks_version:'2.3.13' } }, skills:[skill], agent_contract:{ guidance:[] }
+    }; },
     async completeTask(){ completes++; return { ok:true, status:'completed', task_id:'task-1' }; },
     async workStatus(){ return { status:'active', project_id:'p1', project:'fixture' }; },
     async startWork(){ return { work_session_id:'legacy' }; },
@@ -129,6 +135,9 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(prepared.skill_receipt.contract_version,6);
   assert.equal(prepared.skill_receipt.skill_package_version,5);
   assert.equal(prepared.skill_receipt.skill_version,5,'legacy skill_version alias must remain compatible');
+  assert.equal(prepared.skill_receipt.bricks_detected_version,'2.3.13','top-level skill metadata must propagate into receipt');
+  assert.equal(prepared.skill_receipt.bricks_spec_version,'2.3.13');
+  assert.equal(prepared.skill_receipt.bricks_spec_status,'exact');
   assert.equal(prepared.skills[0].skill_package_version,5);
   assert.equal(prepared.skill_policy.acknowledgement_text,ACK_TEXT);
   assert.match(prepared.skills[0].instructions,/element ID/i);
@@ -141,9 +150,6 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(completes,1);
   assert.equal(completed.skill_receipt.contract_version,6);
 
-  // Real orchestration regression: Agent prepareFresh calls api.startWork internally.
-  // The Bricks guard must allow only that async call-chain, while a concurrent public
-  // start_work stays blocked and repeated prepare reuses the active session.
   let bootstrapStarts = 0;
   let signalStart;
   let releaseStart;
@@ -182,13 +188,14 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(bootstrapped.work_session_id,'task-bootstrap');
   assert.equal(bootstrapped.skill_receipt.skill_id,'wordpress-bricks');
   assert.equal(bootstrapped.skill_receipt.contract_version,6);
+  assert.equal(bootstrapped.skill_receipt.bricks_detected_version,'2.3.13');
   assert.equal(bootstrapStarts,1,'fresh prepare_task must create exactly one Work Session');
 
   const reused = await integrated.prepareTask('p1','read-only test task for Bricks workflow',8,{});
   assert.equal(reused.task_id,'task-bootstrap');
   assert.equal(bootstrapStarts,1,'active task reuse must not start a second Work Session');
 
-  console.log('WordPress + Bricks v6 PASS: 2.3.13 exact spec + async-scoped prepare bootstrap + task-bound hard gate');
+  console.log('WordPress + Bricks v6 PASS: 2.3.13 exact spec + version propagation + async-scoped bootstrap + task-bound hard gate');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
