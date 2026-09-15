@@ -12,6 +12,9 @@ on:
       - 'core/skill-policy.js'
       - 'core/bricks-skill-enforcer.js'
       - 'core/bricks-evidence.js'
+      - 'core/database-runtime.js'
+      - 'core/ftp-deploy.js'
+      - 'tools/deploy-ftp.ps1'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
       - 'core/owner-resolver.js'
@@ -44,6 +47,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
       - 'scripts/smoke-wordpress-bricks-hardening.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -63,6 +67,9 @@ on:
       - 'core/skill-policy.js'
       - 'core/bricks-skill-enforcer.js'
       - 'core/bricks-evidence.js'
+      - 'core/database-runtime.js'
+      - 'core/ftp-deploy.js'
+      - 'tools/deploy-ftp.ps1'
       - 'core/project-scope.js'
       - 'core/project-profile.js'
       - 'core/owner-resolver.js'
@@ -95,6 +102,7 @@ on:
       - 'scripts/smoke-wordpress-bricks-skill.cjs'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
       - 'scripts/smoke-wordpress-bricks-hardening.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
       - 'scripts/smoke-bricks-spec.cjs'
       - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-wordpress-bricks-builder-editability.cjs'
@@ -125,6 +133,8 @@ jobs:
           node --check core/skill-policy.js
           node --check core/bricks-skill-enforcer.js
           node --check core/bricks-evidence.js
+          node --check core/database-runtime.js
+          node --check core/ftp-deploy.js
           node --check core/project-scope.js
           node --check core/project-profile.js
           node --check core/owner-resolver.js
@@ -156,6 +166,7 @@ jobs:
           node --check scripts/smoke-wordpress-bricks-skill.cjs
           node --check scripts/smoke-wordpress-bricks-v6.cjs
           node --check scripts/smoke-wordpress-bricks-hardening.cjs
+          node --check scripts/smoke-database-runtime.cjs
           node --check scripts/smoke-bricks-spec.cjs
           node --check scripts/smoke-renderer-foundation.cjs
           node --check scripts/smoke-wordpress-bricks-builder-editability.cjs
@@ -183,6 +194,8 @@ jobs:
         run: npm run test:regression
       - name: WordPress + Bricks skill contract
         run: npm run test:wordpress-bricks-skill
+      - name: WordPress database topology and bounded fallback
+        run: npm run test:database
       - name: Bricks Spec Engine and deterministic validator
         run: npm run test:bricks-spec
       - name: Builder editability and page asset ownership
