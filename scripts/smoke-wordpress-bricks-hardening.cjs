@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const {
   createBricksEvidenceApi,
   extractPatchEvidenceRefs,
+  isHookRecursionRestore,
   HARDENING_VERSION
 } = require('../core/bricks-evidence');
 
@@ -47,13 +48,19 @@ const baseApi = {
       ? [{ name:'duplicateFn', kind:'function', path:'inc/existing.php', line:2 }]
       : [];
   },
-  async search() { return []; }
+  async search(_ref, query) {
+    if (/save_post_tai_lieu/.test(query) && /htc_document_save_meta/.test(query)) {
+      return [{ path:'inc/content-types/documents.php', snippet:"add_action( 'save_post_tai_lieu', 'htc_document_save_meta', 10, 2 );" }];
+    }
+    return [];
+  }
 };
 
 (async () => {
   const api = createBricksEvidenceApi(baseApi,store);
   const prepared = await api.prepareTask('p1','Fix responsive UI',8,{});
   assert.equal(prepared.bricks_evidence.hardening_version,HARDENING_VERSION);
+  assert.equal(HARDENING_VERSION,2);
   assert.equal(prepared.bricks_evidence.element_ids.length,0);
   assert.equal(prepared.verification_requirements.responsive,true);
   assert.match(prepared.skills[0].instructions,/evidence hardening/i);
@@ -137,8 +144,33 @@ const baseApi = {
   assert.equal(refs.element_refs.includes('def456'),false,'newly defined element id must not require prior evidence');
   assert.equal(refs.element_refs.includes('abc123'),true,'existing parent must remain evidence-bound');
 
-  assert.ok(completeCount >= 2);
-  console.log('WordPress + Bricks hardening PASS: task evidence + selector lint + media proof + PHP duplicate preflight + explicit verification states');
+  const recursionText = [
+    "remove_action( 'save_post_tai_lieu', 'htc_document_save_meta', 10 );",
+    'wp_update_post( $post_data );',
+    "add_action( 'save_post_tai_lieu', 'htc_document_save_meta', 10, 2 );"
+  ].join('\n');
+  assert.equal(isHookRecursionRestore(recursionText,{
+    type:'add_action', hook:'save_post_tai_lieu', callback:'htc_document_save_meta'
+  }),true,'remove -> mutation -> restore must be recognized as a recursion guard');
+
+  const recursionPatch = [
+    '--- a/inc/content-types/documents.php',
+    '+++ b/inc/content-types/documents.php',
+    '@@ -0,0 +1,3 @@',
+    "+remove_action( 'save_post_tai_lieu', 'htc_document_save_meta', 10 );",
+    '+wp_update_post( $post_data );',
+    "+add_action( 'save_post_tai_lieu', 'htc_document_save_meta', 10, 2 );"
+  ].join('\n');
+  const recursionResult = await api.completeTask('t1',recursionPatch,[],{});
+  assert.ok(recursionResult.php_duplicate_preflight.warnings.some(item => item.code === 'PHP_HOOK_RECURSION_RESTORE_SAFE'));
+  assert.equal(
+    recursionResult.php_duplicate_preflight.warnings.some(item => item.code === 'PHP_DUPLICATE_HOOK_CANDIDATE'),
+    false,
+    'temporary hook restore must not be misclassified as a duplicate registration'
+  );
+
+  assert.ok(completeCount >= 3);
+  console.log('WordPress + Bricks hardening PASS: task evidence + media proof + safe recursion hook classification + explicit verification states');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
