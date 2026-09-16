@@ -1,4 +1,5 @@
 name: Patch v151 Final Hardening 2
+# retry after T7 wording compatibility fix
 
 on:
   workflow_dispatch:
