@@ -26,6 +26,7 @@ const api = {
   workStatus: async id => ({ work_session_id:id, project_id:'demo', workspace_mode:'trusted', status:'active', changed_files:['src/index.js'], commands:[], current:{ git:{ status:' M src/index.js', diff:'diff' } } }),
   finishWork: async (id, commands) => ({ work_session_id:id, status:'completed', verification:commands.map(command => ({ command, ok:true })), verification_passed:true, final:{ git:{ diff:'diff' } } }),
   rollbackWork: async id => ({ work_session_id:id, status:'rolled_back', ok:true, restored:[{ path:'src/index.js' }], final:{ git:{ diff:'' } } }),
+  databaseOp: async (_project, input) => ({ ok:true, action:String(input?.action || 'inspect'), task_id:input?.task_id || null, topology:{ strategy:'test-fixture', capabilities:{ query:true, mutate:true, rollback:true } } }),
   writeFile: async () => { throw new Error('Write permission is disabled for project "demo"'); },
   deleteFile: async () => { throw new Error('Create/delete/rename permission is disabled for project "demo"'); },
   renameFile: async () => { throw new Error('Create/delete/rename permission is disabled for project "demo"'); },
@@ -58,12 +59,16 @@ try {
   const fast = ['inspect_project','apply_and_verify','operation_status'];
   const terminal = ['exec','job_status','job_stop'];
   const editing = ['start_work','apply_patch','work_status','finish_work','rollback_work'];
-  for (const expected of [...legacy,...brain,...agent,...fast,...terminal,...editing]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
-  assert.equal(names.length, 31, `expected 31 MCP tools, got ${names.length}`);
+  const database = ['database'];
+  for (const expected of [...legacy,...brain,...agent,...fast,...terminal,...editing,...database]) assert.ok(names.includes(expected), `missing tool: ${expected}`);
+  assert.equal(names.length, 32, `expected 32 MCP tools including unified database capability, got ${names.length}`);
 
   const projects = await client.callTool({ name:'list_projects', arguments:{} }); assert.equal(JSON.parse(projects.content[0].text)[0].name, 'demo');
   const read = await client.callTool({ name:'read_file', arguments:{ project:'demo', path:'README.md' } }); assert.equal(JSON.parse(read.content[0].text).content, '# Demo');
   const inspect = await client.callTool({ name:'inspect_project', arguments:{ project:'demo', query:'checkout address' } }); assert.equal(JSON.parse(inspect.content[0].text).primary_language, 'JavaScript');
+  const databaseInspect = await client.callTool({ name:'database', arguments:{ project:'demo', action:'inspect' } });
+  const databaseValue = JSON.parse(databaseInspect.content[0].text); assert.equal(databaseValue.action, 'inspect'); assert.equal(databaseValue.topology.strategy, 'test-fixture');
+  const databaseAudit = [...activity].reverse().find(entry => entry.tool === 'database'); assert.equal(databaseAudit.phase, 'database');
 
   const prepared = await client.callTool({ name:'prepare_task', arguments:{ project:'demo', request:'fix demo output' } });
   const preparedValue = JSON.parse(prepared.content[0].text); assert.equal(preparedValue.status, 'ready'); assert.equal(preparedValue.task_id, 'agent-1'); assert.equal(preparedValue.agent_contract.preferred_calls, 2);
@@ -114,7 +119,7 @@ try {
   const deniedWrite = await client.callTool({ name:'write_file', arguments:{ project:'demo', path:'x.txt', content:'x' } });
   assert.equal(deniedWrite.isError, true); const denied = JSON.parse(deniedWrite.content[0].text); assert.equal(denied.ok, false); assert.equal(denied.error.code, 'PERMISSION_DENIED');
 
-  console.log(`MCP smoke test passed: ${names.length} tools, including v1.0 Fast Agent Path + trace metadata + Trusted terminal + Codex editing sessions`);
+  console.log(`MCP smoke test passed: ${names.length} tools, including unified database + v1.0 Fast Agent Path + trace metadata + Trusted terminal + Codex editing sessions`);
 } finally {
   try { await client.close(); } catch {}
   try { await server.close(); } catch {}
