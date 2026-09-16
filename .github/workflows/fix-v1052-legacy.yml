@@ -1,0 +1,38 @@
+name: Fix v1.0.52 Legacy Compatibility
+
+on:
+  push:
+    branches: [feature/v1.0.52]
+    paths:
+      - 'scripts/fix-v1052-legacy.cjs'
+      - '.github/workflows/fix-v1052-legacy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.52
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/fix-v1052-legacy.cjs
+      - name: Verify legacy and machine regressions
+        run: |
+          node --check core/machine-access.js
+          node scripts/smoke-builtin-skills-project.cjs
+          node scripts/smoke-machine-access.cjs
+      - name: Commit runtime fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/machine-access.js
+          git commit -m 'fix: preserve legacy pseudo-project delegation'
+          git push origin HEAD:feature/v1.0.52
