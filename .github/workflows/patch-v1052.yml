@@ -51,12 +51,13 @@ jobs:
       - name: Commit patched runtime
         shell: bash
         run: |
+          git checkout -- .github/workflows/test-chatcode-gpt-skills.yml
           if git diff --quiet -- ':!scripts/patch-v1052.cjs'; then
             echo 'No runtime changes to commit'
             exit 1
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add core/store.js core/trusted-workspace.js core/terminal-runtime.js core/runtime-bootstrap.js main.js preload.js renderer/v10-runtime.js renderer/v10.css mcp-server.mjs package.json .github/workflows/test-chatcode-gpt-skills.yml
+          git add core/store.js core/trusted-workspace.js core/terminal-runtime.js core/runtime-bootstrap.js main.js preload.js renderer/v10-runtime.js renderer/v10.css mcp-server.mjs package.json
           git commit -m 'feat: integrate full machine workspace mode'
           git push origin HEAD:feature/v1.0.52
