@@ -48,27 +48,27 @@ jobs:
               "    'writeFile','deleteFile','renameFile','runTask','exec','databaseOp'")
 
           db_wrapper = r'''
-  if (original.databaseOp) {
-    api.databaseOp = async (ref, input = {}) => {
-      const action = String(input?.action || 'inspect').trim().toLowerCase();
-      // Topology inspection is discovery only. Rollback remains recovery-safe; the
-      // database runtime itself still validates the task/project-bound recovery point.
-      if (isInternalComplete() || !modern || action === 'inspect' || action === 'rollback') {
-        return original.databaseOp(ref,input);
-      }
-      const policy = await detect(ref);
-      if (policy.active) {
-        const taskId = String(input?.task_id || '');
-        if (!receiptValid(taskId,ref)) required(ref,`database_${action}`,{
-          task_id:taskId,
-          reason:'database query/mutation on Bricks must be bound to the current prepared task receipt'
-        });
-      }
-      return original.databaseOp(ref,input);
-    };
-  }
+          if (original.databaseOp) {
+            api.databaseOp = async (ref, input = {}) => {
+              const action = String(input?.action || 'inspect').trim().toLowerCase();
+              // Topology inspection is discovery only. Rollback remains recovery-safe; the
+              // database runtime itself still validates the task/project-bound recovery point.
+              if (isInternalComplete() || !modern || action === 'inspect' || action === 'rollback') {
+                return original.databaseOp(ref,input);
+              }
+              const policy = await detect(ref);
+              if (policy.active) {
+                const taskId = String(input?.task_id || '');
+                if (!receiptValid(taskId,ref)) required(ref,`database_${action}`,{
+                  task_id:taskId,
+                  reason:'database query/mutation on Bricks must be bound to the current prepared task receipt'
+                });
+              }
+              return original.databaseOp(ref,input);
+            };
+          }
 
-'''
+          '''
           replace_once('core/bricks-skill-enforcer.js',
               "  if (original.exec) {\n",
               db_wrapper + "  if (original.exec) {\n")
