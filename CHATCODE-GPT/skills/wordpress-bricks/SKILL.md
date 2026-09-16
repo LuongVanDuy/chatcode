@@ -8,6 +8,8 @@ Mandatory umbrella contract for WordPress + Bricks. Runtime adds task-specific d
 
 - When Bricks is detected, tell the user exactly: **“Tôi sẽ sử dụng Bricks skill.”**
 - Reads/inspect are discovery only. Prepare the real project/root for each coding task; changed execution paths stay in the same `task_id`.
+- When a reference site/domain is named, keep it scoped unless unavailable or wider research is requested.
+- Do not broaden into Git, external research, migration, refactor or deployment unless the task requires it.
 - Best practice is not a permission boundary. HARD blocks cover destructive, cross-project, corrupt or irreversible risk; otherwise take one targeted proof and use a bounded reversible fallback.
 - Preserve unrelated Builder edits and do not broaden task scope without need.
 
@@ -33,7 +35,7 @@ Normal container/grid/image/icon/text/button/slider/query composition is not a c
 - Reuse the correct functional owner, not merely the first existing file.
 - Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. Small fixes to existing code may stay in place; new features/migrations do not.
 - Global tokens stay global; page/component CSS stays local.
-- **Zero new** source files is a preference, not a blocker; one bounded correct owner is allowed when needed.
+- Zero new source files is an ordinary-edit default, not a blocker; one bounded correct owner is allowed when needed.
 
 ## Domain routing
 
@@ -54,7 +56,7 @@ UI tasks receive bounded deterministic matches; project tokens/components remain
 
 ## Cross-cutting invariants
 
-- One-time setup/seed reaches terminal no-op; seed/diagnostic/repair/cleanup normally stay in one task.
+- One-time setup/migration must reach a terminal no-op state; seed/diagnostic/repair/cleanup normally stay in one task.
 - FTP mirrors must classify DB topology. Prefer the server-side database capability; a temporary helper is only an authenticated, bounded one-shot fallback cleaned in the same task.
 - Bricks 2.3.13 exact shapes require exact version evidence; otherwise use invariants/local persisted evidence. Read tolerantly; write canonical data.
 - `complete_task` owns scoped verification and configured changed-file deploy; do not duplicate successful sync.
