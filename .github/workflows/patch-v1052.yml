@@ -23,6 +23,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Normalize patcher template escapes
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const file = 'scripts/patch-v1052.cjs';
+          let text = fs.readFileSync(file, 'utf8');
+          const before = text;
+          text = text.split('\\\\${machine').join('\\${machine');
+          if (text === before) throw new Error('Expected nested renderer interpolation marker was not found.');
+          fs.writeFileSync(file, text, 'utf8');
+          NODE
       - name: Apply bounded patch
         run: node scripts/patch-v1052.cjs
       - name: Syntax check
@@ -40,8 +51,8 @@ jobs:
       - name: Commit patched runtime
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo 'No changes to commit'
+          if git diff --quiet -- ':!scripts/patch-v1052.cjs'; then
+            echo 'No runtime changes to commit'
             exit 1
           fi
           git config user.name 'github-actions[bot]'
