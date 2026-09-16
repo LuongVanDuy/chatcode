@@ -167,7 +167,8 @@
     if (!ok) return;
     const savedPermissions = safePermissions(project), savedSafety = safeRules(project);
     await api.updateSafety(project.id, { write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow', _workspaceMode:'trusted', _allowSecrets:false, _safePermissions:savedPermissions, _safeSafety:savedSafety });
-    await render(); await refreshTerminalJobs();
+    await render();
+    await refreshTerminalJobs();
   }
 
   async function enableMachine() {
@@ -178,7 +179,8 @@
     const savedPermissions = safePermissions(project), savedSafety = safeRules(project);
     await api.updateSafety(project.id, { write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow', _workspaceMode:'machine', _allowSecrets:true, _safePermissions:savedPermissions, _safeSafety:savedSafety });
     await api.guardianResume?.();
-    await render(); await refreshTerminalJobs();
+    await render();
+    await refreshTerminalJobs();
   }
 
   async function enableSafe() {
@@ -188,10 +190,12 @@
     const permissions = safePermissions(project), rules = safeRules(project);
     await api.updateSafety(project.id, { ...rules, _workspaceMode:'safe', _allowSecrets:false, _safePermissions:permissions, _safeSafety:rules });
     await api.updateProject({ id:project.id, permissions });
-    await render(); await refreshTerminalJobs();
+    await render();
+    await refreshTerminalJobs();
   }
 
-  async function stopAll() { await api.guardianStopAll?.(); await render(); await refreshTerminalJobs(); }
+  async function stopAll() { await api.guardianStopAll?.(); await render();
+    await refreshTerminalJobs(); }
   async function resumeGuardian() { await api.guardianResume?.(); await render(); }
 
   async function toggleSecrets(event) {
