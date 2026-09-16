@@ -1,4 +1,5 @@
 name: Patch v151 Final Hardening
+# retry after checklist compaction
 
 on:
   workflow_dispatch:
