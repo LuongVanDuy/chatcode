@@ -159,6 +159,38 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(completes,1);
   assert.equal(completed.skill_receipt.contract_version,6);
 
+  // FTP-only failure is retryable on the same prepared Bricks task. The receipt
+  // must survive deploy_failed and be cleared only after the retry completes.
+  let retryFinishCalls = 0;
+  const retryApi = {
+    async inspectProject(){ return { ...bricksContext, skills:[skill] }; },
+    async prepareTask(){ return {
+      ok:true, status:'ready', task_id:'task-retry', work_session_id:'task-retry', execution_path:'DEEP', context:bricksContext,
+      project_profile:{ facts:{ bricks_version:'2.3.13' } }, skills:[skill], agent_contract:{ guidance:[] }
+    }; },
+    async completeTask(){ return { ok:false, status:'deploy_failed', task_id:'task-retry', work_session_id:'task-retry', ftp_deploy:{ ok:false, status:'failed' } }; },
+    async workStatus(){ return { status:'completed', project_id:'p1', project:'fixture', changed_files:['home.css'] }; },
+    async startWork(){ return { work_session_id:'task-retry' }; },
+    async applyPatch(){ return { ok:true }; },
+    async applyAndVerify(){ return { ok:true }; },
+    async writeFile(){ return { ok:true }; },
+    async deleteFile(){ return { ok:true }; },
+    async renameFile(){ return { ok:true }; },
+    async runTask(){ return { ok:true }; },
+    async exec(){ return { status:'completed', exit_code:0 }; },
+    async finishWork(){ retryFinishCalls++; return { ok:true, status:'completed', work_session_id:'task-retry' }; },
+    async rollbackWork(){ return { status:'rolled_back' }; }
+  };
+  const retryEnforced = createBricksSkillEnforcerApi(retryApi, store);
+  await retryEnforced.prepareTask('p1','Deploy retry receipt regression',8,{});
+  const deployFailed = await retryEnforced.completeTask('task-retry','patch',[]);
+  assert.equal(deployFailed.status,'deploy_failed');
+  assert.ok(retryEnforced.bricksSkillReceipt('task-retry'),'deploy_failed must retain the prepared Bricks receipt');
+  const deployRetried = await retryEnforced.finishWork('task-retry');
+  assert.equal(deployRetried.status,'completed');
+  assert.equal(retryFinishCalls,1,'finish_work must retry on the same prepared task');
+  assert.equal(retryEnforced.bricksSkillReceipt('task-retry'),null,'completed retry must clear the receipt');
+
   let bootstrapStarts = 0;
   let signalStart;
   let releaseStart;

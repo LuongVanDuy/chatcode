@@ -24,7 +24,7 @@ const HARD_RULES = [
 ].join('\n');
 
 function normalizeRef(value) { return String(value || '').trim().toLowerCase(); }
-function terminalStatus(value) { return /^(?:completed|finished|rolled_back|cancelled|canceled|failed|deploy_failed)$/i.test(String(value || '')); }
+function terminalStatus(value) { return /^(?:completed|finished|rolled_back|cancelled|canceled|failed)$/i.test(String(value || '')); }
 
 function receiptRootFingerprint(project = {}) {
   return crypto.createHash('sha256').update(String(project?.root || '')).digest('hex').slice(0,16);
