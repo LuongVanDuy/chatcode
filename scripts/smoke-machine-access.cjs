@@ -7,6 +7,7 @@ const path = require('path');
 const { createStore } = require('../core/store');
 const { createSupportService, installChildProcessAudit } = require('../core/support');
 const { guardianStop, guardianResume, guardianSnapshot } = require('../core/machine-access');
+const { createConnectionService } = require('../core/connection');
 
 (async () => {
   const temp = await fsp.mkdtemp(path.join(os.tmpdir(), 'chatcode-machine-'));
@@ -38,6 +39,33 @@ const { guardianStop, guardianResume, guardianSnapshot } = require('../core/mach
     })
   }];
   store.write(state);
+
+  // Guardian must suspend the actual MCP endpoint, not only an in-memory write guard.
+  let ensureCalls = 0, resetCalls = 0;
+  const connectionStore = {
+    connectionConfig:() => ({ mode:'quick', domain:'', hasTunnelToken:false }),
+    read:() => ({ settings:{ autoReconnect:false }, connection:{ mode:'quick' } }),
+    ensure:() => ({ settings:{ autoReconnect:false }, connection:{ mode:'quick' } })
+  };
+  const connection = createConnectionService({
+    app:{ getPath:() => temp, getVersion:() => 'test' },
+    safeStorage:{ isEncryptionAvailable:() => false },
+    store:connectionStore, port:47820,
+    ensureMcpServer:async () => { ensureCalls++; return { localUrl:'http://127.0.0.1:47820', route:'/mcp' }; },
+    resetMcpServer:async () => { resetCalls++; },
+    getMcpRuntime:() => null, onChanged:() => {}
+  });
+  await connection.suspendMcp();
+  assert.equal(resetCalls, 1, 'STOP ALL must close the local MCP endpoint');
+  const beforeEnsure = ensureCalls;
+  const suspendedStart = await connection.start();
+  assert.equal(ensureCalls, beforeEnsure, 'watchdog/manual reconnect must not recreate MCP while Guardian is stopped');
+  assert.equal(suspendedStart.status, 'guardian-stopped');
+  connection.shutdown();
+
+  const mainSource = await fsp.readFile(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert(mainSource.includes('connection?.suspendMcp?.()'), 'main STOP ALL must suspend MCP connectivity');
+  assert(mainSource.includes('connection?.resumeMcp?.()'), 'only local Guardian resume path should restore MCP connectivity');
 
   const project = store.getProject('machine-test');
   assert.equal(project.workspaceMode, 'machine');

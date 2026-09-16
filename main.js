@@ -119,12 +119,14 @@ function saveSettings(incoming = {}) {
 async function guardianStopAll(reason = 'user') {
   const state = guardianStop(reason);
   try { await safeTools.shutdownTerminalJobs?.(); } catch {}
+  try { await connection?.suspendMcp?.(); } catch { try { await resetMcpServer(); } catch {} }
   send('guardian:changed', state);
   updateTrayMenu();
   return state;
 }
-function guardianResumeFromUi() {
+async function guardianResumeFromUi() {
   const state = guardianResume();
+  try { await connection?.resumeMcp?.(); } catch {}
   send('guardian:changed', state);
   updateTrayMenu();
   return state;
