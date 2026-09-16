@@ -1,4 +1,5 @@
 name: Patch v151 FTP Windows
+# retry after structural report patch fix
 
 on:
   workflow_dispatch:
