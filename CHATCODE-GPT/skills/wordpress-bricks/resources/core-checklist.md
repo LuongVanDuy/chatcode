@@ -11,7 +11,7 @@ Loaded for every WordPress + Bricks task. Domain packs own detailed rules.
 - **Bricks element ID is task-local evidence.** Existing IDs used by CSS/selectors/query targets/migrations must come from the current persisted Bricks tree. Do not reuse IDs from chat history, clones, frontend DOM/export or another project.
 - **Attachment/media IDs are site-local evidence.** Numeric IDs introduced by a patch must be verified as current WordPress attachments in this task/project; URL, filename or old code is not proof.
 - Search/Brain first, then read project-owned code. Open WP/Bricks/Woo core only for a concrete missing dependency.
-- Reuse the **correct functional owner**, not the first candidate. Low confidence means one targeted proof/read, then a bounded fallback. Zero-file defaults never justify the wrong owner.
+- Reuse the correct functional owner, not the first candidate. Low confidence means one targeted proof/read, then a bounded fallback. Zero-file defaults never justify the wrong owner.
 - Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. **Small fixes** to existing owner code may stay there; new features/migrations/large inline JS should use the correct module. **Zero new** files is a preference, not a permission gate.
 - Prefer native Bricks structure/dynamic data and preserve unrelated Builder/user edits.
 
