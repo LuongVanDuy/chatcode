@@ -14,6 +14,7 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
   let watchdogTimer = null;
   let reconnectAttempt = 0;
   let quitting = false;
+  let mcpSuspended = false;
   let tunnel = { status: 'stopped', publicBaseUrl: '', error: '', mode: 'custom' };
   const health = { localOk:false, publicOk:false, localMs:0, publicMs:0, lastCheckAt:'', consecutiveFailures:0, reconnectCount:0, lastReconnectAt:'', lastDisconnectReason:'', nextRetryAt:'', lastCloudflaredError:'' };
 
@@ -46,7 +47,7 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
       connectionUrl: tunnel.publicBaseUrl && runtime ? `${tunnel.publicBaseUrl}${runtime.route}` : '',
       uptimeSec: Math.floor(process.uptime()),
       health: { ...health },
-      watchdog: { autoReconnect: store.read().settings.autoReconnect, reconnectAttempt }
+      watchdog: { autoReconnect: store.read().settings.autoReconnect, reconnectAttempt, mcpSuspended }
     };
   }
 
@@ -56,7 +57,7 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
   }
   function schedule(reason = 'Mất kết nối') {
     const state = store.read();
-    if (quitting || intentionalStop || !state.settings.autoReconnect) return;
+    if (quitting || mcpSuspended || intentionalStop || !state.settings.autoReconnect) return;
     if (state.connection.mode === 'custom' && (!state.connection.domain || !state.connection.tunnelTokenEnc)) return;
     if (reconnectTimer) return;
     const delay = BACKOFF[Math.min(reconnectAttempt, BACKOFF.length - 1)];
@@ -180,6 +181,11 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
   }
 
   async function start({ fromWatchdog = false } = {}) {
+    if (mcpSuspended) {
+      tunnel = { status:'guardian-stopped', publicBaseUrl:'', error:'STOP ALL đang bật.', mode:store.read().connection.mode };
+      notify();
+      return snapshot();
+    }
     await ensureMcpServer();
     if (!fromWatchdog) clearRetry();
     intentionalStop = false;
@@ -204,7 +210,7 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
   }
 
   async function watchdogCheck() {
-    if (quitting) return;
+    if (quitting || mcpSuspended) return;
     const local = await probe(`http://127.0.0.1:${port}/health`, 3000);
     health.localOk = local.ok; health.localMs = local.ms; health.lastCheckAt = new Date().toISOString();
     if (!local.ok) {
@@ -369,11 +375,26 @@ function createConnectionService({ app, safeStorage, store, port, ensureMcpServe
     return { ok:checks.every(item => item.ok), checks, snapshot:{ status:snap.status, domain:snap.domain, mode:snap.mode, health:snap.health, watchdog:snap.watchdog, version:app.getVersion(), projectCount:store.read().projects.length } };
   }
 
+  async function suspendMcp() {
+    mcpSuspended = true;
+    await stop({ intentional:true });
+    await resetMcpServer();
+    tunnel = { status:'guardian-stopped', publicBaseUrl:'', error:'STOP ALL đang bật.', mode:store.read().connection.mode };
+    notify();
+    return snapshot();
+  }
+
+  async function resumeMcp() {
+    mcpSuspended = false;
+    intentionalStop = false;
+    return start();
+  }
+
   const report = diagnostic => JSON.stringify({ generatedAt:new Date().toISOString(), app:'ChatCode Cá Nhân', version:app.getVersion(), platform:process.platform, ...diagnostic }, null, 2);
-  function resume() { watchdogCheck().catch(() => {}); if (store.read().settings.autoReconnect && tunnel.status !== 'connected') schedule('Máy vừa resume'); }
+  function resume() { if (mcpSuspended) return; watchdogCheck().catch(() => {}); if (store.read().settings.autoReconnect && tunnel.status !== 'connected') schedule('Máy vừa resume'); }
   function shutdown() { quitting = true; clearRetry(); if (watchdogTimer) clearInterval(watchdogTimer); if (proc && !proc.killed) { proc.__chatcodeIntentional = true; try { proc.kill(); } catch {} } }
 
-  return { snapshot, start, stop, saveConfig, clearToken, rotate, diagnose, report, restartWatchdog, resume, shutdown };
+  return { snapshot, start, stop, suspendMcp, resumeMcp, saveConfig, clearToken, rotate, diagnose, report, restartWatchdog, resume, shutdown };
 }
 
 module.exports = { createConnectionService };

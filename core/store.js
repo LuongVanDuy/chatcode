@@ -106,17 +106,18 @@ function normalizeSafetyRules(raw = {}) {
 
 function normalizeSafety(raw = {}) {
   const rules = normalizeSafetyRules(raw);
-  const workspaceMode = raw?._workspaceMode === 'trusted' ? 'trusted' : 'safe';
+  const requestedMode = String(raw?._workspaceMode || 'safe');
+  const workspaceMode = requestedMode === 'machine' ? 'machine' : requestedMode === 'trusted' ? 'trusted' : 'safe';
   const safePermissions = normalizePermissions(raw?._safePermissions || {});
   const safeSafety = normalizeSafetyRules(raw?._safeSafety || rules);
   const out = {
     ...rules,
     _workspaceMode: workspaceMode,
-    _allowSecrets: workspaceMode === 'trusted' && !!raw?._allowSecrets,
+    _allowSecrets: workspaceMode === 'machine' || (workspaceMode === 'trusted' && !!raw?._allowSecrets),
     _safePermissions: safePermissions,
     _safeSafety: safeSafety
   };
-  if (workspaceMode === 'trusted') {
+  if (workspaceMode !== 'safe') {
     for (const action of SAFETY_ACTIONS) out[action] = 'allow';
   }
   return out;
@@ -139,13 +140,13 @@ function createStore(app, port) {
       const projectProfile = normalizeProjectProfile(project.projectProfile, project.projectRules);
       safety._safePermissions = safePermissions;
       safety._safeSafety = safeSafety;
-      const permissions = workspaceMode === 'trusted' ? { ...FULL_PERMISSIONS } : rawPermissions;
+      const permissions = workspaceMode !== 'safe' ? { ...FULL_PERMISSIONS } : rawPermissions;
       return {
         ...project,
         projectProfile,
         projectRules:projectProfile.decisions,
         workspaceMode,
-        trusted: { allowSecrets:workspaceMode === 'trusted' && !!safety._allowSecrets, allowGitPush:false },
+        trusted: { allowSecrets:workspaceMode === 'machine' || (workspaceMode === 'trusted' && !!safety._allowSecrets), allowGitPush:workspaceMode === 'machine' },
         safePermissions,
         safeSafety,
         permissions,

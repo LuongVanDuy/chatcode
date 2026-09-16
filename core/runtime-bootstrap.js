@@ -59,6 +59,10 @@ function installRuntimePatches() {
   // a multi-project reference. Reference projects are read-only.
   const { installProjectScopePatches } = require('./project-scope');
   installProjectScopePatches();
+  // User-enabled outer execution mode. Safe/Trusted keep every existing guard;
+  // Machine mode bypasses project/path/approval scope while Guardian stays user-only.
+  const { installMachineAccessPatches } = require('./machine-access');
+  installMachineAccessPatches();
   return true;
 }
 

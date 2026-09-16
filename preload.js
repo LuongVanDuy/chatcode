@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('personalCode', {
   removeProject: id => ipcRenderer.invoke('projects:remove', id),
   projectIndexStatus: id => ipcRenderer.invoke('projects:index-status', id),
   reindexProject: id => ipcRenderer.invoke('projects:reindex', id),
+  guardianState: () => ipcRenderer.invoke('guardian:state'),
+  guardianStopAll: () => ipcRenderer.invoke('guardian:stop-all'),
+  guardianResume: () => ipcRenderer.invoke('guardian:resume'),
 
   listFiles: id => ipcRenderer.invoke('files:list', id),
   readFile: (id, rel) => ipcRenderer.invoke('files:read', id, rel),
@@ -82,6 +85,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   onBackupsChanged: callback => ipcRenderer.on('backups:changed', () => callback()),
   onUpdateChanged: callback => ipcRenderer.on('update:changed', (_, value) => callback(value)),
   onTerminalChanged: callback => ipcRenderer.on('terminal:changed', (_, value) => callback(value)),
+  onGuardianChanged: callback => ipcRenderer.on('guardian:changed', (_, value) => callback(value)),
   onBrowserChanged: callback => ipcRenderer.on('browser:changed', (_, value) => callback(value))
 });
 

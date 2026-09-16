@@ -25,13 +25,15 @@
           <div class="v10-mode-grid">
             <button id="v10SafeMode" class="v10-mode-option"><i data-lucide="shield-check"></i><div><strong>Safe</strong><span>Permission + Safety Rules + Approval Center.</span></div></button>
             <button id="v10TrustedMode" class="v10-mode-option trusted"><i data-lucide="zap"></i><div><strong>Trusted</strong><span>Read/write/manage/task/local Git không hỏi từng action.</span></div></button>
+            <button id="v10MachineMode" class="v10-mode-option machine"><i data-lucide="monitor-up"></i><div><strong>Full Machine Access</strong><span>Mọi filesystem/ổ đĩa mà Windows nhìn thấy; không project scope hay per-action approval.</span></div></button>
           </div>
           <div id="v10TrustedOptions" class="v10-trusted-options hidden">
             <label class="v10-secret-toggle"><input id="v10AllowSecrets" type="checkbox"><div><strong>Cho phép đọc/ghi secrets trong workspace</strong><span>.env, wp-config.php, credentials… có thể được gửi vào cuộc hội thoại ChatGPT khi AI đọc chúng.</span></div></label>
             <div class="v10-boundaries"><span><i data-lucide="folder-lock"></i>File tools không thoát project root</span><span><i data-lucide="git-branch"></i>Git push: OFF</span><span><i data-lucide="terminal-square"></i>Generic terminal: ON</span></div>
           </div>
           <div id="v10ModeMessage" class="note v10-mode-note">Safe mode đang dùng các quyền và Safety Rules hiện tại.</div>
-        </article>`);
+        </article>
+        <div id="v10MachineBanner" class="v10-machine-banner hidden"><div><strong>FULL MACHINE ACCESS — ACTIVE</strong><span>AI có thể thao tác mọi filesystem mà tài khoản Windows truy cập được.</span></div><div class="v10-machine-actions"><button id="v10StopAll" class="btn danger">STOP ALL</button><button id="v10GuardianResume" class="btn hidden">Resume</button></div></div>`);
     }
     if (!$('v10TerminalRuntime')) {
       $('v10WorkspaceMode')?.insertAdjacentHTML('afterend', `
@@ -81,31 +83,45 @@
 
   async function render() {
     const project = await currentProject().catch(() => null); if (!project || !$('v10WorkspaceMode')) return;
-    const trusted = project.workspaceMode === 'trusted' || project.safety?._workspaceMode === 'trusted';
-    $('v10SafeMode')?.classList.toggle('active', !trusted);
+    const mode = project.workspaceMode || project.safety?._workspaceMode || 'safe';
+    const machine = mode === 'machine';
+    const trusted = mode === 'trusted';
+    const trustedLike = trusted || machine;
+    $('v10SafeMode')?.classList.toggle('active', !trustedLike);
     $('v10TrustedMode')?.classList.toggle('active', trusted);
-    if ($('v10ModeBadge')) { $('v10ModeBadge').textContent = trusted ? 'TRUSTED' : 'SAFE'; $('v10ModeBadge').classList.toggle('trusted', trusted); }
+    $('v10MachineMode')?.classList.toggle('active', machine);
+    if ($('v10ModeBadge')) { $('v10ModeBadge').textContent = machine ? 'FULL MACHINE' : trusted ? 'TRUSTED' : 'SAFE'; $('v10ModeBadge').classList.toggle('trusted', trusted); $('v10ModeBadge').classList.toggle('machine', machine); }
     $('v10TrustedOptions')?.classList.toggle('hidden', !trusted);
-    if ($('v10AllowSecrets')) $('v10AllowSecrets').checked = !!(project.trusted?.allowSecrets || project.safety?._allowSecrets);
-    if ($('v10ModeMessage')) $('v10ModeMessage').textContent = trusted
-      ? 'Trusted đang hoạt động: ChatGPT không cần approval cho write/rename/delete/task/stage/commit local. Recovery Snapshot vẫn giữ nguyên.'
-      : 'Safe mode đang dùng các quyền và Safety Rules hiện tại.';
-    setLegacyDisabled(trusted);
+    if ($('v10AllowSecrets')) $('v10AllowSecrets').checked = machine || !!(project.trusted?.allowSecrets || project.safety?._allowSecrets);
+    if ($('v10ModeMessage')) $('v10ModeMessage').textContent = machine
+      ? 'Full Machine Access đang hoạt động: absolute path trên mọi ổ/filesystem đều hợp lệ; project scope, owner scope và per-action approval không chặn file/terminal. Quyền Windows vẫn áp dụng.'
+      : trusted
+        ? 'Trusted đang hoạt động: ChatGPT không cần approval cho write/rename/delete/task/stage/commit local trong project. Recovery Snapshot vẫn giữ nguyên.'
+        : 'Safe mode đang dùng các quyền và Safety Rules hiện tại.';
+    setLegacyDisabled(trustedLike);
 
-    $('v10TerminalRuntime')?.classList.toggle('v10-terminal-disabled', !trusted);
-    if ($('v10TerminalRun')) $('v10TerminalRun').disabled = !trusted;
-    if ($('v10TerminalCommand')) $('v10TerminalCommand').disabled = !trusted;
-    if ($('v10TerminalCwd')) $('v10TerminalCwd').disabled = !trusted;
-    if ($('v10TerminalBackground')) $('v10TerminalBackground').disabled = !trusted;
-    if ($('v10TerminalBadge')) { $('v10TerminalBadge').textContent = trusted ? 'READY' : 'SAFE'; $('v10TerminalBadge').classList.toggle('trusted', trusted); }
-    if ($('v10TerminalNotice')) $('v10TerminalNotice').textContent = trusted
-      ? 'Terminal dùng cwd bên trong project và chạy ẩn. Lưu ý: đây không phải OS sandbox; process vẫn có quyền filesystem của tài khoản Windows. Git push/reset --hard vẫn bị khóa.'
-      : 'Generic terminal chỉ bật ở Trusted Workspace. Safe vẫn dùng run_task với command allowlist.';
+    $('v10TerminalRuntime')?.classList.toggle('v10-terminal-disabled', !trustedLike);
+    if ($('v10TerminalRun')) $('v10TerminalRun').disabled = !trustedLike;
+    if ($('v10TerminalCommand')) $('v10TerminalCommand').disabled = !trustedLike;
+    if ($('v10TerminalCwd')) { $('v10TerminalCwd').disabled = !trustedLike; $('v10TerminalCwd').title = machine ? 'Có thể dùng absolute path trên bất kỳ ổ/filesystem nào' : 'Thư mục làm việc tương đối trong project'; }
+    if ($('v10TerminalBackground')) $('v10TerminalBackground').disabled = !trustedLike;
+    if ($('v10TerminalBadge')) { $('v10TerminalBadge').textContent = machine ? 'MACHINE' : trusted ? 'READY' : 'SAFE'; $('v10TerminalBadge').classList.toggle('trusted', trusted); $('v10TerminalBadge').classList.toggle('machine', machine); }
+    if ($('v10TerminalNotice')) $('v10TerminalNotice').textContent = machine
+      ? 'Full Machine terminal không khóa cwd hay command theo project. Có thể dùng absolute cwd trên C:, D:, E:, network/mounted drives… theo quyền Windows.'
+      : trusted
+        ? 'Terminal dùng cwd bên trong project và chạy ẩn. Đây không phải OS sandbox; Git push/reset --hard vẫn bị khóa.'
+        : 'Generic terminal chỉ bật ở Trusted Workspace hoặc Full Machine Access. Safe vẫn dùng run_task với command allowlist.';
+
+    const guardian = await api.guardianState?.().catch(() => ({ stopped:false }));
+    $('v10MachineBanner')?.classList.toggle('hidden', !machine);
+    $('v10MachineBanner')?.classList.toggle('stopped', !!guardian?.stopped);
+    if ($('v10StopAll')) { $('v10StopAll').disabled = !!guardian?.stopped; $('v10StopAll').textContent = guardian?.stopped ? 'STOPPED' : 'STOP ALL'; }
+    $('v10GuardianResume')?.classList.toggle('hidden', !machine || !guardian?.stopped);
 
     const pills = $('permissionPills');
     if (pills) {
       pills.querySelectorAll('.v10-workspace-pill').forEach(x => x.remove());
-      pills.insertAdjacentHTML('afterbegin', `<span class="pill on v10-workspace-pill ${trusted?'trusted':''}">${trusted?'Trusted':'Safe'}</span>`);
+      pills.insertAdjacentHTML('afterbegin', `<span class="pill on v10-workspace-pill ${machine?'machine':trusted?'trusted':''}">${machine?'Full Machine':trusted?'Trusted':'Safe'}</span>`);
     }
   }
 
@@ -134,8 +150,8 @@
 
   async function runTerminal() {
     const project = await currentProject(); if (!project) return;
-    const trusted = project.workspaceMode === 'trusted' || project.safety?._workspaceMode === 'trusted';
-    if (!trusted) throw new Error('Hãy bật Trusted Workspace trước khi dùng generic terminal.');
+    const mode = project.workspaceMode || project.safety?._workspaceMode || 'safe';
+    if (!['trusted','machine'].includes(mode)) throw new Error('Hãy bật Trusted Workspace hoặc Full Machine Access trước khi dùng generic terminal.');
     const command = String($('v10TerminalCommand')?.value || '').trim(); if (!command) return;
     const cwd = String($('v10TerminalCwd')?.value || '.').trim() || '.';
     const background = !!$('v10TerminalBackground')?.checked;
@@ -155,15 +171,32 @@
     await refreshTerminalJobs();
   }
 
+  async function enableMachine() {
+    const project = await currentProject(); if (!project) return;
+    if (project.workspaceMode === 'machine' || project.safety?._workspaceMode === 'machine') return;
+    const ok = confirm('Bật Full Machine Access?\n\nAI sẽ được coi là đã được bạn ủy quyền trước cho file/terminal trên toàn bộ máy: mọi ổ đĩa, thư mục, project và secrets mà tài khoản Windows có quyền truy cập. Không có project-root scope hay per-action approval.\n\nSTOP ALL (Ctrl+Shift+F12) vẫn luôn thuộc quyền người dùng.');
+    if (!ok) return;
+    const savedPermissions = safePermissions(project), savedSafety = safeRules(project);
+    await api.updateSafety(project.id, { write:'allow', rename:'allow', delete:'allow', task:'allow', gitStage:'allow', gitCommit:'allow', _workspaceMode:'machine', _allowSecrets:true, _safePermissions:savedPermissions, _safeSafety:savedSafety });
+    await api.guardianResume?.();
+    await render();
+    await refreshTerminalJobs();
+  }
+
   async function enableSafe() {
     const project = await currentProject(); if (!project) return;
-    if (!(project.workspaceMode === 'trusted' || project.safety?._workspaceMode === 'trusted')) return;
+    const mode = project.workspaceMode || project.safety?._workspaceMode || 'safe';
+    if (mode === 'safe') return;
     const permissions = safePermissions(project), rules = safeRules(project);
     await api.updateSafety(project.id, { ...rules, _workspaceMode:'safe', _allowSecrets:false, _safePermissions:permissions, _safeSafety:rules });
     await api.updateProject({ id:project.id, permissions });
     await render();
     await refreshTerminalJobs();
   }
+
+  async function stopAll() { await api.guardianStopAll?.(); await render();
+    await refreshTerminalJobs(); }
+  async function resumeGuardian() { await api.guardianResume?.(); await render(); }
 
   async function toggleSecrets(event) {
     const project = await currentProject(); if (!project) return;
@@ -181,6 +214,9 @@
     $('v10WorkspaceMode').dataset.bound = '1';
     $('v10SafeMode')?.addEventListener('click', () => enableSafe().catch(error => alert(error.message || error)));
     $('v10TrustedMode')?.addEventListener('click', () => enableTrusted().catch(error => alert(error.message || error)));
+    $('v10MachineMode')?.addEventListener('click', () => enableMachine().catch(error => alert(error.message || error)));
+    $('v10StopAll')?.addEventListener('click', () => stopAll().catch(error => alert(error.message || error)));
+    $('v10GuardianResume')?.addEventListener('click', () => resumeGuardian().catch(error => alert(error.message || error)));
     $('v10AllowSecrets')?.addEventListener('change', event => toggleSecrets(event).catch(error => { event.target.checked=!event.target.checked; alert(error.message || error); }));
     $('v10TerminalRun')?.addEventListener('click', () => runTerminal().catch(error => alert(error.message || error)));
     $('v10TerminalRefresh')?.addEventListener('click', () => refreshTerminalJobs().catch(error => alert(error.message || error)));
@@ -197,5 +233,6 @@
     if (event.target.closest('[data-project], [data-dproject], [data-project-tab="permissions"]')) setTimeout(() => { mount(); render(); refreshTerminalJobs(); }, 180);
   });
   api.onTerminalChanged?.(job => { if (!job?.project_id || job.project_id === activeProjectId()) setTimeout(() => refreshTerminalJobs().catch(() => {}), 80); });
+  api.onGuardianChanged?.(() => setTimeout(() => render().catch(() => {}), 50));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once:true }); else mount();
 })();
