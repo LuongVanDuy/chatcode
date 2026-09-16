@@ -37,6 +37,10 @@ function installRuntimePatches() {
   // Base mandatory policy attaches/routs WordPress + Bricks skill content.
   const { installSkillPolicyPatches } = require('./skill-policy');
   installSkillPolicyPatches();
+  // Optional WordPress database capability is installed before the Bricks receipt
+  // enforcer so database query/mutation paths cannot bypass task-bound skill policy.
+  const { installDatabaseRuntimePatches } = require('./database-runtime');
+  installDatabaseRuntimePatches();
   // Final Bricks enforcement layer upgrades mandatory from project-level priming to
   // task-bound receipts: inspect/read never authorize mutation; prepare_task does.
   const { installBricksSkillEnforcerPatches } = require('./bricks-skill-enforcer');
@@ -46,10 +50,6 @@ function installRuntimePatches() {
   // keep code/deploy/live verification states separate.
   const { installBricksEvidencePatches } = require('./bricks-evidence');
   installBricksEvidencePatches();
-  // Optional WordPress database capability: bounded server-side bridge/one-shot fallback.
-  // It is installed before Project Scope so every action inherits the same task/project lane.
-  const { installDatabaseRuntimePatches } = require('./database-runtime');
-  installDatabaseRuntimePatches();
   // Git is an explicit integration, not a default coding dependency. Install the
   // lazy boundary before Project Scope so explicit Git calls still inherit scope guards.
   const { installGitLazyPatches } = require('./git-lazy');

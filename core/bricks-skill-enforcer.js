@@ -72,7 +72,7 @@ function createBricksSkillEnforcerApi(api, store) {
 
   const names = [
     'inspectProject','prepareTask','completeTask','startWork','applyPatch','applyAndVerify','finishWork','rollbackWork','workStatus',
-    'writeFile','deleteFile','renameFile','runTask','exec'
+    'writeFile','deleteFile','renameFile','runTask','exec','databaseOp'
   ];
   const original = {};
   for (const name of names) if (typeof api[name] === 'function') original[name] = api[name].bind(api);
@@ -290,6 +290,23 @@ function createBricksSkillEnforcerApi(api, store) {
       return original[name](ref,...args);
     };
   }
+
+
+if (original.databaseOp) {
+  api.databaseOp = async (ref, input = {}) => {
+    const action = String(input?.action || 'inspect').trim().toLowerCase();
+    if (isInternalComplete() || !modern || action === 'inspect' || action === 'rollback') return original.databaseOp(ref,input);
+    const policy = await detect(ref);
+    if (policy.active) {
+      const taskId = String(input?.task_id || '');
+      if (!receiptValid(taskId,ref)) required(ref,`database_${action}`,{
+        task_id:taskId,
+        reason:'database query/mutation on Bricks must be bound to the current prepared task receipt'
+      });
+    }
+    return original.databaseOp(ref,input);
+  };
+}
 
   if (original.exec) {
     api.exec = async (ref, command, opts = {}) => {

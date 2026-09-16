@@ -314,8 +314,8 @@ function buildTaskCard({ request, inspect = {}, projectRules = [], projectProfil
       primary_symbol:primary?.symbol || null,
       confidence:primary?.confidence || 0,
       candidates:ownerCandidates.map(item => item.path).slice(0,limit),
-      companions:(resolved.companion_paths || []).slice(0,3),
-      enforce_paths:(resolved.enforce_paths || []).slice(0,3),
+      companions:(explicitPaths.length ? [] : (resolved.companion_paths || [])).slice(0,3),
+      enforce_paths:(explicitPaths.length ? explicitPaths : (resolved.enforce_paths || [])).slice(0,3),
       requires_read:!!resolved.requires_owner_read,
       basis:primary ? `${primary.source}: ${(primary.evidence || []).join('; ') || 'existing ownership evidence'}` : 'no owner evidence in current task context'
     },

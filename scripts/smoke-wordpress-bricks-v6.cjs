@@ -97,7 +97,7 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
     id:'wordpress-bricks', name:'WordPress + Bricks Native Delivery', version:5, mandatory:true, domains:['bricks'],
     bricks_detected_version:'2.3.13', bricks_spec_version:'2.3.13', bricks_spec_status:'exact', instructions:'base skill'
   };
-  let writes = 0, patches = 0, execs = 0, completes = 0, rollbacks = 0;
+  let writes = 0, patches = 0, execs = 0, completes = 0, rollbacks = 0, databaseCalls = 0;
   const baseApi = {
     async inspectProject(){ return { ...bricksContext, skills:[skill] }; },
     async prepareTask(){ return {
@@ -114,6 +114,7 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
     async renameFile(){ return { ok:true }; },
     async runTask(){ return { ok:true }; },
     async exec(){ execs++; return { status:'completed', exit_code:0 }; },
+    async databaseOp(_ref,input){ databaseCalls++; return { ok:true, action:String(input?.action || 'inspect') }; },
     async finishWork(){ return { status:'completed' }; },
     async rollbackWork(){ rollbacks++; return { status:'rolled_back' }; }
   };
@@ -127,6 +128,10 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   assert.equal(writes,0,'inspect must not prime low-level writes');
   await assert.rejects(() => enforced.startWork('p1','bypass'), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
   await assert.rejects(() => enforced.applyAndVerify('p1',[],[]), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
+  await enforced.databaseOp('p1',{ action:'inspect' });
+  await assert.rejects(() => enforced.databaseOp('p1',{ action:'query', sql:'SELECT 1' }), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
+  await assert.rejects(() => enforced.databaseOp('p1',{ action:'mutate', task_id:'task-1' }), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
+  assert.equal(databaseCalls,1);
 
   await enforced.rollbackWork('orphan-recovery');
   assert.equal(rollbacks,1,'rollback recovery must remain available without a receipt');
@@ -144,6 +149,10 @@ assert.equal(detectBricksVersion({ ...augmented, project_profile:{ facts:{ brick
   await assert.rejects(() => enforced.writeFile('p1','x.php','x'), error => error?.code === 'BRICKS_SKILL_TASK_REQUIRED');
   await enforced.applyPatch('p1','patch','task-1');
   await enforced.exec('p1','php -l x.php',{ work_session_id:'task-1' });
+  await enforced.databaseOp('p1',{ action:'query', task_id:'task-1', sql:'SELECT 1' });
+  await enforced.databaseOp('p1',{ action:'mutate', task_id:'task-1' });
+  await enforced.databaseOp('p1',{ action:'rollback', task_id:'task-1', recovery_id:'recovery-fixture' });
+  assert.equal(databaseCalls,4);
   assert.equal(patches,1);
   assert.equal(execs,1);
   const completed = await enforced.completeTask('task-1','patch',[]);
