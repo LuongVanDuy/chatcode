@@ -116,7 +116,7 @@ function Download-Hash([string]$remote, [switch]$AllowMissing) {
   } finally { if (Test-Path -LiteralPath $download) { Remove-Item -LiteralPath $download -Force } }
 }
 function Delete-OwnedRemote([string]$remote) {
-  # Called only for this run's GUID staging/probe files, never a manifest target.
+  # Called only for this run's GUID staging/probe files or a caller-validated one-shot DB helper; never a manifest target.
   $r = Invoke-Ftp ($script:remoteBase + '/') @('list-only', (Config-Line 'quote' ('DELE ' + $remote)))
   return $r
 }
@@ -199,76 +199,20 @@ try {
   $items = @()
   if ($DeleteOwned) {
     $rel = ([string]$DeleteOwned).Replace('\','/')
-    if ($rel -notmatch '^wp-content/chatcode-db-once-[a-f0-9]{24}\.php
-    $probeName = 'chatcode-ftp-probe-' + [Guid]::NewGuid().ToString('N') + '.txt'
-    $snapshot = Join-Path $scratch 'probe.txt'
-    [IO.File]::WriteAllText($snapshot, "ChatCode FTP probe $probeName`r`n", $utf8)
-    $script:probePath = $remoteBase + '/' + $probeName
-    $items = @(@{path=$probeName; local=$snapshot; snapshot=$snapshot; sha256=(Hash-File $snapshot)})
-  } else {
-    if (-not $Manifest) { $Manifest = Join-Path $root '.chatcode/ftp-files.json' }
-    $parsed = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Manifest).ProviderPath, $utf8) | ConvertFrom-Json
-    if ($parsed.PSObject.Properties['files'] -and $parsed.files -isnot [Array]) { throw 'Manifest files must be a JSON array' }
-    $files = if ($parsed -is [Array]) { $parsed } elseif ($parsed.PSObject.Properties['files']) { $parsed.files } else { throw 'Manifest must be a JSON array or an object with files[]' }
-    if (@($files).Count -lt 1 -or @($files).Count -gt 500) { throw 'Manifest must contain 1..500 files; lists are never silently truncated' }
-    $seen = @{}
-    foreach ($file in $files) {
-      if ($file -isnot [string]) { throw 'Every manifest entry must be a relative filename string' }
-      $item = Resolve-UploadPath $file
-      if ($seen.ContainsKey($item.path)) { continue }
-      $seen[$item.path] = $true
-      $item.snapshot = Join-Path $scratch ([Guid]::NewGuid().ToString('N') + '.upload')
-      [IO.File]::Copy($item.local, $item.snapshot)
-      $item.sha256 = Hash-File $item.snapshot
-      $items += $item
-    }
-  }
-  if ($DryRun) {
-    foreach ($item in $items) { $results.Add(@{file=$item.path; status='planned'; sha256=$item.sha256}) }
-  } else {
-    foreach ($item in $items) {
-      $result = Publish-File $item
-      $results.Add($result)
-      Write-Host ("FTP {0}: {1}" -f $result.status, $item.path)
-      if ($result.status -eq 'failed') { $exitCode=2; break }
-    }
-    if ($Probe -and $exitCode -eq 0) {
-      $again = Publish-File $items[0]
-      if ($again.status -ne 'unchanged') { throw 'Probe repeat should detect identical remote content' }
-    }
-  }
-} catch {
-  $exitCode = 2
-  $results.Add(@{status='failed'; error=(Safe-Message $_.Exception.Message)})
-} finally {
-  if ($probePath -and -not $DryRun) {
-    try {
-      Require-Ok (Delete-OwnedRemote $probePath)
-      if ((Download-Hash $probePath -AllowMissing) -ne '') { throw 'Probe still exists after cleanup' }
-    } catch { $exitCode=2; $cleanupWarnings.Add((Safe-Message $_.Exception.Message)) }
-  }
-  if ($scratch -and (Test-Path -LiteralPath $scratch)) {
-    # scratch is this invocation's GUID directory directly below the OS temp directory.
-    $resolvedScratch = [IO.Path]::GetFullPath($scratch)
-    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
-    if ($resolvedScratch.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path $resolvedScratch -Leaf) -match '^chatcode-ftp-[a-f0-9]{32}$') {
-      Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
-    }
-  }
-}
-$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0
-$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0
-$report = @{ok=($exitCode -eq 0); mode=$(if ($DeleteOwned) {'owned_delete'} elseif ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); deleted=$ownedDeleted; absent=$ownedAbsent; curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}
-if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }
-$report | ConvertTo-Json -Depth 6
-exit $exitCode) { throw 'DeleteOwned is restricted to ChatCode one-shot DB helpers' }
-    $ownedRemote = $remoteBase + '/' + $rel
-    if ((Download-Hash $ownedRemote -AllowMissing) -eq '') {
-      $results.Add(@{file=$rel; status='absent'})
+    if ($rel -notmatch '^wp-content/chatcode-db-once-[a-f0-9]{24}\.php$') { throw 'DeleteOwned is restricted to ChatCode one-shot DB helpers' }
+    if ($DryRun) {
+      $results.Add(@{file=$rel; status='planned-delete'})
     } else {
-      Require-Ok (Delete-OwnedRemote $ownedRemote)
-      if ((Download-Hash $ownedRemote -AllowMissing) -ne '') { throw 'Owned helper still exists after delete' }
-      $results.Add(@{file=$rel; status='deleted'})
+      $ownedRemote = $remoteBase + '/' + $rel
+      $deleteResult = Delete-OwnedRemote $ownedRemote
+      if ($deleteResult.code -eq 0) {
+        if ((Download-Hash $ownedRemote -AllowMissing) -ne '') { throw 'Owned helper still exists after delete' }
+        $results.Add(@{file=$rel; status='deleted'})
+      } elseif ((Download-Hash $ownedRemote -AllowMissing) -eq '') {
+        $results.Add(@{file=$rel; status='absent'})
+      } else {
+        Require-Ok $deleteResult
+      }
     }
   } elseif ($Probe) {
     $probeName = 'chatcode-ftp-probe-' + [Guid]::NewGuid().ToString('N') + '.txt'
@@ -329,5 +273,12 @@ exit $exitCode) { throw 'DeleteOwned is restricted to ChatCode one-shot DB helpe
 }
 $report = @{ok=($exitCode -eq 0); mode=$(if ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}
 if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }
+$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0
+$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0
+if ($DeleteOwned) {
+  $report['mode'] = 'owned_delete'
+  $report['deleted'] = $ownedDeleted
+  $report['absent'] = $ownedAbsent
+}
 $report | ConvertTo-Json -Depth 6
 exit $exitCode
