@@ -1,0 +1,98 @@
+name: Patch v151 FTP Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/patch-v151-ftp-windows.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.51-unified-execution-db
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore runner and add narrow owned delete
+        shell: pwsh
+        run: |
+          git show origin/main:tools/deploy-ftp.ps1 | Set-Content -LiteralPath tools/deploy-ftp.ps1 -Encoding utf8
+          @'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8-sig')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: marker count={text.count(old)} for {old[:100]!r}')
+              p.write_text(text.replace(old,new,1), encoding='utf-8')
+
+          replace_once('tools/deploy-ftp.ps1',
+              "  [string]$Manifest = '',\n  [switch]$DryRun,",
+              "  [string]$Manifest = '',\n  [string]$DeleteOwned = '',\n  [switch]$DryRun,")
+
+          replace_once('tools/deploy-ftp.ps1',
+              "  # Called only for this run's GUID staging/probe files, never a manifest target.",
+              "  # Called only for this run's GUID staging/probe files or a caller-validated one-shot DB helper; never a manifest target.")
+
+          replace_once('tools/deploy-ftp.ps1',
+              "  $items = @()\n  if ($Probe) {",
+              """  $items = @()
+  if ($DeleteOwned) {
+    $rel = ([string]$DeleteOwned).Replace('\\','/')
+    if ($rel -notmatch '^wp-content/chatcode-db-once-[a-f0-9]{24}\\.php$') { throw 'DeleteOwned is restricted to ChatCode one-shot DB helpers' }
+    if ($DryRun) {
+      $results.Add(@{file=$rel; status='planned-delete'})
+    } else {
+      $ownedRemote = $remoteBase + '/' + $rel
+      if ((Download-Hash $ownedRemote -AllowMissing) -eq '') {
+        $results.Add(@{file=$rel; status='absent'})
+      } else {
+        Require-Ok (Delete-OwnedRemote $ownedRemote)
+        if ((Download-Hash $ownedRemote -AllowMissing) -ne '') { throw 'Owned helper still exists after delete' }
+        $results.Add(@{file=$rel; status='deleted'})
+      }
+    }
+  } elseif ($Probe) {""")
+
+          replace_once('tools/deploy-ftp.ps1',
+              "$report = @{ok=($exitCode -eq 0); mode=$(if ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}",
+              "$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0\n$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0\n$report = @{ok=($exitCode -eq 0); mode=$(if ($DeleteOwned) {'owned_delete'} elseif ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); deleted=$ownedDeleted; absent=$ownedAbsent; curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}")
+
+          smoke = Path('scripts/smoke-ftp-runner.cjs')
+          text = smoke.read_text()
+          marker = "  const probe=await run({files:[]},['-Probe']);assert.equal(probe.code,0);\n  assert.ok([...files.keys()].every(p=>!p.includes('chatcode-upload-')&&!p.includes('chatcode-ftp-probe-')),'temporary remote files must be cleaned');"
+          replacement = """  const probe=await run({files:[]},['-Probe']);assert.equal(probe.code,0);
+  assert.ok([...files.keys()].every(p=>!p.includes('chatcode-upload-')&&!p.includes('chatcode-ftp-probe-')),'temporary remote files must be cleaned');
+  const ownedRel='wp-content/chatcode-db-once-'+'a'.repeat(24)+'.php';
+  files.set('/site/'+ownedRel,Buffer.from('<?php // one-shot helper'));
+  const ownedDelete=await run({files:[]},['-DeleteOwned',ownedRel]);
+  assert.equal(ownedDelete.code,0,JSON.stringify(ownedDelete.report));assert.equal(ownedDelete.report.mode,'owned_delete');assert.equal(ownedDelete.report.deleted,true);assert.equal(files.has('/site/'+ownedRel),false);
+  const connectionsBeforeInvalidDelete=connections;
+  const invalidDelete=await run({files:[]},['-DeleteOwned','wp-content/uploads/not-owned.php']);
+  assert.equal(invalidDelete.code,2);assert.equal(invalidDelete.report.curl_requests,0);assert.equal(connections,connectionsBeforeInvalidDelete,'invalid owned-delete path must fail before FTP');"""
+          if text.count(marker) != 1:
+              raise SystemExit(f'smoke marker count={text.count(marker)}')
+          smoke.write_text(text.replace(marker,replacement,1))
+          '@ | python -
+      - name: Parse and run FTP Windows regression
+        shell: pwsh
+        run: |
+          $null = [scriptblock]::Create((Get-Content -LiteralPath tools/deploy-ftp.ps1 -Raw))
+          node scripts/smoke-ftp-runner.cjs
+      - name: Commit FTP repair
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/deploy-ftp.ps1 scripts/smoke-ftp-runner.cjs
+          git diff --cached --check
+          git commit -m 'fix: restrict FTP cleanup to owned database helpers'
+          git push origin HEAD:feature/v1.0.51-unified-execution-db
