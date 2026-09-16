@@ -4,7 +4,7 @@ const { execFileSync } = require('node:child_process');
 function replaceOnce(text, oldText, newText, label) {
   const count = text.split(oldText).length - 1;
   if (count !== 1) throw new Error(`${label}: marker count=${count}`);
-  return text.replace(oldText, newText);
+  return text.replace(oldText, () => newText);
 }
 function insertBeforeLast(text, marker, insertion, label) {
   const index = text.lastIndexOf(marker);
