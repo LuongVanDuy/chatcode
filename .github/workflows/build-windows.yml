@@ -59,7 +59,8 @@ jobs:
             'core/runtime-bootstrap.js',
             'core/safety-tools.js',
             'core/projects.js',
-            'core/store.js'
+            'core/store.js',
+            'core/machine-access.js'
           ))
 
           $syntax = $all -or (Hit @('*.js','*.cjs','*.mjs'))
@@ -91,7 +92,8 @@ jobs:
             'core/trusted-workspace.js',
             'core/terminal-runtime.js',
             'core/project-scope.js',
-            'scripts/smoke-trusted.cjs'
+            'scripts/smoke-trusted.cjs',
+            'scripts/smoke-machine-access.cjs'
           ))
           $terminal = $all -or (Hit @(
             'core/terminal-runtime.js',
