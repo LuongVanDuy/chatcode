@@ -1,0 +1,51 @@
+name: Patch v1.0.52
+
+on:
+  push:
+    branches:
+      - feature/v1.0.52
+    paths:
+      - 'scripts/patch-v1052.cjs'
+      - '.github/workflows/patch-v1052.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v1.0.52
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply bounded patch
+        run: node scripts/patch-v1052.cjs
+      - name: Syntax check
+        run: |
+          node --check core/machine-access.js
+          node --check core/store.js
+          node --check core/trusted-workspace.js
+          node --check core/terminal-runtime.js
+          node --check core/runtime-bootstrap.js
+          node --check main.js
+          node --check preload.js
+          node --check renderer/v10-runtime.js
+          node --check mcp-server.mjs
+          node --check scripts/smoke-machine-access.cjs
+      - name: Commit patched runtime
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/store.js core/trusted-workspace.js core/terminal-runtime.js core/runtime-bootstrap.js main.js preload.js renderer/v10-runtime.js renderer/v10.css mcp-server.mjs package.json .github/workflows/test-chatcode-gpt-skills.yml
+          git commit -m 'feat: integrate full machine workspace mode'
+          git push origin HEAD:feature/v1.0.52
