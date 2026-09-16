@@ -272,20 +272,32 @@ function createFtpDeployApi(api, store) {
   if (typeof api.finishWork === 'function') {
     const originalFinishWork = api.finishWork.bind(api);
     api.finishWork = async (workSessionId, ...args) => {
-      if (args[1]?.cancel) return originalFinishWork(workSessionId, ...args);
+      const options = args[1] || {};
+      if (options?.cancel) return originalFinishWork(workSessionId, ...args);
       if (finishing.has(workSessionId)) return finishing.get(workSessionId);
       const run = async () => {
         let before = null;
         try { if (typeof api.workStatus === 'function') before = await api.workStatus(workSessionId); } catch {}
         const previous = finishedDeploys.get(workSessionId);
         if (before?.status === 'completed' && previous?.ftp_deploy?.ok) return previous;
-        const result = await originalFinishWork(workSessionId, ...args);
-        if (result?.status !== 'completed') return result;
-        const projectRef = result?.project_id || result?.project || before?.project_id || before?.project || '';
-        const changedFiles = result?.changed_files || before?.changed_files || [];
-        if (!projectRef) return result;
+
+        const prepared = await originalFinishWork(workSessionId, args[0] || [], { ...options, deferCompletion:true });
+        if (prepared?.status !== 'active' || prepared?.ok === false || prepared?.verification_passed === false) return prepared;
+        const projectRef = prepared?.project_id || prepared?.project || before?.project_id || before?.project || '';
+        const changedFiles = prepared?.changed_files || before?.changed_files || [];
+        if (!projectRef) return prepared;
+
         const ftp = await deployChangedFiles(api, store, projectRef, changedFiles, workSessionId);
-        const completed = shouldAttachFtpResult(ftp) ? completionWithDeployStatus({ ...result, ftp_deploy:ftp }) : result;
+        if (shouldAttachFtpResult(ftp) && ftp?.ok !== true) {
+          const failed = completionWithDeployStatus({ ...prepared, ftp_deploy:ftp });
+          finishedDeploys.set(workSessionId, failed);
+          while (finishedDeploys.size > 200) finishedDeploys.delete(finishedDeploys.keys().next().value);
+          return failed;
+        }
+
+        const committed = await originalFinishWork(workSessionId, [], { ...options, commitPrepared:true });
+        if (committed?.status !== 'completed') return committed;
+        const completed = shouldAttachFtpResult(ftp) ? { ...committed, ftp_deploy:ftp } : committed;
         finishedDeploys.set(workSessionId, completed);
         while (finishedDeploys.size > 200) finishedDeploys.delete(finishedDeploys.keys().next().value);
         return completed;

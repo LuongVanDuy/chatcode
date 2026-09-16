@@ -6,7 +6,7 @@ const PROJECT_SCOPE_TTL_MS = 6 * 60 * 60 * 1000;
 const MULTI_PROJECT_INTENT_RE = /\b(copy|clone|migrate|migration|transfer|sync|synchronize|compare|reference|refer|import|export|sao chep|di chuyen|chuyen du lieu|dong bo|so sanh|tham khao|hoc theo|giong|lay .* tu|tu .* sang|chuyen .* sang)\b/i;
 const PROJECT_SWITCH_INTENT_RE = /\b(du an|project|truy cap|ket noi|mo|switch|chuyen sang|lam|sua|build|trien khai|update|tiep theo)\b/i;
 const TERMINAL_FINAL_RE = /^(?:completed|failed|timeout|timed_out|stopped|cancelled|canceled)$/i;
-const WORK_FINAL_RE = /^(?:completed|finished|rolled_back|failed|deploy_failed|cancelled|canceled)$/i;
+const WORK_FINAL_RE = /^(?:completed|finished|rolled_back|failed|cancelled|canceled)$/i;
 
 function normalizeText(value) {
   return String(value || '')
