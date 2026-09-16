@@ -6,11 +6,12 @@ Loaded for every WordPress + Bricks task. Domain packs own detailed rules.
 
 - Lock the user-named project/root. Every new Bricks coding task goes through `prepare_task`; inspect/read never authorizes a later mutation.
 - When Bricks is detected, tell the user exactly: **“Tôi sẽ sử dụng Bricks skill.”**
+- Keep external references scoped; do not broad-search unrelated websites.
 - Use current project evidence; never guess owner, template ID, Builder tree, media ID or path.
 - **Bricks element ID is task-local evidence.** Existing IDs used by CSS/selectors/query targets/migrations must come from the current persisted Bricks tree. Do not reuse IDs from chat history, clones, frontend DOM/export or another project.
 - **Attachment/media IDs are site-local evidence.** Numeric IDs introduced by a patch must be verified as current WordPress attachments in this task/project; URL, filename or old code is not proof.
 - Search/Brain first, then read project-owned code. Open WP/Bricks/Woo core only for a concrete missing dependency.
-- Reuse the **correct functional owner**, not the first candidate. Low confidence means one targeted proof/read, then a bounded fallback.
+- Reuse the **correct functional owner**, not the first candidate. Low confidence means one targeted proof/read, then a bounded fallback. Zero-file defaults never justify the wrong owner.
 - Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. **Small fixes** to existing owner code may stay there; new features/migrations/large inline JS should use the correct module. **Zero new** files is a preference, not a permission gate.
 - Prefer native Bricks structure/dynamic data and preserve unrelated Builder/user edits.
 
@@ -30,7 +31,7 @@ Loaded for every WordPress + Bricks task. Domain packs own detailed rules.
 
 ## During editing
 
-- Make the smallest owner-scoped patch. A normal layout/template change is not a migration.
+- Make the smallest owner-scoped patch. A normal code/layout/template change is not a migration.
 - One-time setup must terminate and become a no-op after success.
 - For FTP mirrors, do not assume local WP-CLI/MySQL. Prefer the server-side database capability. A temporary helper is allowed only as authenticated, bounded, expiring one-shot fallback and must be cleaned in the same task.
 - Resolve/adopt an existing intended Bricks template by stable ID/marker, type and conditions before creating another.
