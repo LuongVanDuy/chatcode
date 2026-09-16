@@ -31,7 +31,7 @@ Normal container/grid/image/icon/text/button/slider/query composition is not a c
 ## Ownership
 
 - Reuse the correct functional owner, not merely the first existing file.
-- Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. **Small fixes** to existing code may stay in place; new features/migrations do not.
+- Keep child-theme `functions.php` for **bootstrap/require/enqueue** by default. Small fixes to existing code may stay in place; new features/migrations do not.
 - Global tokens stay global; page/component CSS stays local.
 - **Zero new** source files is a preference, not a blocker; one bounded correct owner is allowed when needed.
 
