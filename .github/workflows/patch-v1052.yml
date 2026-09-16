@@ -5,7 +5,7 @@ on:
     branches:
       - feature/v1.0.52
     paths:
-      - 'scripts/patch-v1052.cjs'
+      - 'scripts/fix-v1052-render.cjs'
       - '.github/workflows/patch-v1052.yml'
   workflow_dispatch:
 
@@ -23,41 +23,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Normalize patcher template escapes
+      - name: Repair renderer convention
+        run: node scripts/fix-v1052-render.cjs
+      - name: Verify renderer foundation and syntax
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const file = 'scripts/patch-v1052.cjs';
-          let text = fs.readFileSync(file, 'utf8');
-          const before = text;
-          text = text.split('\\\\${machine').join('\\${machine');
-          if (text === before) throw new Error('Expected nested renderer interpolation marker was not found.');
-          fs.writeFileSync(file, text, 'utf8');
-          NODE
-      - name: Apply bounded patch
-        run: node scripts/patch-v1052.cjs
-      - name: Syntax check
-        run: |
-          node --check core/machine-access.js
-          node --check core/store.js
-          node --check core/trusted-workspace.js
-          node --check core/terminal-runtime.js
-          node --check core/runtime-bootstrap.js
-          node --check main.js
-          node --check preload.js
           node --check renderer/v10-runtime.js
-          node --check mcp-server.mjs
-          node --check scripts/smoke-machine-access.cjs
-      - name: Commit patched runtime
+          node scripts/smoke-renderer-foundation.cjs
+      - name: Commit renderer repair
         shell: bash
         run: |
-          git checkout -- .github/workflows/test-chatcode-gpt-skills.yml
-          if git diff --quiet -- ':!scripts/patch-v1052.cjs'; then
-            echo 'No runtime changes to commit'
+          if git diff --quiet -- renderer/v10-runtime.js; then
+            echo 'No renderer changes to commit'
             exit 1
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add core/store.js core/trusted-workspace.js core/terminal-runtime.js core/runtime-bootstrap.js main.js preload.js renderer/v10-runtime.js renderer/v10.css mcp-server.mjs package.json
-          git commit -m 'feat: integrate full machine workspace mode'
+          git add renderer/v10-runtime.js
+          git commit -m 'fix: preserve workspace mode in-place refresh convention'
           git push origin HEAD:feature/v1.0.52
