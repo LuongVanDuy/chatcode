@@ -6,6 +6,11 @@ function replaceOnce(text, oldText, newText, label) {
   if (count !== 1) throw new Error(`${label}: marker count=${count}`);
   return text.replace(oldText, newText);
 }
+function insertBeforeLast(text, marker, insertion, label) {
+  const index = text.lastIndexOf(marker);
+  if (index < 0) throw new Error(`${label}: marker missing`);
+  return text.slice(0,index) + insertion + text.slice(index);
+}
 
 let ps = execFileSync('git', ['show', 'origin/main:tools/deploy-ftp.ps1'], { encoding:'utf8' }).replace(/^\uFEFF/, '');
 ps = replaceOnce(ps,
@@ -38,8 +43,8 @@ ps = replaceOnce(ps,
     "  } elseif ($Probe) {"
   ].join('\n'),
   'owned delete branch');
-ps = replaceOnce(ps,
-  "if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }",
+ps = insertBeforeLast(ps,
+  '$report | ConvertTo-Json -Depth 6',
   [
     "$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0",
     "$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0",
@@ -48,9 +53,9 @@ ps = replaceOnce(ps,
     "  $report['deleted'] = $ownedDeleted",
     "  $report['absent'] = $ownedAbsent",
     "}",
-    "if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }"
+    ""
   ].join('\n'),
-  'report tail');
+  'report emission');
 fs.writeFileSync('tools/deploy-ftp.ps1', ps, 'utf8');
 
 const smokePath = 'scripts/smoke-ftp-runner.cjs';
