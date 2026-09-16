@@ -1,5 +1,5 @@
 name: Patch v151 FTP Windows
-# retry from clean origin/main FTP runner source
+# retry with literal-safe patch replacement
 
 on:
   workflow_dispatch:
