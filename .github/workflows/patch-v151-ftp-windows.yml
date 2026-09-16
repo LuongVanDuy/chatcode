@@ -1,5 +1,5 @@
 name: Patch v151 FTP Windows
-# retry after final report emission patch
+# retry with normalized Windows smoke text
 
 on:
   workflow_dispatch:
