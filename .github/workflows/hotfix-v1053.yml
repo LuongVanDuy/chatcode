@@ -1,0 +1,41 @@
+name: Hotfix v1.0.53 Bricks deploy receipt
+
+on:
+  push:
+    branches: [hotfix/v1.0.53-bricks-deploy-receipt]
+    paths:
+      - 'scripts/hotfix-v1053.cjs'
+      - '.github/workflows/hotfix-v1053.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/v1.0.53-bricks-deploy-receipt
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply hotfix
+        run: node scripts/hotfix-v1053.cjs
+      - name: Targeted regression only
+        run: |
+          node --check core/bricks-skill-enforcer.js
+          node --check scripts/smoke-wordpress-bricks-v6.cjs
+          node scripts/smoke-wordpress-bricks-v6.cjs
+          node scripts/smoke-ftp-deploy.cjs
+          node scripts/smoke-completion-deploy-policy.cjs
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/bricks-skill-enforcer.js scripts/smoke-wordpress-bricks-v6.cjs package.json
+          git commit -m 'fix: preserve Bricks receipt for FTP retry'
+          git push origin HEAD:hotfix/v1.0.53-bricks-deploy-receipt
