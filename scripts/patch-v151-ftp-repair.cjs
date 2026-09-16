@@ -59,7 +59,7 @@ ps = insertBeforeLast(ps,
 fs.writeFileSync('tools/deploy-ftp.ps1', ps, 'utf8');
 
 const smokePath = 'scripts/smoke-ftp-runner.cjs';
-let smoke = fs.readFileSync(smokePath, 'utf8');
+let smoke = fs.readFileSync(smokePath, 'utf8').replace(/\r\n/g,'\n');
 const marker = "  const probe=await run({files:[]},['-Probe']);assert.equal(probe.code,0);\n  assert.ok([...files.keys()].every(p=>!p.includes('chatcode-upload-')&&!p.includes('chatcode-ftp-probe-')),'temporary remote files must be cleaned');";
 const replacement = [
   "  const probe=await run({files:[]},['-Probe']);assert.equal(probe.code,0);",
