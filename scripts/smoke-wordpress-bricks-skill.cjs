@@ -177,7 +177,7 @@ const ajaxRequest = 'Thêm AJAX tải thêm sản phẩm trang chủ';
 const ajaxCard = buildTaskCard({ request:ajaxRequest, inspect:organizationInspect });
 assert.equal(ajaxCard.execution.path, EXECUTION_PATHS.FAST, 'T1 AJAX fixture classification changed');
 assert.equal(ajaxCard.owner.primary_path, 'wp-content/themes/fixture-child/functions.php', 'T1 owner baseline changed');
-assert.equal(ajaxCard.execution.allow_new_source_files, 0, 'T1 Fast new-file gate must remain zero');
+assert.equal(ajaxCard.execution.allow_new_source_files, 1, 'T1 Fast path may add at most one bounded correct owner');
 const ajaxSkill = loadWordPressBricksSkill(organizationInspect, ajaxRequest, ajaxCard);
 assert.equal(ajaxSkill.resource_context.targeted_resource, null, 'T1 must not depend on targeted organization keywords');
 assertOrganizationInvariant(ajaxSkill.instructions, 'T1 full skill');

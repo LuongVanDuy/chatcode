@@ -106,6 +106,13 @@ function run(manifest, flags=[]) {
   denyLogin=true;const denied=await run({files:['a.txt']});assert.equal(denied.code,2);assert.equal(denied.report.files[0].attempts,1);denyLogin=false;
   const probe=await run({files:[]},['-Probe']);assert.equal(probe.code,0);
   assert.ok([...files.keys()].every(p=>!p.includes('chatcode-upload-')&&!p.includes('chatcode-ftp-probe-')),'temporary remote files must be cleaned');
+  const ownedRel='wp-content/chatcode-db-once-'+'a'.repeat(24)+'.php';
+  files.set('/site/'+ownedRel,Buffer.from('<?php // one-shot helper'));
+  const ownedDelete=await run({files:[]},['-DeleteOwned',ownedRel]);
+  assert.equal(ownedDelete.code,0,JSON.stringify(ownedDelete.report));assert.equal(ownedDelete.report.mode,'owned_delete');assert.equal(ownedDelete.report.deleted,true,JSON.stringify(ownedDelete.report));assert.equal(files.has('/site/'+ownedRel),false);
+  const connectionsBeforeInvalidDelete=connections;
+  const invalidDelete=await run({files:[]},['-DeleteOwned','wp-content/uploads/not-owned.php']);
+  assert.equal(invalidDelete.code,2);assert.equal(invalidDelete.report.curl_requests,0);assert.equal(connections,connectionsBeforeInvalidDelete,'invalid owned-delete path must fail before FTP');
   console.log('FTP runner PASS: preflight, UTF-8/password escaping, nested paths, atomic hash verification, unchanged/retry, auth failure, probe cleanup.');
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>{
   for(const s of sockets)s.destroy();for(const s of dataServers)s.close();server.close();

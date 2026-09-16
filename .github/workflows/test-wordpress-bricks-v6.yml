@@ -8,11 +8,15 @@ on:
       - 'core/bricks-project-detection.js'
       - 'core/bricks-skill-enforcer.js'
       - 'core/bricks-evidence.js'
+      - 'core/database-runtime.js'
+      - 'core/ftp-deploy.js'
+      - 'tools/deploy-ftp.ps1'
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/runtime-bootstrap.js'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
       - 'scripts/smoke-wordpress-bricks-hardening.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
       - 'package.json'
       - '.github/workflows/test-wordpress-bricks-v6.yml'
   pull_request:
@@ -21,11 +25,15 @@ on:
       - 'core/bricks-project-detection.js'
       - 'core/bricks-skill-enforcer.js'
       - 'core/bricks-evidence.js'
+      - 'core/database-runtime.js'
+      - 'core/ftp-deploy.js'
+      - 'tools/deploy-ftp.ps1'
       - 'core/bricks-spec.js'
       - 'core/bricks-validator.js'
       - 'core/runtime-bootstrap.js'
       - 'scripts/smoke-wordpress-bricks-v6.cjs'
       - 'scripts/smoke-wordpress-bricks-hardening.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
       - 'package.json'
       - '.github/workflows/test-wordpress-bricks-v6.yml'
 
@@ -40,20 +48,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Syntax check v6 enforcement, evidence and spec
+      - name: Syntax check v6 enforcement, evidence, database and spec
         run: |
           node --check core/bricks-project-detection.js
           node --check core/bricks-skill-enforcer.js
           node --check core/bricks-evidence.js
+          node --check core/database-runtime.js
+          node --check core/ftp-deploy.js
           node --check core/bricks-spec.js
           node --check core/bricks-validator.js
           node --check core/runtime-bootstrap.js
           node --check scripts/smoke-wordpress-bricks-v6.cjs
           node --check scripts/smoke-wordpress-bricks-hardening.cjs
+          node --check scripts/smoke-database-runtime.cjs
       - name: Bricks 2.3.13 and mandatory task-bound regression
         run: node scripts/smoke-wordpress-bricks-v6.cjs
       - name: Bricks evidence hardening regression
         run: node scripts/smoke-wordpress-bricks-hardening.cjs
+      - name: Database topology and bounded fallback regression
+        run: npm run test:database
       - name: Existing WordPress Bricks regression suite
         run: npm run test:wordpress-bricks-skill
       - name: Existing Bricks spec regression suite

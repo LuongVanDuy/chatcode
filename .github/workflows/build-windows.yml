@@ -187,6 +187,11 @@ jobs:
             'renderer/v102-runtime.js',
             'scripts/smoke-notifications.cjs'
           ))
+          $database = $all -or (Hit @(
+            'core/database-runtime.js',
+            'core/ftp-deploy.js',
+            'scripts/smoke-database-runtime.cjs'
+          ))
           $installer = $workflow -or (Hit @(
             'package.json',
             'assets/*',
@@ -199,7 +204,7 @@ jobs:
             'scripts/smoke-tunnel.mjs'
           ))
 
-          $install = $syntax -or $browser -or $mcp -or $safety -or $trusted -or $terminal -or $editing -or $agent -or $brain -or $wordpress -or $fastpath -or $regression -or $support -or $notifications -or $installer -or $tunnel
+          $install = $syntax -or $browser -or $mcp -or $safety -or $trusted -or $terminal -or $editing -or $agent -or $brain -or $wordpress -or $fastpath -or $regression -or $support -or $notifications -or $database -or $installer -or $tunnel
 
           Out 'install' $install
           Out 'syntax' $syntax
@@ -217,6 +222,7 @@ jobs:
           Out 'support' $support
           Out 'update' $update
           Out 'notifications' $notifications
+          Out 'database' $database
           Out 'installer' $installer
           Out 'tunnel' $tunnel
 
@@ -261,6 +267,9 @@ jobs:
       - name: Smoke test WordPress + Bricks skill
         if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.wordpress == 'true' }}
         run: npm run test:wordpress-bricks-skill
+      - name: Smoke test database runtime
+        if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.database == 'true' }}
+        run: npm run test:database
       - name: Smoke test legacy 13-tool skill exposure
         if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.wordpress == 'true' }}
         run: npm run test:builtin-skills-project

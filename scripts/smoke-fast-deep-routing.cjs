@@ -70,6 +70,8 @@ assert.equal(explicitCard.owner.kind, 'explicit_path');
 assert.equal(explicitCard.owner.primary_path, explicitPath);
 assert.equal(explicitCard.owner.confidence, 1);
 assert.deepEqual(explicitCard.owner.candidates, []);
+assert.deepEqual(explicitCard.owner.companions, []);
+assert.deepEqual(explicitCard.owner.enforce_paths, [explicitPath]);
 assert.equal(explicitCard.owner.requires_read, false);
 assert.deepEqual(explicitCard.expected_files, [explicitPath]);
 
@@ -99,7 +101,7 @@ assert.equal(fast.type, TASK_TYPES.FAST_UI);
 assert.equal(fast.execution.path, EXECUTION_PATHS.FAST);
 assert.equal(fast.execution.context_file_limit, 4);
 assert.equal(fast.execution.patch_file_limit, 4);
-assert.equal(fast.execution.allow_new_source_files, 0);
+assert.equal(fast.execution.allow_new_source_files, 1, 'Fast may use one bounded correct owner when existing ownership is insufficient');
 assert.equal(fast.execution.allow_delete, false);
 assert.ok(fast.expected_files.length <= 4);
 
@@ -151,7 +153,22 @@ const newFilePatch = [
   ''
 ].join('\n');
 assert.deepEqual(patchScopeFromUnifiedDiff(newFilePatch), [{ path:'wp-content/themes/fixture-child/assets/css/extra.css', operation:'create' }]);
-assert.equal(validatePatchAgainstTaskCard(fast, newFilePatch).ok, false, 'FAST must block unrequested new source files');
+const oneNewOwnerCheck = validatePatchAgainstTaskCard(fast, newFilePatch);
+assert.equal(oneNewOwnerCheck.ok, true, 'one bounded new owner is recoverable instead of a blanket Fast permission block');
+assert.equal(oneNewOwnerCheck.requires_targeted_read, true, 'non-ranked new owner still requires one targeted ownership proof');
+
+const twoNewFilesPatch = [
+  '--- /dev/null',
+  '+++ b/wp-content/themes/fixture-child/assets/css/extra.css',
+  '@@ -0,0 +1 @@',
+  '+.x{}',
+  '--- /dev/null',
+  '+++ b/wp-content/themes/fixture-child/assets/css/extra-2.css',
+  '@@ -0,0 +1 @@',
+  '+.y{}',
+  ''
+].join('\n');
+assert.equal(validatePatchAgainstTaskCard(fast, twoNewFilesPatch).ok, false, 'Fast must hard-block more than one new source owner');
 
 const deletePatch = [
   '--- a/wp-content/themes/fixture-child/assets/css/home.css',
@@ -192,10 +209,10 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedFast.project_rules.some(rule => rule.key === 'checkout-null-policy'), false, 'Fast task should inject only relevant decisions');
 
   await assert.rejects(
-    runtime.completeTask(preparedFast.task_id, newFilePatch, []),
+    runtime.completeTask(preparedFast.task_id, twoNewFilesPatch, []),
     error => error && error.code === 'TASK_SCOPE_VIOLATION'
   );
-  assert.equal(applyCalls, 0, 'scope violation must not reach applyPatch');
+  assert.equal(applyCalls, 0, 'hard scope violation must not reach applyPatch');
 
   const preparedMicro = await runtime.prepareTask('p1', 'Giảm spacing product card trên mobile 8px', 8);
   assert.equal(preparedMicro.execution_path, EXECUTION_PATHS.FAST);
@@ -213,6 +230,8 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.equal(preparedExplicit.task_card.owner.kind, 'explicit_path');
   assert.equal(preparedExplicit.task_card.owner.primary_path, explicitPath);
   assert.equal(preparedExplicit.task_card.owner.confidence, 1);
+  assert.deepEqual(preparedExplicit.task_card.owner.companions, []);
+  assert.deepEqual(preparedExplicit.task_card.owner.enforce_paths, [explicitPath]);
   assert.deepEqual(preparedExplicit.task_card.expected_files, [explicitPath]);
   assert.equal(preparedExplicit.task_card.execution.reasons.includes('persisted-data-migration'), false);
   assert.ok(preparedExplicit.skills.every(skill => !skill.domains.includes('data') && !skill.domains.includes('bricks')));
@@ -223,7 +242,7 @@ assert.equal(validatePatchAgainstTaskCard(builderDeep, newFilePatch).ok, true, '
   assert.ok(preparedDeep.skills.some(skill => skill.resource_context.fast_compact !== true));
   assert.ok(preparedDeep.task_card.execution.reasons.includes('builder-schema'));
 
-  console.log('Fast/Deep routing smoke test: PASS (negation-aware explicit file FAST + real migration DEEP + compact graph + scope gate)');
+  console.log('Fast/Deep routing smoke test: PASS (bounded one-owner Fast fallback + explicit scope + real migration DEEP + compact graph + hard scope gate)');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

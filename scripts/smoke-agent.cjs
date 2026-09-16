@@ -148,6 +148,37 @@ function git(cwd, args) { return execFileSync('git', args, { cwd, windowsHide:tr
   assert.equal(await fsp.readFile(path.join(root, 'src', 'app.js'), 'utf8'), baseline);
   assert.equal(git(root, ['status','--porcelain']).trim(), '');
 
+  // Same root cause receives one corrective pass, then that execution path is exhausted instead of looping.
+  const exhaustedTask = await api.prepareTask('agent', 'Exercise bounded retry policy for checkout normalization', 6);
+  const exhaustedFirstPatch = [
+    '--- a/src/app.js',
+    '+++ b/src/app.js',
+    '@@ -1,1 +1,1 @@',
+    '-export function checkoutAddress(value) { return value.trim(); }',
+    '+export function checkoutAddress(value) { return String(value).trim(); }',
+    ''
+  ].join('\n');
+  const alwaysFail = `node -e "process.exit(7)"`;
+  const exhaustedFirst = await api.completeTask(exhaustedTask.task_id, exhaustedFirstPatch, [alwaysFail]);
+  assert.equal(exhaustedFirst.status, 'needs_fix');
+  const exhaustedSecondPatch = [
+    '--- a/src/app.js',
+    '+++ b/src/app.js',
+    '@@ -1,1 +1,1 @@',
+    '-export function checkoutAddress(value) { return String(value).trim(); }',
+    '+export function checkoutAddress(value) { return String(value || "").trim(); }',
+    ''
+  ].join('\n');
+  const exhaustedSecond = await api.completeTask(exhaustedTask.task_id, exhaustedSecondPatch, [alwaysFail]);
+  assert.equal(exhaustedSecond.status, 'path_exhausted');
+  assert.equal(exhaustedSecond.task_id, exhaustedTask.task_id, 'fallback remains in the same task/session');
+  assert.match(exhaustedSecond.next_action,/Dừng path này|stop.*path|fallback/i);
+  assert.equal((await api.workStatus(exhaustedTask.task_id)).status, 'active', 'path exhaustion must not spawn or silently finalize another task');
+  assert.equal(api.listWorkSessions('agent').filter(item => item.status === 'active').length,1,'anti-loop corrective pass must not create another work session');
+  const exhaustedRollback = await api.rollbackWork(exhaustedTask.task_id);
+  assert.equal(exhaustedRollback.ok,true);
+  assert.equal(await fsp.readFile(path.join(root,'src','app.js'),'utf8'),baseline);
+
   // Omitted commands infer a real syntax check and explicit user decisions persist per project.
   const rememberedTask = await api.prepareTask('agent', 'Keep checkout normalization and remember the project convention', 6);
   const remembered = await api.completeTask(rememberedTask.task_id, firstAttemptPatch, [], {
