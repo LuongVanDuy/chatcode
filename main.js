@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage, Tray, Menu, nativeImage, Notification, powerMonitor, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, clipboard, safeStorage, Tray, Menu, nativeImage, Notification, powerMonitor, shell, globalShortcut } = require('electron');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -17,6 +17,7 @@ const { createApprovalService } = require('./core/approvals');
 const { createBackupService } = require('./core/backups');
 const { createSafeToolApi } = require('./core/safety-tools');
 const { createUpdateService } = require('./core/updater');
+const { guardianStop, guardianResume, guardianSnapshot } = require('./core/machine-access');
 
 const PORT = 47820;
 let mainWindow = null;
@@ -115,6 +116,20 @@ function saveSettings(incoming = {}) {
   return store.settings(state);
 }
 
+async function guardianStopAll(reason = 'user') {
+  const state = guardianStop(reason);
+  try { await safeTools.shutdownTerminalJobs?.(); } catch {}
+  send('guardian:changed', state);
+  updateTrayMenu();
+  return state;
+}
+function guardianResumeFromUi() {
+  const state = guardianResume();
+  send('guardian:changed', state);
+  updateTrayMenu();
+  return state;
+}
+
 function updateTrayMenu() {
   if (!tray || !connection) return;
   const snap = connection.snapshot();
@@ -126,6 +141,7 @@ function updateTrayMenu() {
     { label: 'Mở ChatCode Cá Nhân', click: showWindow },
     { label: 'Sao chép URL MCP', enabled: !!snap.connectionUrl, click: () => snap.connectionUrl && clipboard.writeText(snap.connectionUrl) },
     { label: 'Kết nối lại ngay', click: () => connection.start().catch(() => {}) },
+    { label: guardianSnapshot().stopped ? 'STOP ALL đang bật' : 'STOP ALL (Ctrl+Shift+F12)', click: () => guardianStopAll('tray').catch(() => {}) },
     { type: 'separator' },
     { label: 'Thoát hoàn toàn', click: () => { isQuitting = true; app.quit(); } }
   ];
@@ -293,6 +309,9 @@ ipcMain.handle('projects:safety', (_, id, safety) => saveSafety(id, safety));
 ipcMain.handle('projects:remove', (_, id) => { const state=store.read(), before=state.projects.length; state.projects=state.projects.filter(project=>project.id!==id); if(state.projects.length===before)throw new Error('Không tìm thấy dự án.'); store.write(state); projects.cleanup(id); return true; });
 ipcMain.handle('projects:index-status', (_, id) => projects.status(id));
 ipcMain.handle('projects:reindex', (_, id) => projects.reindex(id));
+ipcMain.handle('guardian:state', () => guardianSnapshot());
+ipcMain.handle('guardian:stop-all', () => guardianStopAll('ui'));
+ipcMain.handle('guardian:resume', () => guardianResumeFromUi());
 
 ipcMain.handle('files:list', (_, id) => projects.toolApi.listFiles(id));
 ipcMain.handle('files:read', async (_, id, rel) => (await projects.toolApi.readFile(id, rel)).content);
@@ -350,6 +369,7 @@ if (gotLock) {
     applyLogin(state.settings.launchAtLogin);
     createTray();
     createWindow(!process.argv.includes('--background'));
+    try { globalShortcut.register('CommandOrControl+Shift+F12', () => guardianStopAll('hotkey').catch(() => {})); } catch {}
     await projects.initialize();
     try { await ensureMcpServer(); connection.start({ fromWatchdog:true }).catch(() => {}); }
     catch (error) { connectionChanged({ ...connection.snapshot(), status:'local-error', error:String(error.message || error) }); }
@@ -363,6 +383,7 @@ if (gotLock) {
 app.on('before-quit', () => {
   isQuitting = true;
   approvals.shutdown();
+  try { globalShortcut.unregisterAll(); } catch {}
   projects.shutdown();
   connection.shutdown();
   resetMcpServer().catch(() => {});

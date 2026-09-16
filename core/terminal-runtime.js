@@ -6,6 +6,7 @@ const os = require('os');
 const childProcess = require('child_process');
 const { chatError } = require('./errors');
 const { powershellInvocation } = require('./windows-terminal-guard');
+const { isMachine, assertGuardian } = require('./machine-access');
 
 const MAX_STREAM_CHARS = 1024 * 1024;
 const MAX_JOBS = 80;
@@ -21,7 +22,7 @@ function electronApi() {
 }
 
 function isTrusted(project) {
-  return project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
+  return isMachine(project) || project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
 }
 
 function commandGuard(command) {
@@ -120,8 +121,8 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
       background:job.background,
       timeout_ms:job.timeoutMs,
       stop_reason:job.stopReason || '',
-      terminal:{ hidden:true, shell:job.shell, cwd_inside_project:true, os_filesystem_sandbox:false },
-      approval:{ required:false, status:'not_required', approval_id:null, mode:'trusted_workspace' }
+      terminal:{ hidden:true, shell:job.shell, cwd_inside_project:!job.machineMode, os_filesystem_sandbox:false, machine_scope:!!job.machineMode },
+      approval:{ required:false, status:'not_required', approval_id:null, mode:job.machineMode ? 'full_machine_access' : 'trusted_workspace' }
     };
   }
 
@@ -141,7 +142,14 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
   }
 
   async function resolveCwd(project, requested) {
-    const rel = String(requested || '').trim().replace(/\\/g, '/') || '.';
+    const raw = String(requested || '').trim() || '.';
+    if (isMachine(project)) {
+      const target = path.isAbsolute(raw) || (process.platform === 'win32' && path.win32.isAbsolute(raw)) ? path.normalize(raw) : path.resolve(project.root, raw);
+      const stat = await fsp.stat(target).catch(() => null);
+      if (!stat || !stat.isDirectory()) throw chatError('FILE_NOT_FOUND', 'cwd phải là một thư mục tồn tại trên máy.', { cwd:raw, resolved:target });
+      return { abs:target, rel:target };
+    }
+    const rel = raw.replace(/\\/g, '/');
     const target = await projects.secureResolve(project, rel, { mustExist:true });
     const stat = await fsp.stat(target);
     if (!stat.isDirectory()) throw chatError('FILE_NOT_FOUND', 'cwd phải là một thư mục tồn tại bên trong project.', { cwd:rel });
@@ -212,17 +220,22 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
   async function exec(ref, commandInput, options = {}) {
     prune();
     const project = store.getProject(ref);
-    if (!isTrusted(project)) throw chatError('PERMISSION_DENIED', 'Generic exec chỉ khả dụng khi project ở Trusted Workspace.', { project:project.name, required_workspace_mode:'trusted' });
-    const command = commandGuard(commandInput);
+    if (!isTrusted(project)) throw chatError('PERMISSION_DENIED', 'Generic exec chỉ khả dụng khi project ở Trusted Workspace hoặc Full Machine Access.', { project:project.name, required_workspace_mode:'trusted_or_machine' });
+    const machineMode = isMachine(project);
+    if (machineMode) assertGuardian();
+    const rawCommand = String(commandInput || '').trim();
+    if (!rawCommand) throw chatError('TASK_NOT_ALLOWED', 'Command không được để trống.');
+    if (rawCommand.length > 16000) throw chatError('TASK_NOT_ALLOWED', 'Command quá dài.', { length:rawCommand.length });
+    const command = machineMode ? rawCommand : commandGuard(rawCommand);
     const running = [...jobs.values()].filter(job => job.projectId === project.id && ['running','stopping'].includes(job.status)).length;
-    if (running >= MAX_RUNNING_PER_PROJECT) throw chatError('TASK_NOT_ALLOWED', `Project đang có ${running} terminal job chạy nền. Hãy dừng job cũ trước.`, { limit:MAX_RUNNING_PER_PROJECT });
+    if (!machineMode && running >= MAX_RUNNING_PER_PROJECT) throw chatError('TASK_NOT_ALLOWED', `Project đang có ${running} terminal job chạy nền. Hãy dừng job cũ trước.`, { limit:MAX_RUNNING_PER_PROJECT });
 
     const cwd = await resolveCwd(project, options.cwd), background = !!options.background;
     const requestedTimeout = Number(options.timeout_ms);
     const timeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? Math.min(MAX_TIMEOUT_MS, Math.max(1000, requestedTimeout)) : (background ? 0 : 120000);
     const shell = await shellCommand(command), id = crypto.randomUUID(), now = new Date().toISOString();
     const job = {
-      id, project:project.name, projectId:project.id, command, cwdRel:cwd.rel,
+      id, project:project.name, projectId:project.id, command, cwdRel:cwd.rel, machineMode,
       workSessionId:String(options.work_session_id || ''), shell:shell.file,
       status:'running', pid:null, exitCode:null, signal:'', stdout:'', stderr:'',
       stdoutTotal:0, stderrTotal:0, stdoutBase:0, stderrBase:0, stdoutTruncated:false, stderrTruncated:false,
@@ -240,7 +253,7 @@ function createTerminalRuntime(store, projects, { onChanged } = {}) {
         shell:false,
         detached:process.platform !== 'win32',
         stdio:[shell.stdin == null ? 'ignore' : 'pipe','pipe','pipe'],
-        env:{ ...process.env, CHATCODE_WORKSPACE:project.root, CHATCODE_PROJECT_ID:project.id }
+        env:{ ...process.env, CHATCODE_WORKSPACE:project.root, CHATCODE_PROJECT_ID:project.id, CHATCODE_MACHINE_ACCESS:machineMode ? '1' : '0' }
       });
       job.child = child; job.pid = child.pid || null;
     } catch (error) {

@@ -7,8 +7,8 @@ const { chatError, normalizeError } = require('./errors');
 const SENSITIVE_NAMES = new Set(['.env','.env.local','.env.production','wp-config.php','id_rsa','id_ed25519','credentials.json']);
 const normalizeRel = value => String(value || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
 const isSensitive = rel => normalizeRel(rel).split('/').filter(Boolean).some(part => SENSITIVE_NAMES.has(part.toLowerCase()) || part.toLowerCase() === '.ssh' || /private.*key/i.test(part));
-const isTrusted = project => project?.workspaceMode === 'trusted' || project?.safety?._workspaceMode === 'trusted';
-const canUseSecrets = project => isTrusted(project) && !!(project?.trusted?.allowSecrets || project?.safety?._allowSecrets);
+const isTrusted = project => ['trusted','machine'].includes(project?.workspaceMode) || ['trusted','machine'].includes(project?.safety?._workspaceMode);
+const canUseSecrets = project => project?.workspaceMode === 'machine' || project?.safety?._workspaceMode === 'machine' || (isTrusted(project) && !!(project?.trusted?.allowSecrets || project?.safety?._allowSecrets));
 const trustedApproval = () => ({ required:false, status:'not_required', approval_id:null, mode:'trusted_workspace' });
 const recoveryShape = snapshot => ({ snapshot_created:!!snapshot, snapshot_id:snapshot?.id || null, ...(snapshot ? { recoveryId:snapshot.id } : {}) });
 
@@ -130,7 +130,7 @@ function installSafetyPatch() {
       permissions:project.permissions,
       workspace_mode:project.workspaceMode || 'safe',
       trusted:{ allow_secrets:!!project.trusted?.allowSecrets, allow_git_push:false },
-      safety_mode:project.workspaceMode === 'trusted' ? 'trusted_workspace_no_per_action_approval' : 'safe_rules'
+      safety_mode:project.workspaceMode === 'machine' ? 'full_machine_no_scope_or_approval' : project.workspaceMode === 'trusted' ? 'trusted_workspace_no_per_action_approval' : 'safe_rules'
     }));
 
     api.readFile = (ref, rel) => base.readFile(ref, rel);
