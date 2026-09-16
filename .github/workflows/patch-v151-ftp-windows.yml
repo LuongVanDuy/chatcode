@@ -1,5 +1,5 @@
 name: Patch v151 FTP Windows
-# retry with normalized Windows smoke text
+# retry from clean origin/main FTP runner source
 
 on:
   workflow_dispatch:
