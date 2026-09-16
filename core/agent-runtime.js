@@ -442,7 +442,21 @@ function createAgentRuntime(api, store = null) {
     const finalizeStarted = nowMs();
     const finished = await api.finishWork(id, [], { reuseFinal:{ brain:applied.brain || null, git:applied.git || null } });
     const finalizeMs = nowMs() - finalizeStarted;
-    if (finished.status !== 'completed' && finished.status !== 'deploy_failed') {
+    if (finished.status === 'deploy_failed') {
+      return {
+        ok:false, status:'deploy_failed', task_id:id, work_session_id:id,
+        execution_path:taskCard?.execution?.path || null, task_card:taskCard, scope_check:scopeCheck,
+        verification, verification_passed:true,
+        changed_files:finished.changed_files || applied.changed_files || [],
+        recovery_points:finished.recovery_points || applied.recovery_points || [],
+        git:finished.final?.git || applied.git || null, brain:finished.brain || applied.brain || null,
+        ftp_deploy:finished.ftp_deploy || null, session:finished,
+        next_action:finished.next_action || 'Code đã verify. Giữ nguyên task/session và retry finish_work để deploy lại; không áp patch lại.',
+        agent_contract:{ preferred_calls:2, completed_in_call:2, result:'deploy_failed' },
+        telemetry:{ total_ms:nowMs() - started, patch_ms:patchMs, verify_ms:verifyMs, finalize_ms:finalizeMs, brain_refresh_ms:Number(finished?.brain?.refresh_ms || applied?.brain?.refresh_ms)||0, git_ms:0 }
+      };
+    }
+    if (finished.status !== 'completed') {
       return { ok:false, status:finished.status, task_id:id, work_session_id:id, verification, verification_passed:false, session:finished };
     }
     const savedProfile = saveProjectRules(store, projectId, rememberProjectRules);

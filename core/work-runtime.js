@@ -192,7 +192,7 @@ function createWorkRuntime(projects, store, backups, api) {
     const s = {
       id:crypto.randomUUID(), projectId:p.id, project:p.name, goal:String(goal || '').trim().slice(0,1200), status:'active',
       workspaceMode:p.workspaceMode || 'safe', startedAt:now, updatedAt:now, finishedAt:'', changedFiles:new Set(), createdFiles:new Set(),
-      commands:[], operations:[], recoveryIds:[],
+      commands:[], operations:[], recoveryIds:[], preparedFinal:null,
       baseline:{ git, brain:brain ? { frameworks:brain.framework_names || [], primary_language:brain.primary_language || '', entrypoints:(brain.entrypoints || []).slice(0,20), stats:brain.stats || null } : null }
     };
     sessions.set(s.id, s);
@@ -210,6 +210,7 @@ function createWorkRuntime(projects, store, backups, api) {
 
   function record(s, plan, result) {
     s.updatedAt = new Date().toISOString();
+    s.preparedFinal = null;
     s.changedFiles.add(plan.path);
     if (plan.create) s.createdFiles.add(plan.path);
     const snapshotId = result?.snapshot_id || result?.recoveryId || null;
@@ -301,12 +302,32 @@ function createWorkRuntime(projects, store, backups, api) {
       // Closing work is distinct from restoring files or deploying them.
       if (s.status !== 'active') return publicSession(s);
       s.status = 'cancelled';
+      s.preparedFinal = null;
       s.updatedAt = s.finishedAt = new Date().toISOString();
       const jobs = typeof api.listTerminalJobs === 'function' ? await api.listTerminalJobs(p.id) : [];
       const stopped = await Promise.allSettled(jobs.filter(job => job.work_session_id === id && ['running','stopping'].includes(job.status)).map(job => api.jobStop(job.job_id)));
       return { ...publicSession(s), ok:true, files_preserved:true, stopped_jobs:stopped.filter(r => r.status === 'fulfilled').map(r => r.value.job_id) };
     }
+
+    if (options.commitPrepared) {
+      if (s.status !== 'active') return status(id);
+      const prepared = s.preparedFinal;
+      if (!prepared?.verification_passed) {
+        return { ...publicSession(s), ok:false, verification:prepared?.verification || [], verification_passed:false, reason:'finalization_not_prepared' };
+      }
+      const finalized = { verification:prepared.verification, brain:prepared.brain, final:prepared.final };
+      s.status = 'completed';
+      s.preparedFinal = null;
+      s.updatedAt = s.finishedAt = new Date().toISOString();
+      return { ...publicSession(s), ok:true, verification:finalized.verification, verification_passed:true, brain:finalized.brain, final:finalized.final };
+    }
+
     if (s.status !== 'active') return status(id);
+    if (options.deferCompletion && s.preparedFinal?.verification_passed) {
+      const prepared = s.preparedFinal;
+      return { ...publicSession(s), ok:true, verification:prepared.verification, verification_passed:true, brain:prepared.brain, final:prepared.final, deploy_pending:true, finalization_prepared:true };
+    }
+
     const verification = [];
     for (const command of (Array.isArray(verifyCommands) ? verifyCommands : []).map(String).filter(Boolean).slice(0,6)) {
       let r;
@@ -327,10 +348,19 @@ function createWorkRuntime(projects, store, backups, api) {
     }
     if (s.status !== 'active') return { ...publicSession(s), ok:false, verification, verification_passed:false };
     const passed = verification.every(x => x.ok);
-    s.status = passed ? 'completed' : 'active';
+    const final = { git:reused?.git || await gitSnapshot(p.id) };
     s.updatedAt = new Date().toISOString();
-    if (passed) s.finishedAt = s.updatedAt;
-    return { ...publicSession(s), ok:passed, verification, verification_passed:passed, brain:brainResult, final:{ git:reused?.git || await gitSnapshot(p.id) } };
+    if (!passed) {
+      s.preparedFinal = null;
+      return { ...publicSession(s), ok:false, verification, verification_passed:false, brain:brainResult, final };
+    }
+    if (options.deferCompletion) {
+      s.preparedFinal = { verification, verification_passed:true, brain:brainResult, final };
+      return { ...publicSession(s), ok:true, verification, verification_passed:true, brain:brainResult, final, deploy_pending:true, finalization_prepared:true };
+    }
+    s.status = 'completed';
+    s.finishedAt = s.updatedAt;
+    return { ...publicSession(s), ok:true, verification, verification_passed:true, brain:brainResult, final };
   }
 
   async function rollbackWork(id) {

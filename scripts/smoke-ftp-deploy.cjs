@@ -2,6 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { createWorkRuntime } = require('../core/work-runtime');
 const {
   FTP_CONFIG_RELATIVE,
   MAX_DEPLOY_FILES,
@@ -194,7 +195,9 @@ function delay(ms) {
 
   const wrappedApi = createFtpDeployApi({
     workStatus:async () => ({ project_id:'p1', project:'Fixture', status:'active', changed_files:['inc/test.php'] }),
-    finishWork:async () => ({ project_id:'p1', project:'Fixture', status:'completed', changed_files:['inc/test.php'] }),
+    finishWork:async (_id,_commands,options={}) => options.commitPrepared
+      ? ({ project_id:'p1', project:'Fixture', status:'completed', changed_files:['inc/test.php'] })
+      : ({ project_id:'p1', project:'Fixture', status:'active', changed_files:['inc/test.php'], ok:true, verification_passed:true, deploy_pending:true }),
     applyAndVerify:async () => ({ project:'Fixture', status:'completed', ok:true, verification_passed:true }),
     exec:api.exec
   }, store);
@@ -206,15 +209,25 @@ function delay(ms) {
   // F1/F2/F5: failed retry sends the whole current changed-file set again; closed success remains cached.
   let retryCalls = 0;
   let finishCalls = 0;
+  let verificationCalls = 0;
+  let commitCalls = 0;
+  let preparedRetry = false;
   let workState = 'active';
   const { createProjectScopeApi } = require('../core/project-scope');
   const retryApi = createProjectScopeApi(createFtpDeployApi({
     listProjects:async () => [store.getProject('p1')],
     startWork:async () => ({ work_session_id:'retry-work', project_id:'p1', status:'active' }),
     workStatus:async () => ({ project_id:'p1', status:workState, changed_files:['a.php','b.php'] }),
-    finishWork:async () => { finishCalls++; workState='completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; },
+    finishWork:async (_id,_commands,options={}) => {
+      finishCalls++;
+      if (options.commitPrepared) { commitCalls++; workState='completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; }
+      assert.equal(options.deferCompletion,true);
+      if (!preparedRetry) { verificationCalls++; preparedRetry=true; }
+      return { project_id:'p1', status:'active', changed_files:['a.php','b.php'], ok:true, verification_passed:true, deploy_pending:true };
+    },
     exec:async (_ref, cmd) => {
       retryCalls++;
+      assert.equal(workState, 'active', 'FTP staging must run while Work Session is active');
       const payload = payloadFromCommand(cmd);
       const manifest = JSON.parse(fs.readFileSync(payload.manifestPath, 'utf8'));
       assert.deepEqual(manifest.files, ['a.php','b.php'], 'every failed retry must revalidate the whole changed-file set');
@@ -228,7 +241,8 @@ function delay(ms) {
   await retryApi.startWork('p1');
   const firstDeploy = await retryApi.finishWork('retry-work');
   assert.equal(firstDeploy.status, 'deploy_failed');
-  assert.equal(retryApi.projectScope('p1').locked, false, 'failed FTP must not retain completed work holder');
+  assert.equal(workState, 'active', 'failed FTP must leave the Work Session resumable');
+  assert.equal(retryApi.projectScope('p1').locked, true, 'failed FTP must retain the active work holder');
   ensureFile(root, 'a.php', 'A2');
   const retryDeploy = await retryApi.finishWork('retry-work');
   assert.equal(retryDeploy.status, 'completed');
@@ -236,14 +250,19 @@ function delay(ms) {
   assert.deepEqual(retryDeploy.ftp_deploy.unchanged, ['b.php']);
   await retryApi.finishWork('retry-work');
   assert.equal(retryCalls, 2, 'successful FTP must not run twice');
-  assert.equal(finishCalls, 2, 'cached success must not re-run finish verification');
+  assert.equal(verificationCalls, 1, 'deploy retry must reuse prepared verification');
+  assert.equal(commitCalls, 1, 'session must commit exactly once after deploy success');
+  assert.equal(finishCalls, 3, 'two prepare calls plus one commit are expected; verification itself stays cached');
 
   // F3: latest retry report replaces stale success; old A success cannot hide a new A failure.
   let conflictCalls = 0;
   let conflictState = 'active';
   const conflictApi = createFtpDeployApi({
     workStatus:async () => ({ project_id:'p1', status:conflictState, changed_files:['a.php','b.php'] }),
-    finishWork:async () => { conflictState='completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; },
+    finishWork:async (_id,_commands,options={}) => {
+      if (options.commitPrepared) { conflictState='completed'; return { project_id:'p1', status:'completed', changed_files:['a.php','b.php'] }; }
+      return { project_id:'p1', status:'active', changed_files:['a.php','b.php'], ok:true, verification_passed:true, deploy_pending:true };
+    },
     exec:async (_ref, cmd) => {
       conflictCalls++;
       const manifest = JSON.parse(fs.readFileSync(payloadFromCommand(cmd).manifestPath, 'utf8'));
@@ -262,7 +281,9 @@ function delay(ms) {
   let concurrentExec = 0;
   const concurrentApi = createFtpDeployApi({
     workStatus:async () => ({ project_id:'p1', status:'active', changed_files:['a.php'] }),
-    finishWork:async () => ({ project_id:'p1', status:'completed', changed_files:['a.php'] }),
+    finishWork:async (_id,_commands,options={}) => options.commitPrepared
+      ? ({ project_id:'p1', status:'completed', changed_files:['a.php'] })
+      : ({ project_id:'p1', status:'active', changed_files:['a.php'], ok:true, verification_passed:true, deploy_pending:true }),
     exec:async (_ref, cmd) => {
       concurrentExec++;
       const manifest = JSON.parse(fs.readFileSync(payloadFromCommand(cmd).manifestPath, 'utf8'));
@@ -274,6 +295,33 @@ function delay(ms) {
   assert.equal(concurrentExec, 1, 'same session must have one in-flight FTP deploy');
   assert.equal(sameA.status, 'completed');
   assert.deepEqual(sameA, sameB);
+
+
+  // F6: WorkRuntime itself keeps the session active after final preparation and commits only after deploy.
+  const lifecycleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatcode-work-finalize-'));
+  let lifecycleBrainRefreshes = 0;
+  const lifecycleProject = { id:'life', name:'Lifecycle', root:lifecycleRoot, workspaceMode:'trusted' };
+  const lifecycleStore = { getProject:ref => { if (['life','Lifecycle'].includes(String(ref))) return lifecycleProject; throw new Error('missing'); } };
+  const lifecycleProjects = { reindex:async () => ({ ok:true }) };
+  const lifecycleBase = {
+    gitStatus:async () => ({ ok:false, stdout:'', stderr:'not-a-repo' }),
+    gitDiff:async () => ({ ok:false, stdout:'', stderr:'not-a-repo' }),
+    rebuildBrain:async () => { lifecycleBrainRefreshes++; return { updatedAt:new Date().toISOString(), stats:{} }; },
+    listTerminalJobs:async () => []
+  };
+  const lifecycleRuntime = createWorkRuntime(lifecycleProjects, lifecycleStore, null, lifecycleBase);
+  const lifecycleSession = await lifecycleRuntime.startWork('life','two-phase deploy finalization',{ compactBaseline:true });
+  const preparedFinal = await lifecycleRuntime.finishWork(lifecycleSession.work_session_id, [], { deferCompletion:true });
+  assert.equal(preparedFinal.status, 'active');
+  assert.equal(preparedFinal.deploy_pending, true);
+  assert.equal((await lifecycleRuntime.status(lifecycleSession.work_session_id)).status, 'active');
+  const cachedPrepared = await lifecycleRuntime.finishWork(lifecycleSession.work_session_id, [], { deferCompletion:true });
+  assert.equal(cachedPrepared.status, 'active');
+  assert.equal(lifecycleBrainRefreshes, 1, 'retry must not rebuild/reverify prepared finalization');
+  const committedFinal = await lifecycleRuntime.finishWork(lifecycleSession.work_session_id, [], { commitPrepared:true });
+  assert.equal(committedFinal.status, 'completed');
+  assert.equal((await lifecycleRuntime.status(lifecycleSession.work_session_id)).status, 'completed');
+  fs.rmSync(lifecycleRoot, { recursive:true, force:true });
 
   const legacy = await wrappedApi.applyAndVerify('p1', [{ op:'write', path:'legacy.php', content:'<?php' }, { op:'delete', path:'gone.php' }], []);
   assert.equal(legacy.status, 'completed');
