@@ -1,5 +1,5 @@
 name: Patch v151 FTP Windows
-# retry with literal-safe patch replacement
+# retry idempotent owned-helper delete semantics
 
 on:
   workflow_dispatch:
