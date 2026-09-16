@@ -39,9 +39,18 @@ ps = replaceOnce(ps,
   ].join('\n'),
   'owned delete branch');
 ps = replaceOnce(ps,
-  "$report = @{ok=($exitCode -eq 0); mode=$(if ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}",
-  "$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0\n$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0\n$report = @{ok=($exitCode -eq 0); mode=$(if ($DeleteOwned) {'owned_delete'} elseif ($DryRun) {'dry_run'} elseif ($Probe) {'probe'} else {'deploy'}); files=@($results.ToArray()); deleted=$ownedDeleted; absent=$ownedAbsent; curl_requests=$curlCount; cleanup_warnings=@($cleanupWarnings.ToArray())}",
-  'report');
+  "if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }",
+  [
+    "$ownedDeleted = @($results | Where-Object { $_.status -eq 'deleted' }).Count -gt 0",
+    "$ownedAbsent = @($results | Where-Object { $_.status -eq 'absent' }).Count -gt 0",
+    "if ($DeleteOwned) {",
+    "  $report['mode'] = 'owned_delete'",
+    "  $report['deleted'] = $ownedDeleted",
+    "  $report['absent'] = $ownedAbsent",
+    "}",
+    "if ($exitCode -ne 0 -and $items) { $report.not_attempted = @($items | Where-Object { $_.path -notin @($results | ForEach-Object { $_.file }) } | ForEach-Object { $_.path }) }"
+  ].join('\n'),
+  'report tail');
 fs.writeFileSync('tools/deploy-ftp.ps1', ps, 'utf8');
 
 const smokePath = 'scripts/smoke-ftp-runner.cjs';
