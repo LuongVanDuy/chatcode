@@ -95,6 +95,10 @@ const { createConnectionService } = require('../core/connection');
   assert.equal(await fsp.readFile(newOutside, 'utf8'), 'created');
   assert.equal(approvals.list().length, 0);
 
+  const outsideExec = await api.exec('machine-test', 'node -e "console.log(process.cwd())"', { cwd:outside, background:false });
+  assert.equal(outsideExec.ok, true);
+  assert(String(outsideExec.stdout || '').toLowerCase().includes(path.basename(outside).toLowerCase()), 'Full Machine exec must accept an absolute cwd outside project');
+
   const nested = path.join(outside, 'nested', 'renamed.txt');
   await api.renameFile('machine-test', newOutside, nested);
   assert.equal(fs.existsSync(nested), true);
@@ -110,6 +114,9 @@ const { createConnectionService } = require('../core/connection');
   try { await api.writeFile('machine-test', path.join(outside, 'blocked.txt'), 'no'); } catch (error) { stopped = error; }
   assert.equal(stopped?.code, 'GUARDIAN_STOPPED');
   assert.equal(fs.existsSync(path.join(outside, 'blocked.txt')), false);
+  let stoppedExec = null;
+  try { await api.exec('machine-test', 'node -e "console.log(123)"', { cwd:outside, background:false }); } catch (error) { stoppedExec = error; }
+  assert.equal(stoppedExec?.code, 'GUARDIAN_STOPPED', 'STOP ALL must also block direct terminal execution');
 
   guardianResume();
   assert.equal(guardianSnapshot().stopped, false);
