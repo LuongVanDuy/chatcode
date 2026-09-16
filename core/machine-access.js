@@ -155,6 +155,7 @@ function installMachineAccessPatches() {
     for (const name of ['listProjects','listFiles','search','readFile','readFiles','writeFile','deleteFile','renameFile','runTask','exec','applyAndVerify','inspectProject','prepareTask','projectScope']) {
       if (typeof api[name] === 'function') original[name] = api[name].bind(api);
     }
+    const resolveStoredProject = ref => { try { return store.getProject(ref); } catch { return null; } };
 
     api.listProjects = async (...args) => {
       const list = await original.listProjects(...args);
@@ -171,26 +172,26 @@ function installMachineAccessPatches() {
     };
 
     api.listFiles = async (ref, limit = 2500, basePath = '') => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.listFiles(ref, limit, basePath);
       const start = resolveMachinePath(project, basePath, { defaultToProject:true });
       return walkMachine(start, limit);
     };
 
     api.search = async (ref, query, basePath = '') => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project) || !basePath) return original.search(ref, query, basePath);
       return searchMachine(project, query, basePath);
     };
 
     api.readFile = async (ref, input) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.readFile(ref, input);
       return readMachineFile(project, input);
     };
 
     api.readFiles = async (ref, paths) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.readFiles(ref, paths);
       const out = [];
       for (const input of (Array.isArray(paths) ? paths : []).slice(0,12)) {
@@ -201,7 +202,7 @@ function installMachineAccessPatches() {
     };
 
     api.writeFile = async (ref, input, content) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.writeFile(ref, input, content);
       assertGuardian();
       const target = resolveMachinePath(project, input);
@@ -211,7 +212,7 @@ function installMachineAccessPatches() {
     };
 
     api.deleteFile = async (ref, input) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.deleteFile(ref, input);
       assertGuardian();
       const target = resolveMachinePath(project, input);
@@ -222,7 +223,7 @@ function installMachineAccessPatches() {
     };
 
     api.renameFile = async (ref, fromInput, toInput) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.renameFile(ref, fromInput, toInput);
       assertGuardian();
       const from = resolveMachinePath(project, fromInput), to = resolveMachinePath(project, toInput);
@@ -232,7 +233,7 @@ function installMachineAccessPatches() {
     };
 
     api.runTask = async (ref, command) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.runTask(ref, command);
       assertGuardian();
       if (typeof api.exec !== 'function') throw chatError('TASK_NOT_ALLOWED', 'Terminal runtime chưa sẵn sàng.');
@@ -240,7 +241,7 @@ function installMachineAccessPatches() {
     };
 
     api.applyAndVerify = async (ref, changesInput = [], tasksInput = []) => {
-      const project = store.getProject(ref);
+      const project = resolveStoredProject(ref);
       if (!isMachine(project)) return original.applyAndVerify(ref, changesInput, tasksInput);
       assertGuardian();
       const changes = Array.isArray(changesInput) ? changesInput.slice(0,64) : [];
@@ -306,7 +307,7 @@ function installMachineAccessPatches() {
     if (original.inspectProject) {
       api.inspectProject = async (ref, ...args) => {
         const result = await original.inspectProject(ref, ...args);
-        const project = store.getProject(ref);
+        const project = resolveStoredProject(ref);
         if (!isMachine(project)) return result;
         return { ...result, machine_scope:'all_os_visible_filesystems', guardian:guardianSnapshot() };
       };
@@ -315,7 +316,7 @@ function installMachineAccessPatches() {
     if (original.prepareTask) {
       api.prepareTask = async (ref, ...args) => {
         const result = await original.prepareTask(ref, ...args);
-        const project = store.getProject(ref);
+        const project = resolveStoredProject(ref);
         if (!isMachine(project)) return result;
         const guidance = Array.isArray(result?.agent_contract?.guidance) ? result.agent_contract.guidance : [];
         return {
