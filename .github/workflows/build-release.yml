@@ -1,0 +1,109 @@
+name: Build / Release App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fresh-install-release-gate:
+    uses: ./.github/workflows/fresh-install.yml
+
+  release:
+    needs: [fresh-install-release-gate]
+    if: ${{ needs.fresh-install-release-gate.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Release quality gate
+        shell: pwsh
+        run: |
+          npm run test:syntax
+          npm run test:mcp
+          npm run test:regression
+          npm run test:update
+          npm run test:renderer-foundation
+          npm run test:wordpress-bricks-skill
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Verify updater metadata
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $installer) { throw "Không tìm thấy installer v$version." }
+          if (-not (Test-Path "dist\latest.yml")) { throw 'electron-builder chưa tạo dist/latest.yml.' }
+          Write-Host "Release artifact OK: $($installer.Name)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chatcode-windows
+          path: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $isTagPush = $env:GITHUB_REF -eq "refs/tags/$tag"
+
+          if ($env:GITHUB_REF.StartsWith('refs/tags/') -and -not $isTagPush) {
+            throw "Tag $env:GITHUB_REF_NAME không khớp package version $tag."
+          }
+
+          $installer = Get-ChildItem "dist\ChatCode-Ca-Nhan-Setup-$version.exe" | Select-Object -First 1
+          $latest = Get-Item "dist\latest.yml"
+          $assets = @($installer.FullName, $latest.FullName)
+          $blockmaps = Get-ChildItem "dist\*.blockmap" -ErrorAction SilentlyContinue
+          foreach ($item in $blockmaps) { $assets += $item.FullName }
+
+          gh release view $tag *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists -and -not $isTagPush) {
+            Write-Host "Release $tag đã tồn tại; không ghi đè asset."
+            exit 0
+          }
+
+          if ($releaseExists) {
+            gh release upload $tag @assets --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Không thể cập nhật asset cho $tag." }
+            gh release edit $tag --latest
+          } else {
+            gh release create $tag @assets --target $env:GITHUB_SHA --title "ChatCode Cá Nhân $tag" --generate-notes --latest
+          }
+
+          if ($LASTEXITCODE -ne 0) { throw "Không thể publish GitHub Release $tag." }
