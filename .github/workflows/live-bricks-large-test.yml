@@ -28,18 +28,21 @@ jobs:
         shell: pwsh
         run: |
           $theme = Join-Path $env:RUNNER_TEMP 'bricks-large-2.4.zip'
-          @'
-import os, sys, zipfile
-target = sys.argv[1]
-payload = os.urandom(29_000_000)
-with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as z:
-    z.writestr('style.css', '/*\nTheme Name: Bricks\nVersion: 2.4\n*/\n')
-    z.writestr('index.php', "<?php echo 'Bricks Large Live Test';\n")
-    z.writestr('functions.php', "<?php\n")
-    z.writestr('assets/live-upload-probe.bin', payload)
-print(os.path.getsize(target))
-'@ | Set-Content -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'make-theme.py')
-          python (Join-Path $env:RUNNER_TEMP 'make-theme.py') $theme
+          $py = @(
+            'import os, sys, zipfile',
+            'target = sys.argv[1]',
+            'payload = os.urandom(29000000)',
+            'z = zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED)',
+            'z.writestr("style.css", "/*\\nTheme Name: Bricks\\nVersion: 2.4\\n*/\\n")',
+            'z.writestr("index.php", "<?php echo \'Bricks Large Live Test\';\\n")',
+            'z.writestr("functions.php", "<?php\\n")',
+            'z.writestr("assets/live-upload-probe.bin", payload)',
+            'z.close()',
+            'print(os.path.getsize(target))'
+          )
+          $script = Join-Path $env:RUNNER_TEMP 'make-theme.py'
+          [IO.File]::WriteAllLines($script, $py, (New-Object Text.UTF8Encoding($false)))
+          python $script $theme
           $size = (Get-Item $theme).Length
           if ($size -lt 28000000 -or $size -gt 31000000) { throw "Unexpected theme ZIP size: $size" }
           Write-Host "BRICKS_LARGE_BYTES=$size"
