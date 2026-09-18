@@ -377,7 +377,8 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       themePackageName:theme.package?.remote_name || '',
       themeSha256:theme.package?.sha256 || '',
       themeSlug:theme.package?.slug || '',
-      themeEntry:theme.package?.expected_entry || ''
+      themeEntry:theme.package?.expected_entry || '',
+      themeArchiveLayout:theme.package?.archive_layout || 'wrapped'
     });
     fs.writeFileSync(file,php,'utf8');
     return file;
