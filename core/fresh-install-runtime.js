@@ -7,6 +7,7 @@ const { buildFreshInstallBootstrap, randomInstallToken } = require('./fresh-inst
 const { createFreshInstallPackageService, DEFAULT_CATALOG } = require('./fresh-install-packages');
 const { createFreshInstallVault } = require('./fresh-install-vault');
 const { uploadPackage } = require('./fresh-install-transfer');
+const { needsDatabaseBootstrapRefresh } = require('./fresh-install-database');
 const { httpJson, isUncertain, requiresReconciliation, reconcileInstall, installWithReconciliation } = require('./fresh-install-http');
 
 const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -523,6 +524,12 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         setCheckpoint(id,'uploaded');
       }
       task = taskById(id);
+      if (task.database_bootstrap_refresh && !task.install_request_pending && task.checkpoint === 'uploaded') {
+        progress(id,'database',25,'Đang cập nhật trình xử lý database; giữ nguyên ZIP đã upload');
+        await uploadBootstrapVerified(task,secrets,writeBootstrap(task,secrets));
+        mutate(id,current => { current.database_bootstrap_refresh=false; });
+      }
+      task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'installed')) {
         progress(id,'install',25,'Hosting đang tải WordPress và plugin rồi cài đặt','server-side fast path');
         let installed;
@@ -595,6 +602,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const current = taskById(id);
     if (running.has(id) || current.status === 'running') return status(id);
     mutate(id,task => {
+      if (needsDatabaseBootstrapRefresh(current)) task.database_bootstrap_refresh=true;
       // Migrate a v1.0.62 HTTP-failed task BEFORE clearing its visible error.
       if (requiresReconciliation(current)) task.install_request_pending=true;
       task.status='running'; task.stage=task.checkpoint === 'created' ? 'queued' : 'resuming';

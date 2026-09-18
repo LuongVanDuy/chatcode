@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { buildTransferBootstrap } = require('./fresh-install-transfer-bootstrap');
+const { buildDatabaseBootstrap } = require('./fresh-install-database');
 
 function phpString(value) {
   return String(value || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -163,49 +164,16 @@ function cc_fetch_json($url) {
   if (!is_array($data)) throw new Exception('Update manifest không trả JSON hợp lệ.');
   return $data;
 }
-function cc_directadmin_create_database($data,&$detail) {
-  $detail = '';
-  if (!function_exists('curl_init') || empty($data['panelUser']) || empty($data['panelPassword'])) return false;
-  $account = preg_replace('/[^A-Za-z0-9_]/','',(string)$data['panelUser']);
-  $dbName = (string)$data['dbName']; $dbUser = (string)$data['dbUser']; $prefix = $account . '_';
-  $dbSuffix = strpos($dbName,$prefix) === 0 ? substr($dbName,strlen($prefix)) : $dbName;
-  $userSuffix = strpos($dbUser,$prefix) === 0 ? substr($dbUser,strlen($prefix)) : $dbUser;
-  $dbSuffix = substr(preg_replace('/[^A-Za-z0-9_]/','',$dbSuffix),0,40);
-  $userSuffix = substr(preg_replace('/[^A-Za-z0-9_]/','',$userSuffix),0,40);
-  if ($account === '' || $dbSuffix === '' || $userSuffix === '') { $detail='Tên database không hợp lệ.'; return false; }
-  $body = http_build_query(array('action'=>'create','name'=>$dbSuffix,'user'=>$userSuffix,'passwd'=>(string)$data['dbPassword'],'passwd2'=>(string)$data['dbPassword']));
-  foreach (array('https://127.0.0.1:2222/CMD_API_DATABASES','http://127.0.0.1:2222/CMD_API_DATABASES') as $url) {
-    $curl = curl_init($url);
-    curl_setopt($curl,CURLOPT_POST,true); curl_setopt($curl,CURLOPT_POSTFIELDS,$body);
-    curl_setopt($curl,CURLOPT_RETURNTRANSFER,true); curl_setopt($curl,CURLOPT_HTTPAUTH,CURLAUTH_BASIC);
-    curl_setopt($curl,CURLOPT_USERPWD,$data['panelUser'].':'.$data['panelPassword']);
-    curl_setopt($curl,CURLOPT_CONNECTTIMEOUT,4); curl_setopt($curl,CURLOPT_TIMEOUT,20);
-    if (strpos($url,'https://') === 0) { curl_setopt($curl,CURLOPT_SSL_VERIFYPEER,false); curl_setopt($curl,CURLOPT_SSL_VERIFYHOST,0); }
-    $response = curl_exec($curl); $status=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE); $error=(string)curl_error($curl); curl_close($curl);
-    if ($response === false || $status < 200 || $status >= 300) { $detail=$error !== '' ? $error : 'HTTP '.$status; continue; }
-    $parsed=array(); parse_str((string)$response,$parsed);
-    if (isset($parsed['error']) && (string)$parsed['error'] === '0') { $detail='DirectAdmin đã tạo database.'; return true; }
-    $json=json_decode((string)$response,true);
-    if (is_array($json) && isset($json['error']) && !$json['error']) { $detail='DirectAdmin đã tạo database.'; return true; }
-    $detail=substr(trim(strip_tags((string)($parsed['details'] ?? $parsed['text'] ?? $response))),0,240);
-  }
-  return false;
-}
-function cc_connect_database($data,&$selected,&$detail) {
-  mysqli_report(MYSQLI_REPORT_OFF);
-  $candidate=array('name'=>$data['dbName'],'user'=>$data['dbUser'],'password'=>$data['dbPassword'],'host'=>$data['dbHost']);
-  $db=@new mysqli($candidate['host'],$candidate['user'],$candidate['password'],$candidate['name']);
-  if (!$db->connect_errno) { $selected=$candidate; return $db; }
-  $detail=(string)$db->connect_error; $panel=''; cc_directadmin_create_database($data,$panel);
-  $db=@new mysqli($candidate['host'],$candidate['user'],$candidate['password'],$candidate['name']);
-  if (!$db->connect_errno) { $selected=$candidate; return $db; }
-  $detail=($panel !== '' ? 'DirectAdmin: '.$panel.' · ' : '').(string)$db->connect_error;
-  return null;
-}
+${buildDatabaseBootstrap()}
 function cc_prepare_database($data) {
   if (!class_exists('mysqli')) throw new Exception('Hosting chưa bật PHP mysqli.');
-  $selected=null; $detail=''; $mysqli=cc_connect_database($data,$selected,$detail);
-  if (!$mysqli || !$selected) throw new Exception('Không tự tạo/kết nối được database. '.$detail);
+  $selected=null; $detail=array(); $mysqli=cc_connect_database($data,$selected,$detail);
+  if (!$mysqli || !$selected) {
+    $panel=$detail['panel'] ?? array();
+    $message='Không tự tạo/kết nối được database. DirectAdmin: HTTP '.(int)($panel['http_status'] ?? 0).' · '.($panel['message'] ?? 'Không truy cập được panel.');
+    if (!empty($detail['mysql']['message'])) $message.=' · MySQL: '.$detail['mysql']['message'];
+    cc_fail($message,409,$detail['code'] ?? 'DB_CONNECT_FAILED',array('databaseDetail'=>$detail));
+  }
   $marker=(string)$data['tablePrefix'].'chatcode_install_marker';
   $tables=array(); $result=$mysqli->query('SHOW TABLES');
   if (!$result) throw new Exception('Không kiểm tra được database.');
@@ -398,14 +366,17 @@ try {
   }
   if ($action !== 'install') cc_fail('Action không được hỗ trợ.',400,'ACTION_UNSUPPORTED');
   if (cc_same_install_live()) cc_answer(true,'Install task đã publish trước đó.',array('alreadyInstalled'=>true));
-  $removedEntries=cc_prepare_remote_root($data);
+  // Read-only guard first; do not delete website files until DB is ready.
+  $blocking=cc_blocking_entries($data);
+  if ($blocking && empty($data['clearRemote'])) cc_fail('Thư mục website đang có nội dung.',409,'SITE_NOT_EMPTY',array('blockingEntries'=>array_slice($blocking,0,20)));
   foreach (array('panelUser','panelPassword','dbName','dbUser','dbPassword','dbHost','tablePrefix','siteTitle','adminUser','adminEmail','adminPassword','siteUrl') as $key) {
     if (!isset($data[$key]) || (string)$data[$key] === '') cc_fail('Thiếu thông tin '.$key,400,'PAYLOAD_MISSING_FIELD');
   }
   if (!preg_match('/^[A-Za-z][A-Za-z0-9_]{0,31}$/',(string)$data['tablePrefix'])) cc_fail('Table prefix không hợp lệ.',400,'TABLE_PREFIX_INVALID');
+  list($mysqli,$markerTable,$selected)=cc_prepare_database($data);
+  $removedEntries=cc_prepare_remote_root($data);
   $stage=cc_stage();
   if (!is_dir($stage) && !@mkdir($stage,0755,true)) throw new Exception('Không tạo được staging directory.');
-  list($mysqli,$markerTable,$selected)=cc_prepare_database($data);
   $data['dbName']=$selected['name']; $data['dbUser']=$selected['user']; $data['dbHost']=$selected['host'];
   cc_prepare_wordpress($stage,$data); $activeTheme=cc_prepare_theme($stage,$data);
   $plugin=(array)($data['plugin'] ?? array()); $pluginVersion=cc_prepare_duyanh($stage,$plugin); cc_write_wp_config($stage,$data);
