@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'renderer/**'
+      - '!renderer/fresh-install.js'
       - 'core/browser-*.js'
       - 'assets/**'
       - 'scripts/smoke-renderer-foundation.cjs'
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'renderer/**'
+      - '!renderer/fresh-install.js'
       - 'core/browser-*.js'
       - 'assets/**'
       - 'scripts/smoke-renderer-foundation.cjs'
