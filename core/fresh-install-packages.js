@@ -254,6 +254,51 @@ function createFreshInstallPackageService(app) {
     return { ...record, path:undefined, available:true };
   }
 
+  async function importPlugin(filePath, options = {}) {
+    const resolved = path.resolve(String(filePath || ''));
+    if (!resolved.toLowerCase().endsWith('.zip')) throw new Error('Chỉ hỗ trợ plugin dạng ZIP.');
+    const id = String(options.id || 'duyanhwebpro').trim().toLowerCase();
+    const slug = String(options.slug || id).trim().toLowerCase();
+    const entry = String(options.entry || `${slug}/${slug}.php`).replace(/\\/g,'/');
+    const entries = readZipEntries(resolved);
+    if (!entries.some(name => name.toLowerCase() === entry.toLowerCase())) {
+      throw new Error(`Plugin ZIP thiếu entrypoint: ${entry}`);
+    }
+    const headerText = readZipEntry(resolved, entry, 2 * 1024 * 1024).toString('utf8');
+    const detectedVersion = String(headerText.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1] || '').trim();
+    const requestedVersion = String(options.version || '').trim();
+    if (requestedVersion && detectedVersion !== requestedVersion) {
+      throw new Error(`Plugin ZIP không đúng version ${requestedVersion} (phát hiện: ${detectedVersion || 'không rõ'}).`);
+    }
+    const version = requestedVersion || detectedVersion || 'custom';
+    if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(id) || !/^[a-z0-9][a-z0-9._-]{0,95}$/.test(slug)) {
+      throw new Error('Plugin slug không hợp lệ.');
+    }
+    const digest = await sha256File(resolved);
+    await fsp.mkdir(root,{ recursive:true });
+    const target = path.join(root,`${id}-${version}-${digest.slice(0,12)}.zip`);
+    if (!fs.existsSync(target)) await fsp.copyFile(resolved,target);
+    const stat = await fsp.stat(target);
+    const index = readIndex();
+    index.packages = index.packages.filter(item => !(item.id === id && item.version === version && item.sha256 === digest));
+    const record = {
+      id,
+      kind:'plugin',
+      source:'managed-fallback',
+      version,
+      slug,
+      entry,
+      path:target,
+      sha256:digest,
+      bytes:stat.size,
+      expected_entry:entry,
+      imported_at:new Date().toISOString()
+    };
+    index.packages.push(record);
+    writeIndex(index);
+    return { ...record, path:undefined, available:true };
+  }
+
   function resolveTheme(selection = {}) {
     const themeId = String(selection.id || 'bricks');
     if (themeId === 'wordpress-default') {
@@ -292,18 +337,22 @@ function createFreshInstallPackageService(app) {
 
   function catalog() {
     const bricks = find('bricks','2.4');
+    const duyanh = find('duyanhwebpro','1.9.4');
     return {
       ...DEFAULT_CATALOG,
       package_library:list(),
       readiness:{
         bricks_2_4:!!bricks,
         bricks_2_4_sha256:bricks?.sha256 || '',
-        bricks_2_4_bytes:bricks?.bytes || 0
+        bricks_2_4_bytes:bricks?.bytes || 0,
+        duyanhwebpro_1_9_4:!!duyanh,
+        duyanhwebpro_1_9_4_sha256:duyanh?.sha256 || '',
+        duyanhwebpro_1_9_4_bytes:duyanh?.bytes || 0
       }
     };
   }
 
-  return { catalog, list, find, importTheme, resolveTheme, root };
+  return { catalog, list, find, importTheme, importPlugin, resolveTheme, root };
 }
 
 module.exports = {
