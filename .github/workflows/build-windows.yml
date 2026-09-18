@@ -12,8 +12,13 @@ permissions:
   contents: write
 
 jobs:
+  fresh-install-release-gate:
+    if: ${{ github.event_name != 'pull_request' }}
+    uses: ./.github/workflows/test-fresh-install.yml
+
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/') || !contains(github.event.head_commit.message, '[skill-only]') }}
+    needs: [fresh-install-release-gate]
+    if: ${{ always() && (github.event_name == 'pull_request' || needs.fresh-install-release-gate.result == 'success') && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/') || !contains(github.event.head_commit.message, '[skill-only]')) }}
     runs-on: windows-latest
     env:
       CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}

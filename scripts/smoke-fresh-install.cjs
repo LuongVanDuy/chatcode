@@ -52,13 +52,14 @@ Version: 2.4
     'CMD_API_DATABASES',
     'chatcode_install_marker',
     'BRICKS_LICENSE_KEY',
+    "\\$table_prefix='",
     "const CC_THEME_LAYOUT = 'flat';",
     "$themeTarget=$themesRoot.'/'.CC_THEME_SLUG",
     'wordpress.org/latest.zip',
     'checksum_sha256',
     'wp_install(',
-    "switch_theme($activeTheme)",
-    "activate_plugin((string)$plugin['entry'])"
+    "switch_theme($ccActiveTheme)",
+    "activate_plugin($ccPluginEntry)"
   ]) assert.ok(php.includes(required), required);
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'chatcode-fresh-test-'));

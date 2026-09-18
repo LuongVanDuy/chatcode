@@ -78,9 +78,13 @@ function List-Directory(
       $items = @()
       while (-not $reader.EndOfStream) {
         $line = $reader.ReadLine()
-        if (-not [string]::IsNullOrWhiteSpace($line)) { $items += $line.Trim() }
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+          $item = $line.Trim().Replace('\','/').TrimEnd('/')
+          if ($item.Contains('/')) { $item = @($item.Split('/') | Where-Object { $_ })[-1] }
+          if (-not [string]::IsNullOrWhiteSpace($item)) { $items += $item }
+        }
       }
-      return ,$items
+      return $items
     } finally { Safe-Dispose $reader }
   } finally { Safe-Dispose $response }
 }
