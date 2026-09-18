@@ -149,6 +149,7 @@ jobs:
             $raw = $discoverPayload | powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/fresh-install.ps1
             if ($LASTEXITCODE -ne 0) { throw "discover integration exited $LASTEXITCODE : $raw" }
             $discovered = (@($raw | Where-Object { $_ })[-1]) | ConvertFrom-Json
+            Write-Host ('DISCOVERY_RESULT=' + ($discovered | ConvertTo-Json -Depth 6 -Compress))
             if (-not $discovered.ok) { throw 'discover integration returned ok=false' }
             if ($discovered.remotePath -ne '/domains/example.test/public_html') { throw "unexpected remotePath: $($discovered.remotePath)" }
             if (-not $discovered.siteNotEmpty) { throw 'discover integration did not detect legacy content' }
