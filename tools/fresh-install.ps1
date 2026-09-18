@@ -213,7 +213,14 @@ try {
         }
       }
     }
-    Fail ('Không tự phát hiện được FTP/FTPS và thư mục website. ' + (($attempts | Select-Object -Last 4) -join ' | ')) 'FTP_DISCOVERY_FAILED'
+    $recentAttempts = @($attempts | Select-Object -Last 4)
+    $detail = ''
+    if ($recentAttempts.Count -gt 0) {
+      $detail = [string]::Join(' | ', [string[]]$recentAttempts)
+    }
+    $message = 'FTP/FTPS and website path auto-discovery failed.'
+    if ($detail) { $message += ' ' + $detail }
+    Fail $message 'FTP_DISCOVERY_FAILED'
   }
 
   $host = [string]$payload.host
