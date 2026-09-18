@@ -2,6 +2,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const PACKAGE_SCHEMA = 1;
 const MAX_PACKAGE_BYTES = 160 * 1024 * 1024;
@@ -90,7 +91,7 @@ function sha256File(file) {
   });
 }
 
-function readZipEntries(file) {
+function readZipIndex(file) {
   const stat = fs.statSync(file);
   if (!stat.isFile()) throw new Error('Package ZIP không tồn tại.');
   if (stat.size < 22 || stat.size > MAX_PACKAGE_BYTES) throw new Error('Package ZIP có dung lượng không hợp lệ.');
@@ -111,12 +112,18 @@ function readZipEntries(file) {
     const central = Buffer.alloc(centralSize);
     fs.readSync(fd, central, 0, central.length, centralOffset);
     const entries = [];
+    const names = new Set();
     let offset = 0;
     while (offset + 46 <= central.length && entries.length < totalEntries) {
       if (central.readUInt32LE(offset) !== 0x02014b50) throw new Error('ZIP central directory không hợp lệ.');
+      const compression = central.readUInt16LE(offset + 10);
+      const compressedSize = central.readUInt32LE(offset + 20);
+      const uncompressedSize = central.readUInt32LE(offset + 24);
       const nameLen = central.readUInt16LE(offset + 28);
       const extraLen = central.readUInt16LE(offset + 30);
       const commentLen = central.readUInt16LE(offset + 32);
+      const externalAttrs = central.readUInt32LE(offset + 38);
+      const localOffset = central.readUInt32LE(offset + 42);
       const nameStart = offset + 46;
       const nameEnd = nameStart + nameLen;
       if (nameEnd > central.length) throw new Error('ZIP entry bị cắt ngắn.');
@@ -124,11 +131,45 @@ function readZipEntries(file) {
       if (!name || name.startsWith('/') || name.includes('\0') || name.split('/').some(part => part === '..')) {
         throw new Error(`ZIP chứa đường dẫn không an toàn: ${name || '(trống)'}`);
       }
-      entries.push(name);
+      const mode = (externalAttrs >>> 16) & 0xffff;
+      if ((mode & 0o170000) === 0o120000) throw new Error(`ZIP không chấp nhận symbolic link: ${name}`);
+      const key = name.toLowerCase();
+      if (names.has(key)) throw new Error(`ZIP có entry trùng: ${name}`);
+      names.add(key);
+      entries.push({ name, compression, compressedSize, uncompressedSize, localOffset });
       offset = nameEnd + extraLen + commentLen;
     }
     if (!entries.length) throw new Error('Package ZIP không có file.');
     return entries;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readZipEntries(file) {
+  return readZipIndex(file).map(item => item.name);
+}
+
+function readZipEntry(file, entryName, maxBytes = 2 * 1024 * 1024) {
+  const item = readZipIndex(file).find(entry => entry.name.toLowerCase() === String(entryName).toLowerCase());
+  if (!item) throw new Error(`ZIP thiếu entry: ${entryName}`);
+  if (item.uncompressedSize > maxBytes) throw new Error(`ZIP entry quá lớn: ${entryName}`);
+  const fd = fs.openSync(file,'r');
+  try {
+    const header = Buffer.alloc(30);
+    fs.readSync(fd,header,0,header.length,item.localOffset);
+    if (header.readUInt32LE(0) !== 0x04034b50) throw new Error('ZIP local header không hợp lệ.');
+    const nameLen = header.readUInt16LE(26);
+    const extraLen = header.readUInt16LE(28);
+    const dataOffset = item.localOffset + 30 + nameLen + extraLen;
+    const compressed = Buffer.alloc(item.compressedSize);
+    fs.readSync(fd,compressed,0,compressed.length,dataOffset);
+    let output;
+    if (item.compression === 0) output = compressed;
+    else if (item.compression === 8) output = zlib.inflateRawSync(compressed);
+    else throw new Error(`ZIP compression method chưa hỗ trợ: ${item.compression}`);
+    if (output.length !== item.uncompressedSize || output.length > maxBytes) throw new Error('ZIP entry size không khớp.');
+    return output;
   } finally {
     fs.closeSync(fd);
   }
@@ -179,8 +220,14 @@ function createFreshInstallPackageService(app) {
     if (!resolved.toLowerCase().endsWith('.zip')) throw new Error('Chỉ hỗ trợ theme dạng ZIP.');
     const entries = readZipEntries(resolved);
     const rootSlug = detectThemeRoot(entries);
+    const styleText = readZipEntry(resolved, `${rootSlug}/style.css`, 1024 * 1024).toString('utf8');
+    const detectedVersion = String(styleText.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1] || '').trim();
     const id = String(options.id || rootSlug).trim().toLowerCase();
-    const version = String(options.version || 'custom').trim();
+    const requestedVersion = String(options.version || '').trim();
+    if (id === 'bricks' && requestedVersion && detectedVersion !== requestedVersion) {
+      throw new Error(`ZIP Bricks không đúng version ${requestedVersion} (phát hiện: ${detectedVersion || 'không rõ'}).`);
+    }
+    const version = requestedVersion || detectedVersion || 'custom';
     if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(id)) throw new Error('Theme slug không hợp lệ.');
     if (id === 'bricks' && rootSlug.toLowerCase() !== 'bricks') throw new Error('ZIP Bricks phải có thư mục gốc bricks/.');
     const digest = await sha256File(resolved);
@@ -263,6 +310,7 @@ module.exports = {
   DEFAULT_CATALOG,
   createFreshInstallPackageService,
   readZipEntries,
+  readZipEntry,
   detectThemeRoot,
   sha256File
 };
