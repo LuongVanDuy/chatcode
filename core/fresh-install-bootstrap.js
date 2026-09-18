@@ -54,20 +54,37 @@ function cc_remove_tree($path) {
   foreach ($items as $name) if ($name !== '.' && $name !== '..') cc_remove_tree($path . DIRECTORY_SEPARATOR . $name);
   @rmdir($path);
 }
-function cc_blocking_entries($data=array()) {
-  $allowed = array('.', '..', '.well-known', '.ftpquota', CC_BRIDGE_NAME);
+function cc_allowed_root_entries($data=array()) {
+  $allowed = array('.', '..', '.well-known', '.ftpquota', CC_BRIDGE_NAME, basename(cc_stage()));
   if (CC_THEME_PACKAGE !== '') $allowed[] = CC_THEME_PACKAGE;
   if (!empty($data['corePackage'])) $allowed[] = basename((string)$data['corePackage']);
   $plugin=(array)($data['plugin'] ?? array());
   if (!empty($plugin['fallback_package'])) $allowed[] = basename((string)$plugin['fallback_package']);
+  return array_values(array_unique($allowed));
+}
+function cc_blocking_entries($data=array()) {
+  $allowed = cc_allowed_root_entries($data);
   $out = array();
   foreach ((array)@scandir(__DIR__) as $name) {
     if (in_array($name,$allowed,true)) continue;
-    if (strpos($name,'.chatcode-install-') === 0) continue;
-    if ($name === '.chatcode-install-id') continue;
     $out[] = $name;
   }
-  return $out;
+  return array_values(array_unique($out));
+}
+function cc_prepare_remote_root($data=array()) {
+  $blocking = cc_blocking_entries($data);
+  if (!$blocking) return array();
+  if (empty($data['clearRemote'])) {
+    cc_fail('Thư mục website đang có nội dung.',409,'SITE_NOT_EMPTY',array('blockingEntries'=>array_slice($blocking,0,20)));
+  }
+  foreach ($blocking as $name) {
+    cc_remove_tree(__DIR__ . DIRECTORY_SEPARATOR . $name);
+  }
+  $remaining = cc_blocking_entries($data);
+  if ($remaining) {
+    cc_fail('Không dọn hết nội dung cũ trên hosting.',500,'REMOTE_WIPE_FAILED',array('blockingEntries'=>array_slice($remaining,0,20)));
+  }
+  return $blocking;
 }
 function cc_stage() { return __DIR__ . DIRECTORY_SEPARATOR . '.chatcode-install-' . substr(CC_INSTALL_ID,0,12); }
 function cc_marker() { return __DIR__ . DIRECTORY_SEPARATOR . '.chatcode-install-id'; }
@@ -421,8 +438,7 @@ try {
     cc_answer(true,'Install task đã publish trước đó.',array('alreadyInstalled'=>true));
   }
 
-  $blocking=cc_blocking_entries($data);
-  if ($blocking) cc_fail('Thư mục website không trống.',409,'SITE_NOT_EMPTY',array('blockingEntries'=>array_slice($blocking,0,20)));
+  $removedEntries=cc_prepare_remote_root($data);
 
   foreach (array('panelUser','panelPassword','dbName','dbUser','dbPassword','dbHost','tablePrefix','siteTitle','adminUser','adminEmail','adminPassword','siteUrl') as $key) {
     if (!isset($data[$key]) || (string)$data[$key] === '') cc_fail('Thiếu thông tin '.$key,400,'PAYLOAD_MISSING_FIELD');
@@ -467,7 +483,8 @@ try {
     'database'=>array('name'=>$data['dbName'],'user'=>$data['dbUser'],'host'=>$data['dbHost']),
     'activeTheme'=>$activeTheme,
     'pluginVersion'=>$pluginVersion,
-    'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? '')
+    'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),
+    'clearedEntries'=>array_slice($removedEntries,0,20)
   ));
 } catch (Throwable $error) {
   cc_fail($error->getMessage(),500,'INSTALL_FAILED');

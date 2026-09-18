@@ -207,8 +207,7 @@ try {
             "/domains/$domain/public_html",
             '/public_html',
             '/httpdocs',
-            '/www',
-            '/'
+            '/www'
           ) | Select-Object -Unique
           foreach ($candidate in $paths) {
             try {

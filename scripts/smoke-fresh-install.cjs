@@ -2,7 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createFreshInstallService, normalizeDomain, checkpointAtLeast } = require('../core/fresh-install-runtime');
+const { createFreshInstallService, normalizeDomain, checkpointAtLeast, allowsRemoteClear } = require('../core/fresh-install-runtime');
 const { buildFreshInstallBootstrap } = require('../core/fresh-install-bootstrap');
 const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require('../core/fresh-install-packages');
 
@@ -44,6 +44,11 @@ Version: 2.4
     'PLUGIN_DOWNLOAD_FAILED',
     'PLUGIN_FALLBACK_INVALID',
     'SITE_NOT_EMPTY',
+    'REMOTE_WIPE_FAILED',
+    'cc_prepare_remote_root',
+    ".well-known",
+    ".ftpquota",
+    "clearRemote",
     'CMD_API_DATABASES',
     'chatcode_install_marker',
     'BRICKS_LICENSE_KEY',
@@ -82,12 +87,27 @@ Version: 2.4
     domain:'demo.example.com',
     username:'hosting_user',
     password:'hosting-password',
+    clearRemote:true,
     theme:{ id:'wordpress-default', version:'latest' }
   });
   assert.equal(task.status,'ready');
   assert.equal(task.checkpoint,'created');
   assert.equal(task.manifest.wordpress.source,'wordpress.org');
   assert.equal(task.manifest.plugins[0].fallback_version,'1.9.4');
+  assert.equal(task.remote_policy.clear_remote,true);
+  assert.equal(allowsRemoteClear(task),true);
+
+  const guardedTask = service.create({
+    domain:'guarded.example.com',
+    username:'hosting_user',
+    password:'hosting-password',
+    clearRemote:false,
+    theme:{ id:'wordpress-default', version:'latest' }
+  });
+  assert.equal(allowsRemoteClear(guardedTask),false);
+  const confirmed = service.confirmRemoteClear(guardedTask.id);
+  assert.equal(confirmed.clear_remote_confirmed,true);
+  assert.equal(allowsRemoteClear(confirmed),true);
 
   const taskFile = path.join(root,'fresh-install','tasks.json');
   const taskText = fs.readFileSync(taskFile,'utf8');
@@ -107,7 +127,11 @@ Version: 2.4
   assert.match(credentials.password,/^[A-Za-z0-9_-]{20,}$/);
   assert.equal(credentials.wp_admin_url,'https://demo.example.com/wp-admin/');
 
+  const runnerSource = fs.readFileSync(path.join(__dirname,'..','tools','fresh-install.ps1'),'utf8');
+  assert.equal(runnerSource.includes("            '/'\n          ) | Select-Object -Unique"), false);
+
   assert.equal(service.remove(task.id), true);
+  assert.equal(service.remove(guardedTask.id), true);
   assert.equal(service.list().length,0);
   assert.ok(changes.length >= 2);
 

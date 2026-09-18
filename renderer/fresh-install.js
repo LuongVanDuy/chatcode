@@ -96,7 +96,11 @@
   function taskActions(task) {
     const id = escapeHtml(task.id);
     const buttons = [];
-    if (['failed','interrupted','ready'].includes(task.status)) buttons.push(`<button class="btn small" data-fresh-retry="${id}">Thử lại</button>`);
+    if (task.error_code === 'SITE_NOT_EMPTY' && !task.clear_remote_confirmed && !task.remote_policy?.clear_remote) {
+      buttons.push(`<button class="btn small primary" data-fresh-clear="${id}">Dọn hosting & thử lại</button>`);
+    } else if (['failed','interrupted','ready'].includes(task.status)) {
+      buttons.push(`<button class="btn small" data-fresh-retry="${id}">Thử lại</button>`);
+    }
     if (task.status === 'completed') buttons.push(`<button class="btn small primary" data-fresh-copy="${id}">Sao chép wp-admin</button>`);
     if (task.status !== 'running') buttons.push(`<button class="btn small danger-outline" data-fresh-remove="${id}">Xóa lịch sử</button>`);
     return buttons.join('');
@@ -141,6 +145,24 @@
         finally { button.disabled = false; }
       };
     });
+    list.querySelectorAll('[data-fresh-clear]').forEach(button => {
+      button.onclick = async () => {
+        const id = button.dataset.freshClear;
+        const task = state.tasks.find(item => item.id === id);
+        const items = task?.failure_detail?.blockingEntries || [];
+        const detail = items.length ? `\n\nNội dung sẽ được dọn: ${items.slice(0,8).join(', ')}` : '';
+        if (!confirm(`Xóa nội dung cũ trong thư mục website của ${task?.domain || 'website'} và tiếp tục cài?\nChatCode sẽ giữ .well-known và .ftpquota.${detail}`)) return;
+        button.disabled = true;
+        try {
+          await freshApi.confirmFreshInstallClear(id);
+          await freshApi.retryFreshInstall(id);
+          message('Đã xác nhận dọn nội dung cũ và thử lại Fresh Install.','success');
+          await refresh();
+        } catch (error) { message(error.message || String(error),'error'); }
+        finally { button.disabled = false; }
+      };
+    });
+
     list.querySelectorAll('[data-fresh-copy]').forEach(button => {
       button.onclick = async () => {
         try {
@@ -223,6 +245,7 @@
       username:byId('freshUsername').value,
       password:byId('freshPassword').value,
       bricksLicenseKey:byId('freshBricksLicense').value,
+      clearRemote:byId('freshClearRemote')?.checked === true,
       theme:{
         id:themeSelect?.value || 'bricks',
         version:option?.dataset?.version || (themeSelect?.value === 'bricks' ? '2.4' : '')

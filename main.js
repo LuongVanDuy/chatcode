@@ -356,6 +356,7 @@ ipcMain.handle('fresh-install:status', (_, id) => requireFreshInstall().status(i
 ipcMain.handle('fresh-install:create', (_, input) => requireFreshInstall().create(input || {}));
 ipcMain.handle('fresh-install:start', (_, id) => requireFreshInstall().start(id));
 ipcMain.handle('fresh-install:retry', (_, id) => requireFreshInstall().retry(id));
+ipcMain.handle('fresh-install:confirm-clear', (_, id) => requireFreshInstall().confirmRemoteClear(id));
 ipcMain.handle('fresh-install:remove', (_, id) => requireFreshInstall().remove(id));
 ipcMain.handle('fresh-install:pick-bricks', async () => {
   const pick = await dialog.showOpenDialog(mainWindow, {
