@@ -112,6 +112,44 @@ jobs:
             $uploaded = Join-Path $ftpRoot 'public_html\fresh-upload-test.txt'
             if (-not (Test-Path -LiteralPath $uploaded -PathType Leaf)) { throw 'Fresh Install upload integration did not create remote file.' }
             if ((Get-Content -Raw -LiteralPath $uploaded) -ne 'chatcode fresh upload test') { throw 'Fresh Install upload integration content mismatch.' }
+
+            $rangeLocal = Join-Path $env:RUNNER_TEMP 'fresh-range-test.txt'
+            [IO.File]::WriteAllText($rangeLocal,'0123456789abcdef')
+            $rangePayload = @{
+              action='upload'
+              host='127.0.0.1'
+              port=2121
+              username='tester'
+              password='secret'
+              protocol='ftp'
+              remotePath='/public_html'
+              files=@(@{
+                localPath=$rangeLocal
+                remoteName='fresh-range-test.part'
+                offset=4
+                length=6
+                fast=$true
+              })
+            } | ConvertTo-Json -Depth 6 -Compress
+            $rangeOutput = $rangePayload | powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/fresh-install.ps1
+            if ($LASTEXITCODE -ne 0) { throw "fresh-install.ps1 ranged upload exited $LASTEXITCODE : $rangeOutput" }
+            $rangeUploaded = Join-Path $ftpRoot 'public_html\fresh-range-test.part'
+            if ((Get-Content -Raw -LiteralPath $rangeUploaded) -ne '456789') { throw 'Fresh Install ranged upload content mismatch.' }
+
+            $probePayload = @{
+              action='probe-worker'
+              host='127.0.0.1'
+              port=2121
+              username='tester'
+              password='secret'
+              protocol='ftp'
+              remotePath='/public_html'
+              holdMs=100
+            } | ConvertTo-Json -Compress
+            $probeOutput = $probePayload | powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/fresh-install.ps1
+            if ($LASTEXITCODE -ne 0) { throw "fresh-install.ps1 probe-worker exited $LASTEXITCODE : $probeOutput" }
+            $probeJson = (@($probeOutput | Where-Object { $_ })[-1]) | ConvertFrom-Json
+            if (-not $probeJson.ok -or $probeJson.action -ne 'probe-worker') { throw 'Fresh Install probe-worker integration failed.' }
           } finally {
             if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
           }
@@ -243,6 +281,53 @@ jobs:
             sleep 1
           done
           curl -s -o /dev/null --connect-timeout 2 http://127.0.0.1:8080/chatcode-install-e2e.php
+
+      - name: Verify parallel package assembly
+        shell: bash
+        run: |
+          THEME="$SITE/.chatcode-theme-e2e.zip"
+          META="$RUNNER_TEMP/assembly-meta.json"
+          python3 - "$THEME" "$META" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+
+          source, meta = sys.argv[1], sys.argv[2]
+          size = os.path.getsize(source)
+          digest = hashlib.sha256(open(source, "rb").read()).hexdigest()
+          count = 3
+          part_size = (size + count - 1) // count
+          parts = []
+          with open(source, "rb") as stream:
+              for index in range(count):
+                  name = f"{source}.part-{index + 1:03d}-of-{count:03d}"
+                  chunk = stream.read(part_size)
+                  with open(name, "wb") as output:
+                      output.write(chunk)
+                  parts.append(os.path.basename(name))
+          os.remove(source)
+          with open(meta, "w", encoding="utf-8") as output:
+              json.dump({"name": os.path.basename(source), "bytes": size, "sha256": digest, "parts": parts}, output)
+          PY
+
+          TOKEN=$(jq -r .token "$RUNNER_TEMP/bootstrap-meta.json")
+          NAME=$(jq -r .name "$META")
+          BYTES=$(jq -r .bytes "$META")
+          SHA=$(jq -r .sha256 "$META")
+          PARTS=$(jq -c .parts "$META")
+          jq -n --arg name "$NAME" --arg sha "$SHA" --argjson bytes "$BYTES" --argjson parts "$PARTS" \
+            '{action:"assemble-upload",name:$name,parts:$parts,expectedBytes:$bytes,expectedSha256:$sha}' \
+            > "$RUNNER_TEMP/assemble.json"
+          CODE=$(curl -sS --max-time 60 -o "$RUNNER_TEMP/assemble-response.json" -w '%{http_code}' \
+            -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @"$RUNNER_TEMP/assemble.json" \
+            http://127.0.0.1:8080/chatcode-install-e2e.php)
+          cat "$RUNNER_TEMP/assemble-response.json"
+          test "$CODE" = "200"
+          jq -e '.ok == true and .parts == 3' "$RUNNER_TEMP/assemble-response.json"
+          test "$(sha256sum "$SITE/$NAME" | awk '{print $1}')" = "$SHA"
+          for part in $(jq -r '.parts[]' "$META"); do test ! -e "$SITE/$part"; done
 
       - name: Verify SITE_NOT_EMPTY guard
         shell: bash
