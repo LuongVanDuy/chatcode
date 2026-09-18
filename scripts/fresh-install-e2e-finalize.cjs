@@ -137,8 +137,20 @@ async function runLive(site){
     const install=await httpJson(url,secrets.bootstrapToken,payload,420000);assert.equal(install.ok,true);
     await httpJson(url,secrets.bootstrapToken,{action:'verify',plugin},90000);
     assert.equal(fs.readFileSync(path.join(site,'.chatcode-install-id'),'utf8'),task.manifest.install_id);
-    const login=await fetch(`${siteUrl}/wp-login.php`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded',cookie:'wordpress_test_cookie=WP%20Cookie%20check'},body:new URLSearchParams({log:'duyanhweb',pwd:ftpPassword,'wp-submit':'Log In',redirect_to:`${siteUrl}/wp-admin/`,testcookie:'1'})});
-    assert.equal(login.status,302);assert.match(login.headers.get('set-cookie') || '',/wordpress_logged_in_/);
+    const probeCode = "$u=null; require $argv[1]; $u=get_user_by('login','duyanhweb'); $p=getenv('CC_TEST_PASSWORD'); echo json_encode(array('userExists'=>(bool)$u,'canManage'=>$u ? user_can($u,'manage_options') : false,'exactPassword'=>$u ? wp_check_password($p,$u->user_pass,$u->ID) : false,'unslashedPassword'=>$u ? wp_check_password(stripslashes($p),$u->user_pass,$u->ID) : false));";
+    const authState=JSON.parse(execFileSync('php',['-r',probeCode,path.join(site,'wp-load.php')],{encoding:'utf8',env:{...process.env,CC_TEST_PASSWORD:ftpPassword}}));
+    console.log('WordPress account verification:',JSON.stringify(authState));
+    assert.equal(authState.userExists,true);assert.equal(authState.canManage,true);assert.equal(authState.exactPassword,true,'stored password must match FTP exactly');
+    const loginPage=await fetch(`${siteUrl}/wp-login.php`,{redirect:'manual'});
+    const cookie=loginPage.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
+    await loginPage.text();
+    const login=await fetch(`${siteUrl}/wp-login.php`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded',cookie},body:new URLSearchParams({log:'duyanhweb',pwd:ftpPassword,'wp-submit':'Log In',redirect_to:`${siteUrl}/wp-admin/`,testcookie:'1'})});
+    if(login.status!==302){
+      const html=await login.text();
+      const messages=[...html.matchAll(/<div[^>]*id=["'](?:login_error|login-message)["'][^>]*>([\s\S]*?)<\/div>/g)].map(m=>m[1].replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').split(ftpPassword).join('[redacted]').slice(0,400));
+      throw new Error('WP login failed: '+JSON.stringify({status:login.status,messages,location:login.headers.get('location'),cookieNames:cookie.split('; ').map(v=>v.split('=')[0])}));
+    }
+    assert.match(login.headers.get('set-cookie') || '',/wordpress_logged_in_/);
     const cleaned=await httpJson(url,secrets.bootstrapToken,{action:'cleanup',plugin},60000);assert.equal(cleaned.markerRemoved,true);
     assert.ok(!fs.existsSync(path.join(site,'.chatcode-install-id')));assert.ok(!fs.existsSync(path.join(site,task.bootstrap.name)));assert.ok(fs.existsSync(path.join(site,'wp-config.php')));
     console.log('PASS real WordPress/MariaDB install + duyanhweb login with FTP special-character password + marker removed after verify');
