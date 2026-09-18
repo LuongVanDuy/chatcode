@@ -1,5 +1,6 @@
 name: Live Bricks Large Fresh Install - thanhdofood
 # retry-marker-3
+# retry-marker-4
 
 on:
   push:
@@ -34,9 +35,9 @@ jobs:
             'target = sys.argv[1]',
             'payload = os.urandom(29000000)',
             'z = zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED)',
-            'z.writestr("style.css", "/*\\nTheme Name: Bricks\\nVersion: 2.4\\n*/\\n")',
-            'z.writestr("index.php", "<?php echo chr(66);\\n")',
-            'z.writestr("functions.php", "<?php\\n")',
+            'z.writestr("style.css", "/*" + chr(10) + "Theme Name: Bricks" + chr(10) + "Version: 2.4" + chr(10) + "*/" + chr(10))',
+            'z.writestr("index.php", "<?php echo chr(66);" + chr(10))',
+            'z.writestr("functions.php", "<?php" + chr(10))',
             'z.writestr("assets/live-upload-probe.bin", payload)',
             'z.close()',
             'print(os.path.getsize(target))'
