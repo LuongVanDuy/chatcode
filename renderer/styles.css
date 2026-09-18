@@ -98,3 +98,8 @@
 #route-wordpress-install .fresh-task-logs{background:#17191E!important;color:var(--ui-text-2)!important;border:1px solid var(--ui-border)!important}
 #route-wordpress-install .message.error{color:var(--ui-danger)!important}
 #route-wordpress-install .message.success{color:var(--ui-success)!important}
+#route-wordpress-install .fresh-clear-remote{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:10px;padding:12px 13px;border:1px solid rgba(240,196,122,.30);border-radius:var(--ui-radius-md);background:rgba(240,196,122,.06);color:var(--ui-text)!important;cursor:pointer}
+#route-wordpress-install .fresh-clear-remote input{width:18px!important;height:18px!important;min-height:18px!important;margin:2px 0 0!important;flex:0 0 18px;accent-color:var(--ui-accent)}
+#route-wordpress-install .fresh-clear-remote>span{display:flex;flex-direction:column;gap:3px;min-width:0}
+#route-wordpress-install .fresh-clear-remote strong{color:var(--ui-text)!important;font-size:13px;font-weight:600}
+#route-wordpress-install .fresh-clear-remote small{color:var(--ui-muted)!important;font-size:12px;line-height:1.45}
