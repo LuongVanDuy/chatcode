@@ -63,6 +63,18 @@ jobs:
           if (@($bytes | Where-Object { $_ -gt 127 }).Count -gt 0) { throw 'fresh-install.ps1 must remain ASCII-only for Windows PowerShell 5.1.' }
           powershell.exe -NoProfile -NonInteractive -Command '$text = Get-Content -Raw "tools/fresh-install.ps1"; [void][ScriptBlock]::Create($text)'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows PowerShell 5.1 runtime selftest
+        shell: pwsh
+        run: |
+          $payload = '{"action":"selftest","host":"example.test","port":21,"username":"tester","password":"secret","protocol":"ftp","remotePath":"/public_html"}'
+          $output = $payload | powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/fresh-install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "fresh-install.ps1 selftest exited $LASTEXITCODE" }
+          $line = @($output | Where-Object { $_ })[-1]
+          $json = $line | ConvertFrom-Json
+          if (-not $json.ok -or $json.action -ne 'selftest' -or $json.host -ne 'example.test') {
+            throw 'fresh-install.ps1 runtime selftest failed.'
+          }
+
       - name: Fresh Install smoke
         shell: pwsh
         run: node scripts/smoke-fresh-install.cjs
