@@ -27,6 +27,11 @@ function Normalize-Path([string]$Path) {
   return $value
 }
 
+function Safe-Dispose($Value) {
+  if ($null -eq $Value) { return }
+  try { $Value.Dispose() } catch {}
+}
+
 function Ftp-Uri([string]$FtpHost, [int]$Port, [string]$RemotePath) {
   $pathValue = Normalize-Path $RemotePath
   $segments = $pathValue.TrimStart('/').Split('/') | ForEach-Object { [Uri]::EscapeDataString($_) }
@@ -76,8 +81,8 @@ function List-Directory(
         if (-not [string]::IsNullOrWhiteSpace($line)) { $items += $line.Trim() }
       }
       return ,$items
-    } finally { $reader.Dispose() }
-  } finally { $response.Dispose() }
+    } finally { Safe-Dispose $reader }
+  } finally { Safe-Dispose $response }
 }
 
 function Ensure-Directory(
@@ -101,12 +106,32 @@ function Ensure-Directory(
       try {
         $request = New-FtpRequest $FtpHost $Port $current ([Net.WebRequestMethods+Ftp]::MakeDirectory) $Username $Password $Tls
         $response = $request.GetResponse()
-        $response.Dispose()
+        Safe-Dispose $response
       } catch {
         try { [void](List-Directory $FtpHost $Port $current $Username $Password $Tls) }
         catch { throw }
       }
     }
+  }
+}
+
+function Get-RemoteFileSize(
+  [string]$FtpHost,
+  [int]$Port,
+  [string]$RemotePath,
+  [string]$Username,
+  [string]$Password,
+  [bool]$Tls
+) {
+  $response = $null
+  try {
+    $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::GetFileSize) $Username $Password $Tls 15000
+    $response = $request.GetResponse()
+    return [long]$response.ContentLength
+  } catch {
+    return [long]-1
+  } finally {
+    Safe-Dispose $response
   }
 }
 
@@ -125,24 +150,53 @@ function Upload-File(
   if ($parent -and $parent -ne '/' -and $parent -ne '.') {
     Ensure-Directory $FtpHost $Port $parent $Username $Password $Tls
   }
-  $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
-  $size = (Get-Item -LiteralPath $local).Length
-  $request.ContentLength = $size
-  $inputStream = [IO.File]::OpenRead($local)
-  try {
-    $output = $request.GetRequestStream()
+  $size = [long](Get-Item -LiteralPath $local).Length
+  $maxAttempts = 4
+  $lastError = ''
+  for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
+    $inputStream = $null
+    $outputStream = $null
+    $response = $null
     try {
+      $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
+      $request.ContentLength = $size
+      $inputStream = [IO.File]::OpenRead($local)
+      $outputStream = $request.GetRequestStream()
       $buffer = New-Object byte[] (1024 * 1024)
       while (($read = $inputStream.Read($buffer,0,$buffer.Length)) -gt 0) {
-        $output.Write($buffer,0,$read)
+        $outputStream.Write($buffer,0,$read)
       }
-    } finally { $output.Dispose() }
-  } finally { $inputStream.Dispose() }
-  $response = $request.GetResponse()
-  $response.Dispose()
-  return $size
+      Safe-Dispose $outputStream
+      $outputStream = $null
+      Safe-Dispose $inputStream
+      $inputStream = $null
+      try {
+        $response = $request.GetResponse()
+        return $size
+      } catch {
+        $lastError = [string]$_.Exception.Message
+        if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
+          return $size
+        }
+        throw
+      }
+    } catch {
+      $lastError = [string]$_.Exception.Message
+      if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
+        return $size
+      }
+      if ($attempt -ge $maxAttempts) {
+        throw "FTP upload failed after $maxAttempts attempts: $lastError"
+      }
+      Start-Sleep -Seconds ([Math]::Min($attempt,3))
+    } finally {
+      Safe-Dispose $response
+      Safe-Dispose $outputStream
+      Safe-Dispose $inputStream
+    }
+  }
+  throw "FTP upload failed: $lastError"
 }
-
 function Delete-File(
   [string]$FtpHost,
   [int]$Port,
@@ -154,7 +208,7 @@ function Delete-File(
   try {
     $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::DeleteFile) $Username $Password $Tls
     $response = $request.GetResponse()
-    $response.Dispose()
+    Safe-Dispose $response
     return $true
   } catch {
     if ($_.Exception.Message -match '550|not found|does not exist') { return $false }
