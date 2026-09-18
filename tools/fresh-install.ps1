@@ -73,7 +73,8 @@ function Invoke-CurlUpload(
   $local = [IO.Path]::GetFullPath($LocalPath)
   if (-not [IO.File]::Exists($local)) { throw "Local file not found: $local" }
   $curlPath = Resolve-CurlPath
-  $utf8 = New-Object System.Text.UTF8Encoding($false)
+  $utf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false
+  if ($utf8.GetPreamble().Length -ne 0) { throw 'UTF-8 encoder unexpectedly emits BOM' }
   $maxAttempts = 4
   $transientCodes = @(6,7,18,28,35,52,55,56)
   for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
@@ -102,16 +103,16 @@ function Invoke-CurlUpload(
     $process.StartInfo.RedirectStandardInput = $true
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
-    $process.StartInfo.StandardInputEncoding = $utf8
     $process.StartInfo.StandardOutputEncoding = $utf8
     $process.StartInfo.StandardErrorEncoding = $utf8
     try {
       [void]$process.Start()
       $outTask = $process.StandardOutput.ReadToEndAsync()
       $errTask = $process.StandardError.ReadToEndAsync()
-      $configText = ($lines -join [Environment]::NewLine) + [Environment]::NewLine
-      $process.StandardInput.Write($configText)
-      $process.StandardInput.Close()
+      $configBytes = $utf8.GetBytes(($lines -join [Environment]::NewLine) + [Environment]::NewLine)
+      $process.StandardInput.BaseStream.Write($configBytes,0,$configBytes.Length)
+      $process.StandardInput.BaseStream.Flush()
+      $process.StandardInput.BaseStream.Close()
       if (-not $process.WaitForExit(310000)) {
         try { $process.Kill() } catch {}
         try { $process.WaitForExit() } catch {}
