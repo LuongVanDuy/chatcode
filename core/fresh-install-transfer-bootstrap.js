@@ -49,14 +49,15 @@ function cc_transfer_action($action,$data) {
       $offset+=(int)$part['bytes'];
     }
     if ($offset!==$bytes) cc_fail('Tong dung luong parts khong khop.',400,'UPLOAD_PLAN_INVALID');
+    // A verified completed ZIP is independent of the current worker count.
+    $target=__DIR__.'/'.$name;
+    if ($sha!=='' && is_file($target) && !is_link($target) && (int)filesize($target)===$bytes && is_file(cc_transfer_receipt($target)) && hash_equals($sha,cc_transfer_sha($target))) cc_answer(true,'Package already uploaded.',array('complete'=>true,'file'=>$name,'bytes'=>$bytes,'sha256'=>$sha,'workers'=>count($parts)));
     $next=array('name'=>$name,'bytes'=>$bytes,'sha256'=>$sha,'parts'=>$parts);
     if ($plan!==$next) {
       foreach ((array)glob($directory.'/*.part') as $old) @unlink($old);
-      @unlink(cc_transfer_receipt(__DIR__.'/'.$name));
+      @unlink(cc_transfer_receipt($target));
       if (file_put_contents($planFile,json_encode($next),LOCK_EX)===false) throw new Exception('Khong luu duoc ke hoach upload.');
     }
-    $target=__DIR__.'/'.$name;
-    if ($sha!=='' && is_file($target) && !is_link($target) && (int)filesize($target)===$bytes && is_file(cc_transfer_receipt($target)) && hash_equals($sha,cc_transfer_sha($target))) cc_answer(true,'Package already uploaded.',array('complete'=>true,'file'=>$name,'bytes'=>$bytes,'sha256'=>$sha,'workers'=>count($parts)));
     $present=array();
     foreach ($parts as $index=>$part) {
       $file=$directory.'/'.$index.'.part'; clearstatcache(true,$file);
