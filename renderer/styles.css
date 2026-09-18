@@ -56,3 +56,5 @@
   .fresh-install-grid{grid-template-columns:1fr}
   .fresh-task-list{grid-template-columns:1fr}
 }
+.fresh-package-divider{height:1px;background:var(--line,#e3e7ee);margin:18px 0}
+.fresh-subhead{margin-bottom:10px}
