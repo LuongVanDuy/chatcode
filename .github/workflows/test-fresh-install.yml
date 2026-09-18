@@ -1,6 +1,7 @@
 name: Fresh Install Runtime
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'core/fresh-install-*.js'
@@ -15,9 +16,9 @@ on:
       - 'preload.js'
       - 'package.json'
       - '.github/workflows/test-fresh-install.yml'
+      - '.github/workflows/build-windows.yml'
   push:
     branches:
-      - main
       - 'feature/fresh-install-*'
     paths:
       - 'core/fresh-install-*.js'
@@ -32,6 +33,7 @@ on:
       - 'preload.js'
       - 'package.json'
       - '.github/workflows/test-fresh-install.yml'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
 jobs:
