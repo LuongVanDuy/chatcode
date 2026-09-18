@@ -465,7 +465,11 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
 
   async function cleanupRemote(task,secrets,names = []) {
     try {
-      await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{ action:'cleanup' },60000);
+      await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
+        action:'cleanup',
+        corePackage:task.manifest.wordpress.fallback_remote_name || '',
+        plugin:{ fallback_package:task.manifest.plugins[0]?.fallback_package?.remote_name || '' }
+      },60000);
       return;
     } catch {}
     const safeNames = [...new Set(names.filter(Boolean).map(name => path.posix.basename(name)))];
