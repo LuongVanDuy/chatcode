@@ -48,7 +48,8 @@ function New-FtpRequest(
   [string]$Username,
   [string]$Password,
   [bool]$Tls,
-  [int]$TimeoutMs = 12000
+  [int]$TimeoutMs = 12000,
+  [bool]$KeepAlive = $false
 ) {
   $request = [Net.FtpWebRequest]::Create((Ftp-Uri $FtpHost $Port $RemotePath))
   $request.Method = $Method
@@ -56,7 +57,7 @@ function New-FtpRequest(
   $request.EnableSsl = $Tls
   $request.UsePassive = $true
   $request.UseBinary = $true
-  $request.KeepAlive = $false
+  $request.KeepAlive = $KeepAlive
   $request.Timeout = $TimeoutMs
   $request.ReadWriteTimeout = [Math]::Max($TimeoutMs, 30000)
   return $request
@@ -150,7 +151,10 @@ function Upload-File(
   [string]$LocalPath,
   [string]$Username,
   [string]$Password,
-  [bool]$Tls
+  [bool]$Tls,
+  [long]$Offset = 0,
+  [long]$Length = 0,
+  [bool]$Fast = $false
 ) {
   $local = [IO.Path]::GetFullPath($LocalPath)
   if (-not [IO.File]::Exists($local)) { throw "Local file not found: $local" }
@@ -158,8 +162,14 @@ function Upload-File(
   if ($parent -and $parent -ne '/' -and $parent -ne '.') {
     Ensure-Directory $FtpHost $Port $parent $Username $Password $Tls
   }
-  $size = [long](Get-Item -LiteralPath $local).Length
-  $maxAttempts = 2
+
+  $totalSize = [long](Get-Item -LiteralPath $local).Length
+  if ($Offset -lt 0 -or $Offset -gt $totalSize) { throw "Invalid upload offset: $Offset" }
+  $available = [long]($totalSize - $Offset)
+  $size = if ($Length -gt 0 -and $Length -lt $available) { [long]$Length } else { $available }
+  if ($size -lt 0) { throw "Invalid upload length: $Length" }
+
+  $maxAttempts = if ($Fast) { 1 } else { 2 }
   $lastError = ''
   for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
     $inputStream = $null
@@ -170,10 +180,16 @@ function Upload-File(
       $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 45000
       $request.ContentLength = $size
       $inputStream = [IO.File]::OpenRead($local)
+      if ($Offset -gt 0) { [void]$inputStream.Seek($Offset, [IO.SeekOrigin]::Begin) }
       $outputStream = $request.GetRequestStream()
       $buffer = New-Object byte[] (1024 * 1024)
-      while (($read = $inputStream.Read($buffer,0,$buffer.Length)) -gt 0) {
+      $remaining = [long]$size
+      while ($remaining -gt 0) {
+        $want = [int][Math]::Min([long]$buffer.Length, $remaining)
+        $read = $inputStream.Read($buffer,0,$want)
+        if ($read -le 0) { throw "Unexpected end of local file while uploading range" }
         $outputStream.Write($buffer,0,$read)
+        $remaining -= $read
       }
       $outputStream.Flush()
       Safe-Dispose $outputStream
@@ -186,6 +202,9 @@ function Upload-File(
         return @{ bytes=$size; status='confirmed'; ftpConfirmed=$true; attempts=$attempt }
       } catch {
         $lastError = [string]$_.Exception.Message
+        if ($Fast) {
+          return @{ bytes=$size; status='sent-unconfirmed'; ftpConfirmed=$false; attempts=$attempt; error=$lastError }
+        }
         $remoteSize = Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls
         if ($remoteSize -eq $size) {
           return @{ bytes=$size; status='confirmed-size'; ftpConfirmed=$true; attempts=$attempt }
@@ -198,6 +217,9 @@ function Upload-File(
     } catch {
       $lastError = [string]$_.Exception.Message
       if ($writeCompleted) {
+        if ($Fast) {
+          return @{ bytes=$size; status='sent-unconfirmed'; ftpConfirmed=$false; attempts=$attempt; error=$lastError }
+        }
         $remoteSize = Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls
         if ($remoteSize -eq $size) {
           return @{ bytes=$size; status='confirmed-size'; ftpConfirmed=$true; attempts=$attempt }
@@ -328,6 +350,21 @@ try {
   $remoteRoot = Normalize-Path ([string]$payload.remotePath)
   if (-not $FtpHost -or -not $username -or -not $password) { Fail 'FTP connection data missing' 'CREDENTIALS_MISSING' }
 
+  if ($action -eq 'probe-worker') {
+    $holdMs = if ($payload.holdMs) { [int]$payload.holdMs } else { 1200 }
+    $holdMs = [Math]::Max(100, [Math]::Min(5000, $holdMs))
+    $response = $null
+    try {
+      $request = New-FtpRequest $FtpHost $port $remoteRoot ([Net.WebRequestMethods+Ftp]::ListDirectory) $username $password $tls 12000 $true
+      $response = $request.GetResponse()
+      Start-Sleep -Milliseconds $holdMs
+    } finally {
+      Safe-Dispose $response
+    }
+    Out-Json @{ ok=$true; action='probe-worker'; remotePath=$remoteRoot; holdMs=$holdMs }
+    exit 0
+  }
+
   if ($action -eq 'upload') {
     $results = @()
     foreach ($file in @($payload.files)) {
@@ -337,10 +374,15 @@ try {
         throw "Unsafe remote file name: $remoteName"
       }
       $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $remoteName.TrimStart('/')))
-      $upload = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls
+      $offset = if ($null -ne $file.offset) { [long]$file.offset } else { [long]0 }
+      $length = if ($null -ne $file.length) { [long]$file.length } else { [long]0 }
+      $fast = if ($null -ne $file.fast) { [bool]$file.fast } else { $false }
+      $upload = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls $offset $length $fast
       $results += @{
         file=$remoteName
         bytes=[long]$upload.bytes
+        offset=$offset
+        length=$length
         status=[string]$upload.status
         ftpConfirmed=[bool]$upload.ftpConfirmed
         attempts=[int]$upload.attempts
