@@ -58,8 +58,8 @@ Version: 2.4
     'wordpress.org/latest.zip',
     'checksum_sha256',
     'wp_install(',
-    "switch_theme($activeTheme)",
-    "activate_plugin((string)$plugin['entry'])"
+    "switch_theme($ccActiveTheme)",
+    "activate_plugin($ccPluginEntry)"
   ]) assert.ok(php.includes(required), required);
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'chatcode-fresh-test-'));
