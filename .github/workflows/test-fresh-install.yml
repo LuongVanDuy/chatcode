@@ -59,6 +59,8 @@ jobs:
       - name: Windows PowerShell 5.1 syntax
         shell: pwsh
         run: |
+          $bytes = [IO.File]::ReadAllBytes('tools/fresh-install.ps1')
+          if (@($bytes | Where-Object { $_ -gt 127 }).Count -gt 0) { throw 'fresh-install.ps1 must remain ASCII-only for Windows PowerShell 5.1.' }
           powershell.exe -NoProfile -NonInteractive -Command '$text = Get-Content -Raw "tools/fresh-install.ps1"; [void][ScriptBlock]::Create($text)'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Fresh Install smoke
