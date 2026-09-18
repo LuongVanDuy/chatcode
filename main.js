@@ -17,6 +17,7 @@ const { createApprovalService } = require('./core/approvals');
 const { createBackupService } = require('./core/backups');
 const { createSafeToolApi } = require('./core/safety-tools');
 const { createUpdateService } = require('./core/updater');
+const { createFreshInstallService } = require('./core/fresh-install-runtime');
 const { guardianStop, guardianResume, guardianSnapshot } = require('./core/machine-access');
 
 const PORT = 47820;
@@ -26,6 +27,7 @@ let isQuitting = false;
 let mcpRuntime = null;
 let connection = null;
 let updater = null;
+let freshInstall = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -93,6 +95,11 @@ async function resetMcpServer() {
 function connectionChanged(value) { send('connection:changed', value); updateTrayMenu(); }
 connection = createConnectionService({ app, safeStorage, store, port: PORT, ensureMcpServer, resetMcpServer, getMcpRuntime: () => mcpRuntime, onChanged: connectionChanged });
 updater = createUpdateService(app, shell, store, { onChanged: value => send('update:changed', value) });
+
+function requireFreshInstall() {
+  if (!freshInstall) throw new Error('Fresh Install runtime chưa sẵn sàng.');
+  return freshInstall;
+}
 
 function applyLogin(enabled) {
   try {
@@ -343,6 +350,51 @@ ipcMain.handle('connection:copy', () => { const url=connection.snapshot().connec
 ipcMain.handle('connection:rotate', async () => { await connection.rotate(); const state=store.read(); state.connection.tokenRotatedAt=new Date().toISOString(); store.write(state); return connection.snapshot(); });
 ipcMain.handle('connection:copy-diagnostic', async () => { const diagnostic=await connection.diagnose(); clipboard.writeText(connection.report(diagnostic)); return true; });
 
+ipcMain.handle('fresh-install:catalog', () => requireFreshInstall().catalog());
+ipcMain.handle('fresh-install:list', () => requireFreshInstall().list());
+ipcMain.handle('fresh-install:status', (_, id) => requireFreshInstall().status(id));
+ipcMain.handle('fresh-install:create', (_, input) => requireFreshInstall().create(input || {}));
+ipcMain.handle('fresh-install:start', (_, id) => requireFreshInstall().start(id));
+ipcMain.handle('fresh-install:retry', (_, id) => requireFreshInstall().retry(id));
+ipcMain.handle('fresh-install:remove', (_, id) => requireFreshInstall().remove(id));
+ipcMain.handle('fresh-install:pick-bricks', async () => {
+  const pick = await dialog.showOpenDialog(mainWindow, {
+    title:'Chọn Bricks 2.4 ZIP',
+    properties:['openFile'],
+    filters:[{ name:'Theme ZIP', extensions:['zip'] }]
+  });
+  if (pick.canceled || !pick.filePaths[0]) return null;
+  return requireFreshInstall().importTheme(pick.filePaths[0], { id:'bricks', version:'2.4' });
+});
+ipcMain.handle('fresh-install:pick-duyanh', async () => {
+  const pick = await dialog.showOpenDialog(mainWindow, {
+    title:'Chọn DuyAnhWebPro 1.9.4 ZIP fallback',
+    properties:['openFile'],
+    filters:[{ name:'Plugin ZIP', extensions:['zip'] }]
+  });
+  if (pick.canceled || !pick.filePaths[0]) return null;
+  return requireFreshInstall().importPlugin(pick.filePaths[0], {
+    id:'duyanhwebpro',
+    slug:'duyanhwebpro',
+    version:'1.9.4',
+    entry:'duyanhwebpro/duyanhwebpro.php'
+  });
+});
+ipcMain.handle('fresh-install:pick-theme', async () => {
+  const pick = await dialog.showOpenDialog(mainWindow, {
+    title:'Thêm theme ZIP',
+    properties:['openFile'],
+    filters:[{ name:'Theme ZIP', extensions:['zip'] }]
+  });
+  if (pick.canceled || !pick.filePaths[0]) return null;
+  return requireFreshInstall().importTheme(pick.filePaths[0], {});
+});
+ipcMain.handle('fresh-install:copy-credentials', (_, id) => {
+  const value = requireFreshInstall().credentials(id);
+  clipboard.writeText(`WP Admin: ${value.wp_admin_url}\nUser: ${value.username}\nPassword: ${value.password}`);
+  return { site_url:value.site_url, wp_admin_url:value.wp_admin_url, username:value.username, copied:true };
+});
+
 ipcMain.handle('support:note-get', () => support.getNote());
 ipcMain.handle('support:note-save', (_, text) => support.saveNote(text));
 ipcMain.handle('support:events', (_, limit) => support.listEvents(limit));
@@ -368,6 +420,7 @@ if (gotLock) {
     if (process.platform === 'win32') app.setAppUserModelId('com.personal.chatcode');
     Menu.setApplicationMenu(null);
     const state = store.ensure();
+    freshInstall = createFreshInstallService({ app, safeStorage, onChanged:value => send('fresh-install:changed', value) });
     applyLogin(state.settings.launchAtLogin);
     createTray();
     createWindow(!process.argv.includes('--background'));

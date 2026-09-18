@@ -48,6 +48,18 @@ contextBridge.exposeInMainWorld('personalCode', {
   rotateConnection: () => ipcRenderer.invoke('connection:rotate'),
   copyDiagnostic: () => ipcRenderer.invoke('connection:copy-diagnostic'),
 
+  freshInstallCatalog: () => ipcRenderer.invoke('fresh-install:catalog'),
+  listFreshInstalls: () => ipcRenderer.invoke('fresh-install:list'),
+  freshInstallStatus: id => ipcRenderer.invoke('fresh-install:status', id),
+  createFreshInstall: input => ipcRenderer.invoke('fresh-install:create', input || {}),
+  startFreshInstall: id => ipcRenderer.invoke('fresh-install:start', id),
+  retryFreshInstall: id => ipcRenderer.invoke('fresh-install:retry', id),
+  removeFreshInstall: id => ipcRenderer.invoke('fresh-install:remove', id),
+  pickBricksPackage: () => ipcRenderer.invoke('fresh-install:pick-bricks'),
+  pickDuyAnhPackage: () => ipcRenderer.invoke('fresh-install:pick-duyanh'),
+  pickThemePackage: () => ipcRenderer.invoke('fresh-install:pick-theme'),
+  copyFreshInstallCredentials: id => ipcRenderer.invoke('fresh-install:copy-credentials', id),
+
   supportNote: () => ipcRenderer.invoke('support:note-get'),
   saveSupportNote: text => ipcRenderer.invoke('support:note-save', text),
   supportEvents: limit => ipcRenderer.invoke('support:events', limit),
@@ -76,6 +88,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   browserPerformanceInstallQos: () => ipcRenderer.invoke('browser-performance:qos-install'),
   browserPerformanceRemoveQos: () => ipcRenderer.invoke('browser-performance:qos-remove'),
 
+  onFreshInstallChanged: callback => ipcRenderer.on('fresh-install:changed', (_, value) => callback(value)),
   onConnectionChanged: callback => ipcRenderer.on('connection:changed', (_, value) => callback(value)),
   onActivityChanged: callback => ipcRenderer.on('activity:changed', (_, value) => callback(value)),
   onActivityReset: callback => ipcRenderer.on('activity:reset', () => callback()),
