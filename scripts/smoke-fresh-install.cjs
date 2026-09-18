@@ -65,6 +65,7 @@ Version: 2.4
       return text.slice(4);
     }
   };
+
   const changes = [];
   const service = createFreshInstallService({ app, safeStorage, onChanged:value => changes.push(value) });
   const catalog = service.catalog();
@@ -78,3 +79,36 @@ Version: 2.4
     password:'hosting-password',
     theme:{ id:'wordpress-default', version:'latest' }
   });
+  assert.equal(task.status,'ready');
+  assert.equal(task.checkpoint,'created');
+  assert.equal(task.manifest.wordpress.source,'wordpress.org');
+  assert.equal(task.manifest.plugins[0].fallback_version,'1.9.4');
+
+  const taskFile = path.join(root,'fresh-install','tasks.json');
+  const taskText = fs.readFileSync(taskFile,'utf8');
+  assert.equal(taskText.includes('hosting-password'), false);
+  assert.equal(taskText.includes('databasePassword'), false);
+  assert.equal(taskText.includes('adminPassword'), false);
+  assert.equal(taskText.includes('bootstrapToken'), false);
+  assert.equal(taskText.includes('bricksLicenseKey'), false);
+
+  const vaultText = fs.readFileSync(path.join(root,'fresh-install-secrets.json'),'utf8');
+  assert.equal(vaultText.includes('hosting-password'), false);
+  assert.equal(vaultText.includes('bootstrapToken'), false);
+  assert.ok(vaultText.includes('encrypted'));
+
+  const credentials = service.credentials(task.id);
+  assert.equal(credentials.username,'chatcode');
+  assert.match(credentials.password,/^[A-Za-z0-9_-]{20,}$/);
+  assert.equal(credentials.wp_admin_url,'https://demo.example.com/wp-admin/');
+
+  assert.equal(service.remove(task.id), true);
+  assert.equal(service.list().length,0);
+  assert.ok(changes.length >= 2);
+
+  fs.rmSync(root,{recursive:true,force:true});
+  console.log('Fresh Install smoke PASS');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
