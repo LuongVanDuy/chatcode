@@ -84,7 +84,7 @@ function List-Directory(
           if (-not [string]::IsNullOrWhiteSpace($item)) { $items += $item }
         }
       }
-      return ,$items
+      return $items
     } finally { Safe-Dispose $reader }
   } finally { Safe-Dispose $response }
 }
