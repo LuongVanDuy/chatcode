@@ -44,6 +44,9 @@ function publicTask(task) {
   if (clone.manifest?.theme?.package) {
     delete clone.manifest.theme.package.path;
   }
+  for (const plugin of clone.manifest?.plugins || []) {
+    if (plugin?.fallback_package) delete plugin.fallback_package.path;
+  }
   clone.credentials_available = !!task.credentials_available;
   return clone;
 }
@@ -248,6 +251,12 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     return result;
   }
 
+  async function importPlugin(filePath, options = {}) {
+    const result = await packages.importPlugin(filePath,options);
+    onChanged?.({ type:'catalog', catalog:catalog() });
+    return result;
+  }
+
   function create(input = {}) {
     const domain = normalizeDomain(input.domain);
     const username = normalizeUsername(input.username);
@@ -271,7 +280,20 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const tablePrefix = `wp_${crypto.randomBytes(3).toString('hex')}_`;
     const bridgeName = `chatcode-install-${short}.php`;
     const themeRemoteName = theme.package ? `.chatcode-theme-${short}.zip` : '';
-    const plugin = { ...DEFAULT_CATALOG.plugins[0] };
+    const pluginFallback = packages.find('duyanhwebpro','1.9.4');
+    const plugin = {
+      ...DEFAULT_CATALOG.plugins[0],
+      fallback_package:pluginFallback ? {
+        id:pluginFallback.id,
+        version:pluginFallback.version,
+        slug:pluginFallback.slug,
+        entry:pluginFallback.entry,
+        path:pluginFallback.path,
+        sha256:pluginFallback.sha256,
+        bytes:pluginFallback.bytes,
+        remote_name:`.chatcode-plugin-${short}.zip`
+      } : null
+    };
     const now = new Date().toISOString();
     const task = {
       id,
@@ -433,7 +455,9 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         slug:plugin.slug,
         entry:plugin.entry,
         fallback_version:plugin.fallback_version,
-        manifest_url:plugin.manifest_url
+        manifest_url:plugin.manifest_url,
+        fallback_package:extra.pluginFallbackUploaded ? plugin.fallback_package?.remote_name || '' : '',
+        fallback_sha256:extra.pluginFallbackUploaded ? plugin.fallback_package?.sha256 || '' : ''
       },
       ...extra
     };
@@ -494,14 +518,44 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         try {
           installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets),420000);
         } catch (error) {
-          if (error.code !== 'CORE_DOWNLOAD_FAILED') throw error;
-          const localCore = await downloadWordPressFallback(id);
-          task = taskById(id);
-          const remoteCore = `.chatcode-wordpress-${task.id.replace(/-/g,'').slice(0,10)}.zip`;
-          progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
-          await runPowerShell(runnerPayload(task,secrets,'upload',{ files:[{ localPath:localCore, remoteName:remoteCore }] }),300000);
-          mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
-          installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
+          if (error.code === 'CORE_DOWNLOAD_FAILED') {
+            const localCore = await downloadWordPressFallback(id);
+            task = taskById(id);
+            const remoteCore = `.chatcode-wordpress-${task.id.replace(/-/g,'').slice(0,10)}.zip`;
+            progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
+            await runPowerShell(runnerPayload(task,secrets,'upload',{ files:[{ localPath:localCore, remoteName:remoteCore }] }),300000);
+            mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
+            try {
+              installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
+            } catch (retryError) {
+              if (retryError.code !== 'PLUGIN_DOWNLOAD_FAILED') throw retryError;
+              error = retryError;
+            }
+          }
+          if (error.code === 'PLUGIN_DOWNLOAD_FAILED') {
+            task = taskById(id);
+            const fallback = task.manifest.plugins[0]?.fallback_package;
+            if (!fallback?.path || !fallback?.remote_name || !fallback?.sha256) {
+              const missing = new Error('Update server DuyAnhWebPro không truy cập được và chưa có fallback 1.9.4 trong Package Cache.');
+              missing.code = 'PLUGIN_FALLBACK_REQUIRED';
+              throw missing;
+            }
+            progress(id,'fallback',58,'Vendor updater lỗi; đang upload DuyAnhWebPro 1.9.4 fallback',fallback.remote_name);
+            await runPowerShell(runnerPayload(task,secrets,'upload',{
+              files:[{ localPath:fallback.path, remoteName:fallback.remote_name }]
+            }),180000);
+            installed = await httpJson(
+              bootstrapUrl(task),
+              secrets.bootstrapToken,
+              installPayload(task,secrets,{
+                corePackage:task.manifest.wordpress.fallback_remote_name || '',
+                pluginFallbackUploaded:true
+              }),
+              420000
+            );
+          } else if (error.code !== 'CORE_DOWNLOAD_FAILED') {
+            throw error;
+          }
         }
         setCheckpoint(id,'installed',{ result:{ ...(task.result || {}), install:installed } });
       }
@@ -534,6 +588,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       await cleanupRemote(task,secrets,[
         task.bootstrap.name,
         task.manifest.theme.package?.remote_name,
+        task.manifest.plugins[0]?.fallback_package?.remote_name,
         task.manifest.wordpress.fallback_remote_name
       ]);
       mutate(id,current => {
@@ -622,6 +677,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     remove,
     credentials,
     importTheme,
+    importPlugin,
     packageService:packages
   };
 }
