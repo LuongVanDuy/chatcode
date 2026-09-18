@@ -1,0 +1,68 @@
+name: Skills / WordPress / Bricks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'CHATCODE-GPT/**'
+      - 'core/skill-*.js'
+      - 'core/bricks-*.js'
+      - 'core/wordpress*.js'
+      - 'core/ui-knowledge.js'
+      - 'core/builtin-skills-project.js'
+      - 'core/retrieval-scope.js'
+      - 'scripts/smoke-wordpress*.cjs'
+      - 'scripts/smoke-bricks*.cjs'
+      - 'scripts/smoke-builtin-skills-project.cjs'
+      - '.github/workflows/skills-wordpress-bricks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'CHATCODE-GPT/**'
+      - 'core/skill-*.js'
+      - 'core/bricks-*.js'
+      - 'core/wordpress*.js'
+      - 'core/ui-knowledge.js'
+      - 'core/builtin-skills-project.js'
+      - 'core/retrieval-scope.js'
+      - 'scripts/smoke-wordpress*.cjs'
+      - 'scripts/smoke-bricks*.cjs'
+      - 'scripts/smoke-builtin-skills-project.cjs'
+      - '.github/workflows/skills-wordpress-bricks.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-wordpress-bricks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Skill syntax
+        shell: bash
+        run: |
+          for file in             core/skill-runtime.js             core/skill-policy.js             core/ui-knowledge.js             core/bricks-project-detection.js             core/bricks-skill-enforcer.js             core/bricks-evidence.js             core/bricks-spec.js             core/bricks-validator.js             core/wordpress.js             core/wordpress-retrieval.js             core/retrieval-scope.js             core/builtin-skills-project.js; do
+            node --check "$file"
+          done
+      - name: WordPress and Bricks regression suite
+        run: |
+          npm run test:wordpress
+          npm run test:wordpress-bricks-skill
+          npm run test:bricks-spec
+          npm run test:builtin-skills-project
+          node scripts/smoke-wordpress-bricks-builder-editability.cjs
+          node scripts/smoke-wordpress-bricks-focus-discipline.cjs
+          node scripts/smoke-wordpress-retrieval-scope.cjs
+          node scripts/smoke-wordpress-brain-scope.cjs
