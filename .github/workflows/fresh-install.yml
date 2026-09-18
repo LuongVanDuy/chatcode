@@ -22,7 +22,6 @@ on:
       - 'scripts/smoke-fresh-install.cjs'
       - 'scripts/fresh-install-e2e-*'
       - 'scripts/fake-directadmin.py'
-      - '.github/workflows/fresh-install.yml'
 
 permissions:
   contents: read
