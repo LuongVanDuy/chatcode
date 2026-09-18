@@ -1,0 +1,127 @@
+name: Live Bricks Large Fresh Install - thanhdofood
+
+on:
+  push:
+    branches:
+      - live-test/thanhdofood-bricks-large-20260918
+    paths:
+      - '.github/workflows/live-bricks-large-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  live-bricks-large:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build 29MB flat Bricks 2.4 test ZIP
+        shell: pwsh
+        run: |
+          $theme = Join-Path $env:RUNNER_TEMP 'bricks-large-2.4.zip'
+          @'
+import os, sys, zipfile
+target = sys.argv[1]
+payload = os.urandom(29_000_000)
+with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as z:
+    z.writestr('style.css', '/*\nTheme Name: Bricks\nVersion: 2.4\n*/\n')
+    z.writestr('index.php', "<?php echo 'Bricks Large Live Test';\n")
+    z.writestr('functions.php', "<?php\n")
+    z.writestr('assets/live-upload-probe.bin', payload)
+print(os.path.getsize(target))
+'@ | Set-Content -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'make-theme.py')
+          python (Join-Path $env:RUNNER_TEMP 'make-theme.py') $theme
+          $size = (Get-Item $theme).Length
+          if ($size -lt 28000000 -or $size -gt 31000000) { throw "Unexpected theme ZIP size: $size" }
+          Write-Host "BRICKS_LARGE_BYTES=$size"
+
+      - name: Generate one-time RSA key
+        shell: pwsh
+        run: |
+          $rsa = [System.Security.Cryptography.RSA]::Create(4096)
+          try {
+            $private = [Convert]::ToBase64String($rsa.ExportPkcs8PrivateKey())
+            $public = [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+            [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'live-private-key.b64'), $private)
+            New-Item -ItemType Directory -Force -Path 'live-test' | Out-Null
+            [IO.File]::WriteAllText((Join-Path (Get-Location) 'live-test/public-key.b64'), $public)
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add live-test/public-key.b64
+            git commit -m 'test: publish ephemeral large-upload public key'
+            git push origin HEAD:$env:GITHUB_REF_NAME
+            Write-Host 'Published ephemeral public key.'
+          } finally {
+            $rsa.Dispose()
+          }
+
+      - name: Wait for encrypted credentials
+        shell: pwsh
+        run: |
+          $branch = $env:GITHUB_REF_NAME
+          $target = Join-Path $env:RUNNER_TEMP 'credentials.rsa.b64'
+          $refspec = '+refs/heads/' + $branch + ':refs/remotes/origin/' + $branch
+          $filespec = 'refs/remotes/origin/' + $branch + ':live-test/credentials.rsa.b64'
+          $found = $false
+          for ($i = 0; $i -lt 120; $i++) {
+            git fetch origin $refspec --quiet
+            $payload = git show $filespec 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(($payload -join ''))) {
+              [IO.File]::WriteAllText($target, (($payload -join '')).Trim())
+              $found = $true
+              break
+            }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $found) { throw 'Encrypted credential payload did not arrive.' }
+
+      - name: Decrypt credentials
+        shell: pwsh
+        run: |
+          $rsa = [System.Security.Cryptography.RSA]::Create()
+          try {
+            $privateBytes = [Convert]::FromBase64String((Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'live-private-key.b64')).Trim())
+            $read = 0
+            $rsa.ImportPkcs8PrivateKey($privateBytes, [ref]$read)
+            $cipher = [Convert]::FromBase64String((Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'credentials.rsa.b64')).Trim())
+            $plain = $rsa.Decrypt($cipher, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+            [IO.File]::WriteAllBytes((Join-Path $env:RUNNER_TEMP 'live-credentials.json'), $plain)
+          } finally {
+            $rsa.Dispose()
+          }
+          $cred = Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'live-credentials.json') | ConvertFrom-Json
+          if ($cred.domain -ne 'thanhdofood.com') { throw 'Credential domain mismatch.' }
+          Write-Host "::add-mask::$($cred.username)"
+          Write-Host "::add-mask::$($cred.password)"
+
+      - name: Run production Fresh Install with 29MB Bricks ZIP
+        shell: pwsh
+        run: |
+          node scripts/live-bricks-large-test.cjs (Join-Path $env:RUNNER_TEMP 'live-credentials.json') (Join-Path $env:RUNNER_TEMP 'bricks-large-2.4.zip')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload sanitized result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thanhdofood-bricks-large-result
+          path: live-test-result.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup ephemeral secrets
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'live-private-key.b64')
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'credentials.rsa.b64')
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'live-credentials.json')
