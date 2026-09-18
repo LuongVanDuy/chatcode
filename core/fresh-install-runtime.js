@@ -290,8 +290,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       updated_at:now,
       connection:null,
       bootstrap:{
-        name:bridgeName,
-        token:randomInstallToken()
+        name:bridgeName
       },
       manifest:{
         schema:1,
@@ -329,6 +328,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       hostingPassword:password,
       databasePassword:randomSecret(24),
       adminPassword:randomSecret(24),
+      bootstrapToken:randomInstallToken(),
       bricksLicenseKey:String(input.bricksLicenseKey || '').trim()
     });
     task.credentials_available = true;
@@ -345,11 +345,11 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     return dir;
   }
 
-  function writeBootstrap(task) {
+  function writeBootstrap(task,secrets) {
     const theme = task.manifest.theme;
     const file = path.join(runtimeDir(task.id),task.bootstrap.name);
     const php = buildFreshInstallBootstrap({
-      token:task.bootstrap.token,
+      token:secrets.bootstrapToken,
       installId:task.manifest.install_id,
       bridgeName:task.bootstrap.name,
       themePackageName:theme.package?.remote_name || '',
@@ -441,7 +441,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
 
   async function cleanupRemote(task,secrets,names = []) {
     try {
-      await httpJson(bootstrapUrl(task),task.bootstrap.token,{ action:'cleanup' },60000);
+      await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{ action:'cleanup' },60000);
       return;
     } catch {}
     const safeNames = [...new Set(names.filter(Boolean).map(name => path.posix.basename(name)))];
@@ -479,7 +479,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'uploaded')) {
         progress(id,'upload',12,'Đang upload bootstrap và private theme package');
-        const bootstrapFile = writeBootstrap(task);
+        const bootstrapFile = writeBootstrap(task,secrets);
         const files = [{ localPath:bootstrapFile, remoteName:task.bootstrap.name }];
         const themePackage = task.manifest.theme.package;
         if (themePackage?.path) files.push({ localPath:themePackage.path, remoteName:themePackage.remote_name });
@@ -492,7 +492,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         progress(id,'install',25,'Hosting đang tải WordPress và plugin rồi cài đặt','server-side fast path');
         let installed;
         try {
-          installed = await httpJson(bootstrapUrl(task),task.bootstrap.token,installPayload(task,secrets),420000);
+          installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets),420000);
         } catch (error) {
           if (error.code !== 'CORE_DOWNLOAD_FAILED') throw error;
           const localCore = await downloadWordPressFallback(id);
@@ -501,7 +501,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
           progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
           await runPowerShell(runnerPayload(task,secrets,'upload',{ files:[{ localPath:localCore, remoteName:remoteCore }] }),300000);
           mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
-          installed = await httpJson(bootstrapUrl(task),task.bootstrap.token,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
+          installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
         }
         setCheckpoint(id,'installed',{ result:{ ...(task.result || {}), install:installed } });
       }
@@ -509,7 +509,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'verified')) {
         progress(id,'verify',90,'Đang kiểm tra WordPress/theme/plugin trên hosting');
-        const verified = await httpJson(bootstrapUrl(task),task.bootstrap.token,{
+        const verified = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
           action:'verify',
           theme:{ active_theme:task.manifest.theme.active_theme },
           plugin:{ entry:task.manifest.plugins[0].entry }
