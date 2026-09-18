@@ -4,12 +4,14 @@ const os = require('os');
 const path = require('path');
 const { createFreshInstallService, normalizeDomain, checkpointAtLeast } = require('../core/fresh-install-runtime');
 const { buildFreshInstallBootstrap } = require('../core/fresh-install-bootstrap');
-const { DEFAULT_CATALOG, parsePackageHeaderVersion } = require('../core/fresh-install-packages');
+const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require('../core/fresh-install-packages');
 
 (async () => {
   assert.equal(normalizeDomain('https://Example.COM/'), 'example.com');
   assert.equal(checkpointAtLeast('installed','uploaded'), true);
   assert.equal(checkpointAtLeast('uploaded','verified'), false);
+  assert.equal(detectThemeRoot(['style.css','functions.php']), '');
+  assert.equal(detectThemeRoot(['bricks/style.css','bricks/functions.php']), 'bricks');
   assert.equal(parsePackageHeaderVersion(`/*
 Theme Name: Bricks
 Version: 2.4
@@ -34,7 +36,8 @@ Version: 2.4
     themePackageName:'.chatcode-theme-test.zip',
     themeSha256:'c'.repeat(64),
     themeSlug:'bricks',
-    themeEntry:'bricks/style.css'
+    themeEntry:'style.css',
+    themeArchiveLayout:'flat'
   });
   for (const required of [
     'CORE_DOWNLOAD_FAILED',
@@ -44,6 +47,8 @@ Version: 2.4
     'CMD_API_DATABASES',
     'chatcode_install_marker',
     'BRICKS_LICENSE_KEY',
+    "const CC_THEME_LAYOUT = 'flat';",
+    "$themeTarget=$themesRoot.'/'.CC_THEME_SLUG",
     'wordpress.org/latest.zip',
     'checksum_sha256',
     'wp_install(',

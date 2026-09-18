@@ -4,7 +4,7 @@ function phpString(value) {
   return String(value || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
 
-function buildFreshInstallBootstrap({ token, installId, bridgeName, themePackageName = '', themeSha256 = '', themeSlug = '', themeEntry = '' }) {
+function buildFreshInstallBootstrap({ token, installId, bridgeName, themePackageName = '', themeSha256 = '', themeSlug = '', themeEntry = '', themeArchiveLayout = 'wrapped' }) {
   const cleanToken = phpString(token);
   const cleanInstall = phpString(installId);
   const cleanBridge = phpString(bridgeName);
@@ -12,6 +12,7 @@ function buildFreshInstallBootstrap({ token, installId, bridgeName, themePackage
   const cleanThemeSha = phpString(themeSha256);
   const cleanThemeSlug = phpString(themeSlug);
   const cleanThemeEntry = phpString(themeEntry);
+  const cleanThemeArchiveLayout = phpString(themeArchiveLayout === 'flat' ? 'flat' : 'wrapped');
 
   return `<?php
 @set_time_limit(0);
@@ -27,6 +28,7 @@ const CC_THEME_PACKAGE = '${cleanThemePackage}';
 const CC_THEME_SHA256 = '${cleanThemeSha}';
 const CC_THEME_SLUG = '${cleanThemeSlug}';
 const CC_THEME_ENTRY = '${cleanThemeEntry}';
+const CC_THEME_LAYOUT = '${cleanThemeArchiveLayout}';
 
 function cc_answer($ok, $message, $extra=array(), $status=200, $code='') {
   http_response_code($status);
@@ -268,15 +270,23 @@ function cc_prepare_theme($stage,$data) {
   $id=(string)($theme['id'] ?? 'wordpress-default');
   if ($id === 'wordpress-default') return '';
   if (CC_THEME_PACKAGE === '' || CC_THEME_SHA256 === '') throw new Exception('Thiếu managed theme package.');
+  if (CC_THEME_SLUG === '' || !preg_match('/^[A-Za-z0-9._-]+$/',CC_THEME_SLUG)) throw new Exception('Theme slug không hợp lệ.');
   $package=__DIR__.'/'.CC_THEME_PACKAGE;
   if (!is_file($package) || !hash_equals(strtolower(CC_THEME_SHA256),strtolower(hash_file('sha256',$package)))) throw new Exception('Theme package checksum không khớp.');
   $required=CC_THEME_ENTRY !== '' ? array(CC_THEME_ENTRY) : array();
   cc_validate_zip($package,$required);
-  $target=$stage.'/wp-content/themes'; if (!is_dir($target)) @mkdir($target,0755,true);
-  cc_extract_zip($package,$target);
-  if (CC_THEME_SLUG !== '' && !is_file($target.'/'.CC_THEME_SLUG.'/style.css')) throw new Exception('Theme package không tạo đúng theme slug.');
+  $themesRoot=$stage.'/wp-content/themes'; if (!is_dir($themesRoot)) @mkdir($themesRoot,0755,true);
+  if (CC_THEME_LAYOUT === 'flat') {
+    $themeTarget=$themesRoot.'/'.CC_THEME_SLUG;
+    cc_remove_tree($themeTarget);
+    if (!@mkdir($themeTarget,0755,true) && !is_dir($themeTarget)) throw new Exception('Không tạo được thư mục theme.');
+    cc_extract_zip($package,$themeTarget);
+  } else {
+    cc_extract_zip($package,$themesRoot);
+  }
+  if (!is_file($themesRoot.'/'.CC_THEME_SLUG.'/style.css')) throw new Exception('Theme package không tạo đúng theme slug.');
   if (!empty($theme['generated_child']) && CC_THEME_SLUG === 'bricks') {
-    $child=$target.'/bricks-child'; if (!is_dir($child)) @mkdir($child,0755,true);
+    $child=$themesRoot.'/bricks-child'; if (!is_dir($child)) @mkdir($child,0755,true);
     file_put_contents($child.'/style.css',"/*
 Theme Name: Bricks Child
 Template: bricks

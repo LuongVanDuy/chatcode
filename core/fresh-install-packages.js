@@ -180,9 +180,11 @@ function parsePackageHeaderVersion(text) {
 }
 
 function detectThemeRoot(entries) {
-  const styleEntries = entries.filter(name => /^[^/]+\/style\.css$/i.test(name));
-  if (styleEntries.length !== 1) throw new Error('Theme ZIP phải có đúng một thư mục gốc chứa style.css.');
-  return styleEntries[0].split('/')[0];
+  const rootStyle = entries.filter(name => String(name).toLowerCase() === 'style.css');
+  const wrappedStyles = entries.filter(name => /^[^/]+\/style\.css$/i.test(name));
+  if (rootStyle.length === 1 && wrappedStyles.length === 0) return '';
+  if (rootStyle.length === 0 && wrappedStyles.length === 1) return wrappedStyles[0].split('/')[0];
+  throw new Error('Theme ZIP phải có style.css ở root hoặc đúng một thư mục theme chứa style.css.');
 }
 
 function createFreshInstallPackageService(app) {
@@ -224,16 +226,19 @@ function createFreshInstallPackageService(app) {
     if (!resolved.toLowerCase().endsWith('.zip')) throw new Error('Chỉ hỗ trợ theme dạng ZIP.');
     const entries = readZipEntries(resolved);
     const rootSlug = detectThemeRoot(entries);
-    const styleText = readZipEntry(resolved, `${rootSlug}/style.css`, 1024 * 1024).toString('utf8');
+    const archiveLayout = rootSlug ? 'wrapped' : 'flat';
+    const styleEntry = rootSlug ? `${rootSlug}/style.css` : 'style.css';
+    const styleText = readZipEntry(resolved, styleEntry, 1024 * 1024).toString('utf8');
     const detectedVersion = parsePackageHeaderVersion(styleText);
-    const id = String(options.id || rootSlug).trim().toLowerCase();
+    const filenameSlug = path.basename(resolved, path.extname(resolved)).toLowerCase().replace(/[^a-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'');
+    const id = String(options.id || rootSlug || filenameSlug).trim().toLowerCase();
     const requestedVersion = String(options.version || '').trim();
     if (id === 'bricks' && requestedVersion && detectedVersion !== requestedVersion) {
       throw new Error(`ZIP Bricks không đúng version ${requestedVersion} (phát hiện: ${detectedVersion || 'không rõ'}).`);
     }
     const version = requestedVersion || detectedVersion || 'custom';
     if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(id)) throw new Error('Theme slug không hợp lệ.');
-    if (id === 'bricks' && rootSlug.toLowerCase() !== 'bricks') throw new Error('ZIP Bricks phải có thư mục gốc bricks/.');
+    if (id === 'bricks' && rootSlug && rootSlug.toLowerCase() !== 'bricks') throw new Error('ZIP Bricks wrapped phải có thư mục gốc bricks/.');
     const digest = await sha256File(resolved);
     await fsp.mkdir(root, { recursive:true });
     const target = path.join(root, `${id}-${version}-${digest.slice(0,12)}.zip`);
@@ -246,11 +251,12 @@ function createFreshInstallPackageService(app) {
       kind:'theme',
       source:'managed',
       version,
-      slug:rootSlug,
+      slug:rootSlug || id,
+      archive_layout:archiveLayout,
       path:target,
       sha256:digest,
       bytes:stat.size,
-      expected_entry:`${rootSlug}/style.css`,
+      expected_entry:styleEntry,
       imported_at:new Date().toISOString()
     };
     index.packages.push(record);
@@ -319,7 +325,7 @@ function createFreshInstallPackageService(app) {
         active_theme:'bricks-child',
         generated_child:'bricks-child',
         package:pkg ? {
-          id:pkg.id, version:pkg.version, slug:pkg.slug, path:pkg.path,
+          id:pkg.id, version:pkg.version, slug:pkg.slug, archive_layout:pkg.archive_layout || 'wrapped', path:pkg.path,
           sha256:pkg.sha256, bytes:pkg.bytes, expected_entry:pkg.expected_entry
         } : null
       };
@@ -333,7 +339,7 @@ function createFreshInstallPackageService(app) {
       active_theme:pkg.slug,
       generated_child:'',
       package:{
-        id:pkg.id, version:pkg.version, slug:pkg.slug, path:pkg.path,
+        id:pkg.id, version:pkg.version, slug:pkg.slug, archive_layout:pkg.archive_layout || 'wrapped', path:pkg.path,
         sha256:pkg.sha256, bytes:pkg.bytes, expected_entry:pkg.expected_entry
       }
     };
