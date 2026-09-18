@@ -222,3 +222,127 @@ function Delete-File(
 
 $payload = Read-Payload
 $action = [string]$payload.action
+if (-not $action) { Fail 'Missing action' 'ACTION_MISSING' }
+
+try {
+  if ($action -eq 'selftest') {
+    $FtpHost = [string]$payload.host
+    $port = if ($payload.port) { [int]$payload.port } else { 21 }
+    $username = [string]$payload.username
+    $password = [string]$payload.password
+    $tls = ([string]$payload.protocol).ToLowerInvariant() -ne 'ftp'
+    $remoteRoot = Normalize-Path ([string]$payload.remotePath)
+    if (-not $FtpHost -or -not $username -or -not $password) { Fail 'Selftest connection data missing' 'SELFTEST_INVALID' }
+    $protocolName = if ($tls) { 'ftps' } else { 'ftp' }
+    $selftestUri = Ftp-Uri $FtpHost $port $remoteRoot
+    $selftestRequest = New-FtpRequest $FtpHost $port $remoteRoot ([Net.WebRequestMethods+Ftp]::ListDirectory) $username $password $tls
+    if (-not $selftestRequest -or -not $selftestUri) { Fail 'Selftest request construction failed' 'SELFTEST_REQUEST_FAILED' }
+    Out-Json @{
+      ok=$true
+      action='selftest'
+      host=$FtpHost
+      port=$port
+      protocol=$protocolName
+      remotePath=$remoteRoot
+      uri=$selftestUri.AbsoluteUri
+    }
+    exit 0
+  }
+  if ($action -eq 'discover') {
+    $domain = ([string]$payload.domain).Trim().ToLowerInvariant()
+    $username = [string]$payload.username
+    $password = [string]$payload.password
+    if (-not $domain -or -not $username -or -not $password) { Fail 'Domain, username and password are required' 'CREDENTIALS_MISSING' }
+
+    $hosts = @($domain, "ftp.$domain") | Select-Object -Unique
+    $attempts = @()
+    foreach ($FtpHost in $hosts) {
+      foreach ($tls in @($true,$false)) {
+        $protocol = if ($tls) { 'ftps' } else { 'ftp' }
+        try {
+          [void](List-Directory $FtpHost 21 '/' $username $password $tls)
+          $paths = @(
+            "/domains/$domain/public_html",
+            '/public_html',
+            '/httpdocs',
+            '/www'
+          ) | Select-Object -Unique
+          foreach ($candidate in $paths) {
+            try {
+              $entries = @(List-Directory $FtpHost 21 $candidate $username $password $tls)
+              $blocking = @($entries | Where-Object { $_ -and $_ -notin @('.well-known','.ftpquota') })
+              Out-Json @{
+                ok=$true
+                host=$FtpHost
+                port=21
+                protocol=$protocol
+                passive=$true
+                remotePath=(Normalize-Path $candidate)
+                entries=$entries
+                siteNotEmpty=($blocking.Count -gt 0)
+                blockingEntries=@($blocking | Select-Object -First 20)
+                attempts=$attempts
+              }
+              exit 0
+            } catch {
+              $attempts += ($protocol + '://' + $FtpHost + $candidate + ' => ' + $_.Exception.Message)
+            }
+          }
+        } catch {
+          $attempts += ($protocol + '://' + $FtpHost + '/ => ' + $_.Exception.Message)
+        }
+      }
+    }
+    $recentAttempts = @($attempts | Select-Object -Last 4)
+    $detail = ''
+    if ($recentAttempts.Count -gt 0) {
+      $detail = [string]::Join(' | ', [string[]]$recentAttempts)
+    }
+    $message = 'FTP/FTPS and website path auto-discovery failed.'
+    if ($detail) { $message += ' ' + $detail }
+    Fail $message 'FTP_DISCOVERY_FAILED'
+  }
+
+  $FtpHost = [string]$payload.host
+  $port = if ($payload.port) { [int]$payload.port } else { 21 }
+  $username = [string]$payload.username
+  $password = [string]$payload.password
+  $tls = ([string]$payload.protocol).ToLowerInvariant() -ne 'ftp'
+  $remoteRoot = Normalize-Path ([string]$payload.remotePath)
+  if (-not $FtpHost -or -not $username -or -not $password) { Fail 'FTP connection data missing' 'CREDENTIALS_MISSING' }
+
+  if ($action -eq 'upload') {
+    $results = @()
+    foreach ($file in @($payload.files)) {
+      $localPath = [string]$file.localPath
+      $remoteName = [string]$file.remoteName
+      if (-not $remoteName -or $remoteName.Contains('..') -or $remoteName.Contains('\')) {
+        throw "Unsafe remote file name: $remoteName"
+      }
+      $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $remoteName.TrimStart('/')))
+      $bytes = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls
+      $results += @{ file=$remoteName; bytes=$bytes; status='uploaded' }
+    }
+    Out-Json @{ ok=$true; action='upload'; files=$results }
+    exit 0
+  }
+
+  if ($action -eq 'delete') {
+    $results = @()
+    foreach ($remoteName in @($payload.files)) {
+      $name = [string]$remoteName
+      if (-not $name -or $name.Contains('..') -or $name.Contains('\') -or $name.Contains('/')) {
+        throw "Unsafe remote file name: $name"
+      }
+      $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $name))
+      $deleted = Delete-File $FtpHost $port $remotePath $username $password $tls
+      $results += @{ file=$name; deleted=$deleted }
+    }
+    Out-Json @{ ok=$true; action='delete'; files=$results }
+    exit 0
+  }
+
+  Fail "Unsupported action: $action" 'ACTION_UNSUPPORTED'
+} catch {
+  Fail $_.Exception.Message 'FRESH_INSTALL_RUNNER_FAILED'
+}
