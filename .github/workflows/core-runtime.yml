@@ -103,3 +103,41 @@ jobs:
           npm run test:notifications
           npm run test:database
           npm run test:ftp-deploy
+
+  cleanup-legacy-actions:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[cleanup-actions]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Remove legacy workflow runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          allowed='[".github/workflows/build-release.yml",".github/workflows/core-runtime.yml",".github/workflows/fresh-install.yml",".github/workflows/skills-wordpress-bricks.yml",".github/workflows/ui-renderer.yml"]'
+          workflows=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows?per_page=100")
+          echo "$workflows" | jq -c '.workflows[]' | while read -r wf; do
+            id=$(echo "$wf" | jq -r '.id')
+            name=$(echo "$wf" | jq -r '.name')
+            path=$(echo "$wf" | jq -r '.path')
+            if echo "$allowed" | jq -e --arg path "$path" 'index($path) != null' >/dev/null; then
+              echo "KEEP: $name ($path)"
+              continue
+            fi
+
+            echo "CLEAN: $name ($path)"
+            while true; do
+              runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$id/runs?per_page=100")
+              count=$(echo "$runs" | jq '.workflow_runs | length')
+              if [ "$count" -eq 0 ]; then
+                break
+              fi
+              echo "$runs" | jq -r '.workflow_runs[].id' | while read -r run_id; do
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" >/dev/null || true
+              done
+            done
+          done
