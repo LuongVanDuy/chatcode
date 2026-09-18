@@ -56,11 +56,11 @@ jobs:
             node --check $file
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: PowerShell syntax
+      - name: Windows PowerShell 5.1 syntax
         shell: pwsh
         run: |
-          $text = Get-Content -Raw tools/fresh-install.ps1
-          [void][ScriptBlock]::Create($text)
+          powershell.exe -NoProfile -NonInteractive -Command '$text = Get-Content -Raw "tools/fresh-install.ps1"; [void][ScriptBlock]::Create($text)'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Fresh Install smoke
         shell: pwsh
         run: node scripts/smoke-fresh-install.cjs
