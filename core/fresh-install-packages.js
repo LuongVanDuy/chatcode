@@ -175,6 +175,10 @@ function readZipEntry(file, entryName, maxBytes = 2 * 1024 * 1024) {
   }
 }
 
+function parsePackageHeaderVersion(text) {
+  return String(String(text || '').match(/^\s*(?:\/\*+|\*+)?\s*Version\s*:\s*([^\r\n*]+)/mi)?.[1] || '').trim();
+}
+
 function detectThemeRoot(entries) {
   const styleEntries = entries.filter(name => /^[^/]+\/style\.css$/i.test(name));
   if (styleEntries.length !== 1) throw new Error('Theme ZIP phải có đúng một thư mục gốc chứa style.css.');
@@ -221,7 +225,7 @@ function createFreshInstallPackageService(app) {
     const entries = readZipEntries(resolved);
     const rootSlug = detectThemeRoot(entries);
     const styleText = readZipEntry(resolved, `${rootSlug}/style.css`, 1024 * 1024).toString('utf8');
-    const detectedVersion = String(styleText.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1] || '').trim();
+    const detectedVersion = parsePackageHeaderVersion(styleText);
     const id = String(options.id || rootSlug).trim().toLowerCase();
     const requestedVersion = String(options.version || '').trim();
     if (id === 'bricks' && requestedVersion && detectedVersion !== requestedVersion) {
@@ -265,7 +269,7 @@ function createFreshInstallPackageService(app) {
       throw new Error(`Plugin ZIP thiếu entrypoint: ${entry}`);
     }
     const headerText = readZipEntry(resolved, entry, 2 * 1024 * 1024).toString('utf8');
-    const detectedVersion = String(headerText.match(/^\s*Version\s*:\s*([^\r\n]+)/mi)?.[1] || '').trim();
+    const detectedVersion = parsePackageHeaderVersion(headerText);
     const requestedVersion = String(options.version || '').trim();
     if (requestedVersion && detectedVersion !== requestedVersion) {
       throw new Error(`Plugin ZIP không đúng version ${requestedVersion} (phát hiện: ${detectedVersion || 'không rõ'}).`);
@@ -360,6 +364,7 @@ module.exports = {
   createFreshInstallPackageService,
   readZipEntries,
   readZipEntry,
+  parsePackageHeaderVersion,
   detectThemeRoot,
   sha256File
 };
