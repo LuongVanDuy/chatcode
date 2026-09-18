@@ -12,6 +12,9 @@ PORT = os.environ.get("MYSQL_PORT", "3306")
 ROOT_PASSWORD = os.environ.get("MYSQL_ROOT_PASSWORD", "rootpass")
 PANEL_USER = os.environ.get("PANEL_USER", "tester")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "testpanel")
+MAX_DATABASES = int(os.environ.get("PANEL_MAX_DATABASES", "0"))
+CREATED = set()
+AUDIT = os.environ.get("PANEL_AUDIT_FILE", "")
 
 def mysql_client() -> str:
     for name in ("mariadb", "mysql"):
@@ -31,6 +34,11 @@ def sql_quote(value: str) -> str:
 def create_database(name_suffix: str, user_suffix: str, password: str) -> None:
     db = valid_name(f"{PANEL_USER}_{valid_name(name_suffix)}")
     user = valid_name(f"{PANEL_USER}_{valid_name(user_suffix)}")
+    if AUDIT:
+        with open(AUDIT, "a", encoding="utf-8") as audit:
+            audit.write(f"CREATE {db}\n")
+    if MAX_DATABASES and db not in CREATED and len(CREATED) >= MAX_DATABASES:
+        raise ValueError("Maximum number of databases reached")
     pw = sql_quote(password)
     sql = (
         f"CREATE DATABASE IF NOT EXISTS `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -46,6 +54,8 @@ def create_database(name_suffix: str, user_suffix: str, password: str) -> None:
         stderr=subprocess.PIPE,
         text=True,
     )
+
+    CREATED.add(db)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):

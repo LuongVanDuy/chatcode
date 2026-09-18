@@ -93,27 +93,35 @@ function curl_error($c) { return ''; }
 function curl_close($c) {}
 `;
     fs.writeFileSync(path.join(root,'fixture.php'),fixture);
-    fs.writeFileSync(path.join(root,'wp-config.php'),'existing configuration sentinel');
+    fs.writeFileSync(path.join(root,'wp-config.php'), "<?php define('DB_NAME','tester_existing'); define('DB_USER','tester_existing'); define('DB_PASSWORD','existing-secret'); define('DB_HOST','localhost'); $table_prefix='wp_';");
+    const existingConfig=fs.readFileSync(path.join(root,'wp-config.php'),'utf8');
     fs.mkdirSync(path.join(root,'wp-content'));fs.writeFileSync(path.join(root,'wp-content','keep.txt'),'must survive');
     const net=require('net');const portServer=net.createServer();
     await new Promise(r=>portServer.listen(0,'127.0.0.1',r));const port=portServer.address().port;
     await new Promise(r=>portServer.close(r));
-    server=spawn('php',['-n','-d',`auto_prepend_file=${path.join(root,'fixture.php')}`,'-S',`127.0.0.1:${port}`,'-t',root],{stdio:['ignore','ignore','pipe']});
+    server=spawn('php',['-n','-d','extension=tokenizer','-d',`auto_prepend_file=${path.join(root,'fixture.php')}`,'-S',`127.0.0.1:${port}`,'-t',root],{stdio:['ignore','ignore','pipe']});
     let logs='';server.stderr.on('data',b=>logs+=b);
     const url=`http://127.0.0.1:${port}/bridge.php`;
     for(let n=0;;n++) {
       try {await fetch(url);break;} catch(e) {if(n>50)throw new Error(logs||e.message);await new Promise(r=>setTimeout(r,20));}
     }
-    const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json','x-chatcode-token':'test-token'},body:JSON.stringify({
+    const requestOptions={method:'POST',headers:{'content-type':'application/json','x-chatcode-token':'test-token'},body:JSON.stringify({
       action:'install',panelUser:'tester',panelPassword:'fixture-secret',dbName:'tester_cc123456',dbUser:'tester_cc123456',dbPassword:'db-secret',dbHost:'localhost',tablePrefix:'wp_test_',siteTitle:'Fixture',adminUser:'tester',adminEmail:'admin@example.test',adminPassword:'admin-secret',siteUrl:'https://example.test',clearRemote:true
-    })});
-    const result=await response.json();assert.equal(response.status,409);assert.equal(result.code,'DB_PANEL_LIMIT');
-    assert.match(result.message,/Maximum number of databases reached/);
-    assert.equal(result.databaseDetail.mysql.errno,1045);
-    assert.equal(fs.readFileSync(path.join(root,'wp-config.php'),'utf8'),'existing configuration sentinel');
+    })};
+    const response=await fetch(url,requestOptions);
+    const result=await response.json();assert.equal(response.status,409);assert.equal(result.code,'DB_REUSE_CONNECT_FAILED');
+    assert.equal(result.mysqlErrno,1045);
+    assert.ok(!fs.existsSync(path.join(root,'panel-calls')), 'reuse failure must not create another database');
+    assert.equal(fs.readFileSync(path.join(root,'wp-config.php'),'utf8'),existingConfig);
     assert.equal(fs.readFileSync(path.join(root,'wp-content','keep.txt'),'utf8'),'must survive');
+    fs.unlinkSync(path.join(root,'wp-config.php'));
+    const panelResponse=await fetch(url,requestOptions);const panelResult=await panelResponse.json();
+    assert.equal(panelResponse.status,409);assert.equal(panelResult.code,'DB_PANEL_LIMIT');
+    assert.match(panelResult.message,/Maximum number of databases reached/);
+    assert.equal(panelResult.databaseDetail.mysql.errno,1045);
     assert.equal(fs.readFileSync(path.join(root,'panel-calls'),'utf8'),'CREATE\\n');
-    console.log('PASS: generated bootstrap preserves existing wp-config/wp-content on panel HTTP 500 even with clearRemote=true');
+    assert.equal(fs.readFileSync(path.join(root,'wp-content','keep.txt'),'utf8'),'must survive');
+    console.log('PASS: generated bootstrap preserves old config/content on reuse failure and existing files on fresh panel HTTP 500');
   } finally {
     if(server) { const exit=new Promise(r=>server.once('exit',r));server.kill();await exit; }
     fs.rmSync(root,{recursive:true,force:true});

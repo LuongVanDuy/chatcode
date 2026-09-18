@@ -137,10 +137,10 @@ async function runLive(site){
     const install=await httpJson(url,secrets.bootstrapToken,payload,420000);assert.equal(install.ok,true);
     await httpJson(url,secrets.bootstrapToken,{action:'verify',plugin},90000);
     assert.equal(fs.readFileSync(path.join(site,'.chatcode-install-id'),'utf8'),task.manifest.install_id);
-    const probeCode = "$u=null; require $argv[1]; $u=get_user_by('login','duyanhweb'); $p=getenv('CC_TEST_PASSWORD'); echo json_encode(array('userExists'=>(bool)$u,'canManage'=>$u ? user_can($u,'manage_options') : false,'exactPassword'=>$u ? wp_check_password($p,$u->user_pass,$u->ID) : false,'unslashedPassword'=>$u ? wp_check_password(stripslashes($p),$u->user_pass,$u->ID) : false));";
+    const probeCode = "$u=null; require $argv[1]; $u=get_user_by('login','duyanhweb'); $p=getenv('CC_TEST_PASSWORD'); echo json_encode(array('userExists'=>(bool)$u,'canManage'=>$u ? user_can($u,'manage_options') : false,'exactPassword'=>$u ? wp_check_password(wp_slash($p),$u->user_pass,$u->ID) : false,'unslashedPassword'=>$u ? wp_check_password(stripslashes($p),$u->user_pass,$u->ID) : false));";
     const authState=JSON.parse(execFileSync('php',['-r',probeCode,path.join(site,'wp-load.php')],{encoding:'utf8',env:{...process.env,CC_TEST_PASSWORD:ftpPassword}}));
     console.log('WordPress account verification:',JSON.stringify(authState));
-    assert.equal(authState.userExists,true);assert.equal(authState.canManage,true);assert.equal(authState.exactPassword,true,'stored password must match FTP exactly');
+    assert.equal(authState.userExists,true);assert.equal(authState.canManage,true);assert.equal(authState.exactPassword,true,'WordPress login password must match FTP exactly');
     const loginPage=await fetch(`${siteUrl}/wp-login.php`,{redirect:'manual'});
     const cookie=loginPage.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
     await loginPage.text();

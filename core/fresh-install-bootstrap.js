@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { buildTransferBootstrap } = require('./fresh-install-transfer-bootstrap');
 const { buildDatabaseBootstrap } = require('./fresh-install-database');
+const { buildReinstallBootstrap } = require('./fresh-install-reinstall');
 
 function phpString(value) {
   return String(value || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -165,6 +166,7 @@ function cc_fetch_json($url) {
   return $data;
 }
 ${buildDatabaseBootstrap()}
+${buildReinstallBootstrap()}
 function cc_prepare_database($data) {
   if (!class_exists('mysqli')) throw new Exception('Hosting chưa bật PHP mysqli.');
   $selected=null; $detail=array(); $mysqli=cc_connect_database($data,$selected,$detail);
@@ -287,7 +289,7 @@ try {
   if (!is_array($data)) cc_fail('Dữ liệu cài đặt không hợp lệ.',400,'PAYLOAD_INVALID');
   $action=(string)($data['action'] ?? 'install');
   cc_transfer_action($action,$data);
-  if ($action === 'probe') { cc_answer(true,'Bootstrap ready.',array('installId'=>CC_INSTALL_ID)); }
+  if ($action === 'probe') { cc_answer(true,'Bootstrap ready.',array('installId'=>CC_INSTALL_ID,'reinstallVersion'=>1)); }
   if ($action === 'inspect-upload') {
     $name=(string)($data['name'] ?? ''); $base=basename($name);
     if ($name === '' || $base !== $name || strpos($name,'.chatcode-') !== 0 || !preg_match('/^[A-Za-z0-9._-]+$/',$name)) cc_fail('Tên upload cần kiểm tra không hợp lệ.',400,'UPLOAD_VERIFY_INVALID');
@@ -369,14 +371,18 @@ try {
     if (!cc_same_install_live()) cc_fail('Website chưa ở trạng thái live của install task này.',409,'VERIFY_INSTALL_MARKER_FAILED');
     $ccVerifyPlugin=(array)($data['plugin'] ?? array()); $ccVerifyEntry=(string)($ccVerifyPlugin['entry'] ?? '');
     $ccExpectedTheme=(string)($data['theme']['active_theme'] ?? '');
+    $ccVerifyPlan=cc_reinstall_read_plan();
     require_once __DIR__.'/wp-load.php'; require_once ABSPATH.'wp-admin/includes/plugin.php';
     $ccActive=(string)get_option('stylesheet'); $ccPluginOk=$ccVerifyEntry === '' ? true : is_plugin_active($ccVerifyEntry);
     if (!$ccPluginOk) cc_fail('Plugin mặc định chưa active.',409,'VERIFY_PLUGIN_FAILED');
     if ($ccExpectedTheme !== '' && $ccActive !== $ccExpectedTheme) cc_fail('Theme active không đúng manifest.',409,'VERIFY_THEME_FAILED',array('activeTheme'=>$ccActive));
-    cc_answer(true,'Remote verify PASS.',array('wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),'activeTheme'=>$ccActive,'pluginActive'=>$ccPluginOk,'siteUrl'=>(string)get_option('siteurl')));
+    cc_answer(true,'Remote verify PASS.',array_merge((array)($ccVerifyPlan['result'] ?? array()),array('wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),'activeTheme'=>$ccActive,'pluginActive'=>$ccPluginOk,'siteUrl'=>(string)get_option('siteurl'))));
   }
   if ($action !== 'install') cc_fail('Action không được hỗ trợ.',400,'ACTION_UNSUPPORTED');
-  if (cc_same_install_live()) cc_answer(true,'Install task đã publish trước đó.',array('alreadyInstalled'=>true));
+  if (cc_same_install_live()) {
+    $ccPlan=cc_reinstall_read_plan();
+    cc_answer(true,'Install task đã publish trước đó.',array_merge((array)($ccPlan['result'] ?? array()),array('alreadyInstalled'=>true)));
+  }
   // Read-only guard first; do not delete website files until DB is ready.
   $blocking=cc_blocking_entries($data);
   if ($blocking && empty($data['clearRemote'])) cc_fail('Thư mục website đang có nội dung.',409,'SITE_NOT_EMPTY',array('blockingEntries'=>array_slice($blocking,0,20)));
@@ -384,8 +390,9 @@ try {
     if (!isset($data[$key]) || (string)$data[$key] === '') cc_fail('Thiếu thông tin '.$key,400,'PAYLOAD_MISSING_FIELD');
   }
   if (!preg_match('/^[A-Za-z][A-Za-z0-9_]{0,31}$/',(string)$data['tablePrefix'])) cc_fail('Table prefix không hợp lệ.',400,'TABLE_PREFIX_INVALID');
+  $data=cc_reinstall_resolve($data);
+  cc_reinstall_publish($data); // Resume a prepared/partly-published replacement only.
   list($mysqli,$markerTable,$selected)=cc_prepare_database($data);
-  $removedEntries=cc_prepare_remote_root($data);
   $stage=cc_stage();
   if (!is_dir($stage) && !@mkdir($stage,0755,true)) throw new Exception('Không tạo được staging directory.');
   $data['dbName']=$selected['name']; $data['dbUser']=$selected['user']; $data['dbHost']=$selected['host'];
@@ -396,20 +403,28 @@ try {
   $ccAdminPassword=(string)$data['adminPassword']; $ccSiteUrl=(string)$data['siteUrl']; $ccActiveTheme=(string)$activeTheme;
   $ccPluginEntry=(string)($plugin['entry'] ?? ''); $ccPluginFallback=basename((string)($plugin['fallback_package'] ?? ''));
   $ccPluginVersion=(string)$pluginVersion; $ccDatabase=array('name'=>$data['dbName'],'user'=>$data['dbUser'],'host'=>$data['dbHost']);
-  $ccClearedEntries=$removedEntries;
+  $ccInstallData=$data; // Preserve input across WordPress's global bootstrap.
   if ($ccPluginEntry === '') throw new Exception('Plugin entrypoint không hợp lệ.');
   define('WP_INSTALLING',true);
   require $ccStage.'/wp-load.php'; require_once $ccStage.'/wp-admin/includes/upgrade.php'; require_once $ccStage.'/wp-admin/includes/plugin.php';
-  if (!is_blog_installed()) wp_install($ccSiteTitle,$ccAdminUser,$ccAdminEmail,true,'',$ccAdminPassword,'vi');
+  if (!is_blog_installed()) wp_install($ccSiteTitle,$ccAdminUser,$ccAdminEmail,true,'',wp_slash($ccAdminPassword),'vi');
   update_option('siteurl',$ccSiteUrl); update_option('home',$ccSiteUrl); update_option('timezone_string','Asia/Ho_Chi_Minh');
   update_option('permalink_structure','/%postname%/');
   if ($ccActiveTheme !== '') switch_theme($ccActiveTheme);
   $activated=activate_plugin($ccPluginEntry);
   if (is_wp_error($activated)) throw new Exception('Không kích hoạt được DuyAnhWebPro: '.$activated->get_error_message());
-  flush_rewrite_rules(true); $ccMysqli->query('DROP TABLE IF EXISTS '.$ccMarkerTable); cc_publish($ccStage);
-  if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
-  if ($ccPluginFallback !== '') @unlink(__DIR__.'/'.$ccPluginFallback);
-  cc_answer(true,'Đã cài WordPress.',array('database'=>$ccDatabase,'activeTheme'=>$ccActiveTheme,'pluginVersion'=>$ccPluginVersion,'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),'clearedEntries'=>array_slice($ccClearedEntries,0,20)));
+  // Match the password representation expected by WordPress's login form.
+  $ccUser=get_user_by('login',$ccAdminUser);
+  if (!$ccUser || !user_can($ccUser,'manage_options') || !wp_check_password(wp_slash($ccAdminPassword),$ccUser->user_pass,$ccUser->ID)) throw new Exception('Chưa xác minh được tài khoản quản trị mới; giữ lại bản cũ.');
+  if (!is_plugin_active($ccPluginEntry) || ($ccActiveTheme!=='' && get_option('stylesheet')!==$ccActiveTheme)) throw new Exception('Theme/plugin bản mới chưa sẵn sàng; giữ lại bản cũ.');
+  flush_rewrite_rules(true);
+  cc_reinstall_retire_tables($ccMysqli);
+  $ccPlan=cc_reinstall_read_plan();
+  if (!$ccPlan) $ccMysqli->query('DROP TABLE IF EXISTS '.$ccMarkerTable);
+  $ccResult=array('database'=>$ccDatabase,'databaseMode'=>$ccPlan ? 'reused' : 'created',
+    'replacedTables'=>$ccPlan ? count($ccPlan['tables']) : 0,'tablePrefix'=>$ccInstallData['tablePrefix'],
+    'activeTheme'=>$ccActiveTheme,'pluginVersion'=>$ccPluginVersion,'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''));
+  cc_reinstall_publish($ccInstallData,$ccResult);
 } catch (Throwable $error) { cc_fail($error->getMessage(),500,'INSTALL_FAILED'); }
 `;
 }

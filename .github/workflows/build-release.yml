@@ -25,9 +25,12 @@ jobs:
   finalize-release-gate:
     uses: ./.github/workflows/fresh-install-finalize.yml
 
+  reinstall-release-gate:
+    uses: ./.github/workflows/fresh-install-reinstall.yml
+
   release:
-    needs: [fresh-install-release-gate, database-release-gate, finalize-release-gate]
-    if: ${{ needs.fresh-install-release-gate.result == 'success' && needs.database-release-gate.result == 'success' && needs.finalize-release-gate.result == 'success' }}
+    needs: [fresh-install-release-gate, database-release-gate, finalize-release-gate, reinstall-release-gate]
+    if: ${{ needs.fresh-install-release-gate.result == 'success' && needs.database-release-gate.result == 'success' && needs.finalize-release-gate.result == 'success' && needs.reinstall-release-gate.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
