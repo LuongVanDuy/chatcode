@@ -52,9 +52,12 @@ function cc_remove_tree($path) {
   foreach ($items as $name) if ($name !== '.' && $name !== '..') cc_remove_tree($path . DIRECTORY_SEPARATOR . $name);
   @rmdir($path);
 }
-function cc_blocking_entries() {
+function cc_blocking_entries($data=array()) {
   $allowed = array('.', '..', '.well-known', '.ftpquota', CC_BRIDGE_NAME);
   if (CC_THEME_PACKAGE !== '') $allowed[] = CC_THEME_PACKAGE;
+  if (!empty($data['corePackage'])) $allowed[] = basename((string)$data['corePackage']);
+  $plugin=(array)($data['plugin'] ?? array());
+  if (!empty($plugin['fallback_package'])) $allowed[] = basename((string)$plugin['fallback_package']);
   $out = array();
   foreach ((array)@scandir(__DIR__) as $name) {
     if (in_array($name,$allowed,true)) continue;
@@ -379,6 +382,7 @@ try {
     if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
     $plugin=(array)($data['plugin'] ?? array());
     if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));
+    if (!empty($data['corePackage'])) @unlink(__DIR__.'/'.basename((string)$data['corePackage']));
     @unlink(__FILE__);
     cc_answer(true,'Đã dọn file cài đặt tạm.');
   }
@@ -407,7 +411,7 @@ try {
     cc_answer(true,'Install task đã publish trước đó.',array('alreadyInstalled'=>true));
   }
 
-  $blocking=cc_blocking_entries();
+  $blocking=cc_blocking_entries($data);
   if ($blocking) cc_fail('Thư mục website không trống.',409,'SITE_NOT_EMPTY',array('blockingEntries'=>array_slice($blocking,0,20)));
 
   foreach (array('panelUser','panelPassword','dbName','dbUser','dbPassword','dbHost','tablePrefix','siteTitle','adminUser','adminEmail','adminPassword','siteUrl') as $key) {
