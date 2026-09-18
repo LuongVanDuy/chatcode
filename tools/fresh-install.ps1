@@ -94,42 +94,24 @@ function Invoke-CurlUpload(
     )
     if ($Tls) { $lines += 'ssl-reqd' }
 
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $process.StartInfo.FileName = $curlPath
-    $process.StartInfo.Arguments = '--disable --config -'
-    $process.StartInfo.UseShellExecute = $false
-    $process.StartInfo.CreateNoWindow = $true
-    $process.StartInfo.RedirectStandardInput = $true
-    $process.StartInfo.RedirectStandardOutput = $true
-    $process.StartInfo.RedirectStandardError = $true
-    $process.StartInfo.StandardOutputEncoding = $utf8
-    $process.StartInfo.StandardErrorEncoding = $utf8
+    $configText = ($lines -join [Environment]::NewLine) + [Environment]::NewLine
+    $previousOutputEncoding = $OutputEncoding
     try {
-      [void]$process.Start()
-      $outTask = $process.StandardOutput.ReadToEndAsync()
-      $errTask = $process.StandardError.ReadToEndAsync()
-      $configBytes = $utf8.GetBytes(($lines -join [Environment]::NewLine) + [Environment]::NewLine)
-      $process.StandardInput.BaseStream.Write($configBytes,0,$configBytes.Length)
-      $process.StandardInput.BaseStream.Flush()
-      $process.StandardInput.BaseStream.Close()
-      if (-not $process.WaitForExit(310000)) {
-        try { $process.Kill() } catch {}
-        try { $process.WaitForExit() } catch {}
-        $code = 28
-        $errorText = 'FTP upload exceeded deadline'
-      } else {
-        [void]$outTask.GetAwaiter().GetResult()
-        $errorText = [string]$errTask.GetAwaiter().GetResult()
-        $code = [int]$process.ExitCode
-      }
+      $OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
+      if ($OutputEncoding.GetPreamble().Length -ne 0) { throw 'Native pipeline encoder unexpectedly emits BOM' }
+      $nativeOutput = @($configText | & $curlPath --disable --config - 2>&1)
+      $code = [int]$LASTEXITCODE
+      $errorText = [string]::Join(' ', [string[]]$nativeOutput)
     } finally {
-      Safe-Dispose $process
+      $OutputEncoding = $previousOutputEncoding
     }
     if ($code -eq 0) {
       return (Get-Item -LiteralPath $local).Length
     }
     $safeError = ($errorText -replace '[\r\n]+',' ').Trim()
+    foreach ($secretValue in @($Password,$Username,$FtpHost)) {
+      if ($secretValue) { $safeError = $safeError.Replace([string]$secretValue,'[redacted]') }
+    }
     if ($attempt -ge $maxAttempts -or $code -notin $transientCodes) {
       throw "curl FTP upload failed (exit $code): $safeError"
     }
