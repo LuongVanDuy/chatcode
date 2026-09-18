@@ -75,6 +75,47 @@ jobs:
             throw 'fresh-install.ps1 runtime selftest failed.'
           }
 
+      - name: Local FTP upload integration
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --quiet pyftpdlib
+          $ftpRoot = Join-Path $env:RUNNER_TEMP 'chatcode-fresh-ftp'
+          New-Item -ItemType Directory -Force -Path (Join-Path $ftpRoot 'public_html') | Out-Null
+          $server = Start-Process python -ArgumentList @(
+            '-m','pyftpdlib',
+            '-i','127.0.0.1',
+            '-p','2121',
+            '-w',
+            '-d',$ftpRoot,
+            '-u','tester',
+            '-P','secret'
+          ) -PassThru -WindowStyle Hidden
+          try {
+            Start-Sleep -Seconds 2
+            $local = Join-Path $env:RUNNER_TEMP 'fresh-upload-test.txt'
+            [IO.File]::WriteAllText($local,'chatcode fresh upload test')
+            $payload = @{
+              action='upload'
+              host='127.0.0.1'
+              port=2121
+              username='tester'
+              password='secret'
+              protocol='ftp'
+              remotePath='/public_html'
+              files=@(@{ localPath=$local; remoteName='fresh-upload-test.txt' })
+            } | ConvertTo-Json -Depth 6 -Compress
+            $output = $payload | powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/fresh-install.ps1
+            if ($LASTEXITCODE -ne 0) { throw "fresh-install.ps1 upload integration exited $LASTEXITCODE : $output" }
+            $line = @($output | Where-Object { $_ })[-1]
+            $json = $line | ConvertFrom-Json
+            if (-not $json.ok -or $json.action -ne 'upload') { throw 'Fresh Install upload integration returned invalid JSON.' }
+            $uploaded = Join-Path $ftpRoot 'public_html\fresh-upload-test.txt'
+            if (-not (Test-Path -LiteralPath $uploaded -PathType Leaf)) { throw 'Fresh Install upload integration did not create remote file.' }
+            if ((Get-Content -Raw -LiteralPath $uploaded) -ne 'chatcode fresh upload test') { throw 'Fresh Install upload integration content mismatch.' }
+          } finally {
+            if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
+
       - name: Fresh Install smoke
         shell: pwsh
         run: node scripts/smoke-fresh-install.cjs
