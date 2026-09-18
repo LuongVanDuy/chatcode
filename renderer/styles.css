@@ -58,3 +58,43 @@
 }
 .fresh-package-divider{height:1px;background:var(--line,#e3e7ee);margin:18px 0}
 .fresh-subhead{margin-bottom:10px}
+
+/* Fresh Install dark hotfix v1.0.56 */
+#route-wordpress-install .fresh-install-page{color:var(--ui-text)}
+#route-wordpress-install .fresh-install-form-card,
+#route-wordpress-install .fresh-package-card{background:var(--ui-surface)!important;border-color:var(--ui-border)!important}
+#route-wordpress-install .fresh-package-block{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;color:var(--ui-text)!important}
+#route-wordpress-install .fresh-package-head strong,
+#route-wordpress-install .fresh-plugin-row b,
+#route-wordpress-install .fresh-advanced summary,
+#route-wordpress-install .fresh-task-stage b,
+#route-wordpress-install .fresh-task-top strong,
+#route-wordpress-install .fresh-checkpoint strong{color:var(--ui-text)!important}
+#route-wordpress-install .fresh-package-head span,
+#route-wordpress-install .fresh-plugin-row small,
+#route-wordpress-install .fresh-readiness,
+#route-wordpress-install .fresh-task-top small,
+#route-wordpress-install .fresh-task-stage span,
+#route-wordpress-install .fresh-checkpoint span{color:var(--ui-muted)!important}
+#route-wordpress-install .fresh-plugin-row,
+#route-wordpress-install .fresh-advanced,
+#route-wordpress-install .fresh-package-divider{border-color:var(--ui-border-soft)!important}
+#route-wordpress-install .fresh-ready{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;color:var(--ui-text-2)!important}
+#route-wordpress-install .fresh-ready span{color:var(--ui-muted)!important}
+#route-wordpress-install .fresh-ready.ok{background:rgba(130,214,164,.08)!important;border-color:rgba(130,214,164,.30)!important}
+#route-wordpress-install .fresh-ready.ok i{background:rgba(130,214,164,.14)!important;color:var(--ui-success)!important}
+#route-wordpress-install .fresh-ready.warn{background:rgba(240,196,122,.08)!important;border-color:rgba(240,196,122,.32)!important}
+#route-wordpress-install .fresh-ready.warn i{background:rgba(240,196,122,.14)!important;color:var(--ui-warning)!important}
+#route-wordpress-install .fresh-task{background:var(--ui-surface)!important;border-color:var(--ui-border)!important}
+#route-wordpress-install .fresh-task-status{background:var(--ui-accent-bg)!important;color:var(--ui-accent-strong)!important}
+#route-wordpress-install .fresh-task-status.completed{background:rgba(130,214,164,.10)!important;color:var(--ui-success)!important}
+#route-wordpress-install .fresh-task-status.failed,
+#route-wordpress-install .fresh-task-status.interrupted{background:rgba(255,156,156,.10)!important;color:var(--ui-danger)!important}
+#route-wordpress-install .fresh-task-status.running{background:rgba(169,184,255,.12)!important;color:var(--ui-accent-strong)!important}
+#route-wordpress-install .fresh-progress>div{background:var(--ui-surface-3)!important}
+#route-wordpress-install .fresh-progress>div>span{background:var(--ui-accent)!important}
+#route-wordpress-install .fresh-task-error{background:rgba(255,156,156,.08)!important;border-color:rgba(255,156,156,.30)!important;color:var(--ui-danger)!important}
+#route-wordpress-install .fresh-blocking{background:rgba(240,196,122,.08)!important;border-color:rgba(240,196,122,.30)!important;color:var(--ui-warning)!important}
+#route-wordpress-install .fresh-task-logs{background:#17191E!important;color:var(--ui-text-2)!important;border:1px solid var(--ui-border)!important}
+#route-wordpress-install .message.error{color:var(--ui-danger)!important}
+#route-wordpress-install .message.success{color:var(--ui-success)!important}
