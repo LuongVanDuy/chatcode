@@ -66,6 +66,13 @@
     if (status) status.innerHTML = ready
       ? `<div class="fresh-ready ok"><i>✓</i><div><strong>Bricks 2.4 đã sẵn sàng</strong><span>${formatBytes(bytes)} · SHA256 ${escapeHtml(hash.slice(0,16))}…</span></div></div>`
       : '<div class="fresh-ready warn"><i>!</i><div><strong>Chưa có Bricks 2.4</strong><span>Chọn ZIP chính thức một lần để dùng cho mọi Fresh Install.</span></div></div>';
+    const pluginReady = !!catalog.readiness?.duyanhwebpro_1_9_4;
+    const pluginHash = String(catalog.readiness?.duyanhwebpro_1_9_4_sha256 || '');
+    const pluginBytes = Number(catalog.readiness?.duyanhwebpro_1_9_4_bytes || 0);
+    const pluginStatus = byId('freshDuyAnhStatus');
+    if (pluginStatus) pluginStatus.innerHTML = pluginReady
+      ? `<div class="fresh-ready ok"><i>✓</i><div><strong>Fallback 1.9.4 đã sẵn sàng</strong><span>${formatBytes(pluginBytes)} · SHA256 ${escapeHtml(pluginHash.slice(0,16))}…</span></div></div>`
+      : '<div class="fresh-ready warn"><i>!</i><div><strong>Chưa có fallback local</strong><span>Không bắt buộc. Fast path vẫn tải plugin từ vendor updater.</span></div></div>';
     renderThemeReadiness();
   }
 
@@ -185,6 +192,15 @@
     } catch (error) { message(error.message || String(error),'error'); }
   }
 
+  async function pickDuyAnh() {
+    try {
+      const result = await freshApi.pickDuyAnhPackage();
+      if (!result) return;
+      message('Đã thêm DuyAnhWebPro 1.9.4 fallback vào Package Cache.','success');
+      await refresh();
+    } catch (error) { message(error.message || String(error),'error'); }
+  }
+
   async function pickTheme() {
     try {
       const result = await freshApi.pickThemePackage();
@@ -235,6 +251,7 @@
     if (!form) return;
     form.addEventListener('submit',submit);
     byId('freshPickBricks').onclick = pickBricks;
+    byId('freshPickDuyAnh').onclick = pickDuyAnh;
     byId('freshAddTheme').onclick = pickTheme;
     byId('freshRefresh').onclick = () => refresh().catch(error => message(error.message || String(error),'error'));
     byId('freshTheme').onchange = renderThemeReadiness;
