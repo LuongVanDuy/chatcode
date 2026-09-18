@@ -102,15 +102,16 @@ function Invoke-CurlUpload(
     $process.StartInfo.RedirectStandardInput = $true
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.StandardInputEncoding = $utf8
     $process.StartInfo.StandardOutputEncoding = $utf8
     $process.StartInfo.StandardErrorEncoding = $utf8
     try {
       [void]$process.Start()
       $outTask = $process.StandardOutput.ReadToEndAsync()
       $errTask = $process.StandardError.ReadToEndAsync()
-      $configBytes = $utf8.GetBytes(($lines -join [Environment]::NewLine) + [Environment]::NewLine)
-      $process.StandardInput.BaseStream.Write($configBytes,0,$configBytes.Length)
-      $process.StandardInput.BaseStream.Close()
+      $configText = ($lines -join [Environment]::NewLine) + [Environment]::NewLine
+      $process.StandardInput.Write($configText)
+      $process.StandardInput.Close()
       if (-not $process.WaitForExit(310000)) {
         try { $process.Kill() } catch {}
         try { $process.WaitForExit() } catch {}
