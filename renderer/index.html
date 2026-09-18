@@ -6,7 +6,7 @@
   <aside class="sidebar">
     <div class="brand"><img src="../assets/icon.png" alt=""><div><strong>ChatCode</strong><span>Cá Nhân</span></div><span class="version-badge">v0.6</span></div>
     <nav class="nav">
-      <button class="nav-link active" data-route="dashboard"><span>⌂</span>Tổng quan</button>
+      <button class="nav-link active" data-route="dashboard"><span>⌂</span>Tổng quan</button>\n      <button class="nav-link" data-route="wordpress-install"><span>WP</span>Cài WordPress</button>
     </nav>
     <div class="projects-block"><div class="section-title"><span>DỰ ÁN</span><button id="sidebarAddProject" class="section-action" aria-label="Thêm dự án" title="Thêm dự án">＋</button></div><div id="projects" class="project-list"></div></div>
     <div class="sidebar-spacer"></div>
@@ -49,6 +49,53 @@
         </div>
       </section>
 
+      <section id="route-wordpress-install" class="route">
+        <div class="page fresh-install-page">
+          <div class="fresh-install-grid">
+            <article class="card fresh-install-form-card">
+              <div class="card-head"><div><span class="eyebrow">FRESH INSTALL</span><h3>Cài WordPress mới</h3><p>3 thông tin hosting là bắt buộc. ChatCode tự phát hiện FTP/FTPS, thư mục website và database DirectAdmin.</p></div></div>
+              <form id="freshInstallForm" class="form-stack">
+                <label>Tên miền<input id="freshDomain" name="domain" autocomplete="off" placeholder="example.com" required></label>
+                <label>Hosting user<input id="freshUsername" name="username" autocomplete="username" placeholder="hostinguser" required></label>
+                <label>Hosting password<div class="secret"><input id="freshPassword" name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required><button id="freshTogglePassword" type="button" class="btn small">Hiện</button></div></label>
+
+                <div class="fresh-package-block">
+                  <div class="fresh-package-head"><div><strong>Theme</strong><span>Chỉ một theme được active sau khi cài.</span></div><button id="freshAddTheme" type="button" class="btn small">+ Theme ZIP</button></div>
+                  <select id="freshTheme" name="theme"></select>
+                  <div id="freshThemeReadiness" class="fresh-readiness"></div>
+                </div>
+
+                <div class="fresh-package-block">
+                  <div class="fresh-package-head"><div><strong>Plugin mặc định</strong><span>Duy Anh Web Pro được tải trực tiếp từ update server của plugin.</span></div><span class="pill on">Bắt buộc</span></div>
+                  <div class="fresh-plugin-row"><div><b>Duy Anh Web Pro</b><small>Vendor latest · fallback baseline 1.9.4</small></div><span>✓</span></div>
+                </div>
+
+                <details class="fresh-advanced">
+                  <summary>Cấu hình nâng cao</summary>
+                  <div class="form-stack">
+                    <label>Bricks license key <input id="freshBricksLicense" name="bricksLicenseKey" type="password" autocomplete="off" placeholder="Không bắt buộc để cài theme"></label>
+                    <div class="note">License được lưu bằng Windows Secure Storage; không ghi vào task JSON hay log.</div>
+                  </div>
+                </details>
+
+                <button id="freshInstallSubmit" class="btn primary full" type="submit">Cài WordPress</button>
+                <div id="freshInstallMessage" class="message"></div>
+              </form>
+            </article>
+
+            <article class="card fresh-package-card">
+              <div class="card-head"><div><span class="eyebrow">PACKAGE CACHE</span><h3>Bricks 2.4</h3><p>Chọn ZIP chính thức một lần. Các lần cài sau dùng lại package đã SHA256 verify trong cache cục bộ.</p></div></div>
+              <div id="freshBricksStatus" class="fresh-package-status"></div>
+              <button id="freshPickBricks" class="btn full" type="button">Chọn Bricks 2.4 ZIP</button>
+              <div class="note">WordPress core không đi qua FTP ở fast path. Hosting tải trực tiếp từ wordpress.org.</div>
+            </article>
+          </div>
+
+          <div class="fresh-task-head"><div><span class="eyebrow">INSTALL TASKS</span><h3>Lịch sử cài đặt</h3></div><button id="freshRefresh" class="btn small">Làm mới</button></div>
+          <div id="freshTaskList" class="fresh-task-list"><div class="empty">Chưa có Fresh Install task.</div></div>
+        </div>
+      </section>
+
       <section id="route-settings" class="route"><div class="page narrow"><div class="page-head"><div><span class="eyebrow">ỨNG DỤNG</span><h2>Cài đặt</h2><p>Tối ưu ChatCode để chạy 24/7.</p></div></div><article class="card settings-list">
         <label class="setting"><div><strong>Đóng xuống System Tray</strong><span>Bấm X chỉ ẩn cửa sổ; MCP vẫn chạy.</span></div><input id="settingTray" type="checkbox"></label>
         <label class="setting"><div><strong>Khởi động cùng Windows</strong><span>Tự chạy bridge nền sau khi đăng nhập.</span></div><input id="settingStartup" type="checkbox"></label>
@@ -71,5 +118,5 @@
 </div>
 <div id="projectMenu" class="project-menu hidden" role="menu"><button data-project-menu-action="reindex" role="menuitem">Re-index</button><button data-project-menu-action="remove" class="danger" role="menuitem">Xóa dự án</button></div>
 <div id="toastContainer" class="toasts"></div>
-<script src="app.js"></script>
+<script src="app.js"></script>\n<script src="fresh-install.js"></script>
 </body></html>
