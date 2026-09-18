@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const { buildFreshInstallBootstrap, randomInstallToken } = require('./fresh-install-bootstrap');
 const { createFreshInstallPackageService, DEFAULT_CATALOG } = require('./fresh-install-packages');
 const { createFreshInstallVault } = require('./fresh-install-vault');
+const { uploadPackage } = require('./fresh-install-transfer');
 
 const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const CHECKPOINTS = ['created','discovered','uploaded','installed','verified','completed'];
@@ -16,22 +17,18 @@ const PARALLEL_UPLOAD_MIN_PART_BYTES = 1024 * 1024;
 function checkpointAtLeast(value, target) {
   return CHECKPOINTS.indexOf(String(value || 'created')) >= CHECKPOINTS.indexOf(target);
 }
-
 function allowsRemoteClear(task) {
   return !!task?.remote_policy?.clear_remote || !!task?.clear_remote_confirmed;
 }
-
 function atomicWrite(file, payload) {
   fs.mkdirSync(path.dirname(file), { recursive:true });
   const temp = `${file}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(temp, JSON.stringify(payload, null, 2), 'utf8');
   fs.renameSync(temp, file);
 }
-
 function randomSecret(bytes = 24) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
-
 function buildUploadRanges(totalBytes, workerCount) {
   const bytes = Math.max(0, Math.floor(Number(totalBytes) || 0));
   const requested = Math.max(1, Math.min(MAX_PARALLEL_UPLOAD_WORKERS, Math.floor(Number(workerCount) || 1)));
@@ -50,49 +47,39 @@ function buildUploadRanges(totalBytes, workerCount) {
   }
   return ranges;
 }
-
 function normalizeDomain(value) {
   const domain = String(value || '').trim().toLowerCase().replace(/^https?:\/\//,'').split('/')[0].replace(/\.$/,'');
   if (!DOMAIN_RE.test(domain)) throw new Error('Domain không hợp lệ.');
   return domain;
 }
-
 function normalizeUsername(value) {
   const username = String(value || '').trim();
   if (!username || username.length > 128 || /[\x00-\x1f]/.test(username)) throw new Error('Hosting user không hợp lệ.');
   return username;
 }
-
 function publicTask(task) {
   if (!task) return null;
   const clone = JSON.parse(JSON.stringify(task));
-  if (clone.manifest?.theme?.package) {
-    delete clone.manifest.theme.package.path;
-  }
+  if (clone.manifest?.theme?.package) delete clone.manifest.theme.package.path;
   for (const plugin of clone.manifest?.plugins || []) {
     if (plugin?.fallback_package) delete plugin.fallback_package.path;
   }
   clone.credentials_available = !!task.credentials_available;
   return clone;
 }
-
 function resolveRunnerPath() {
   const candidates = [];
   if (process.resourcesPath) candidates.push(path.join(process.resourcesPath,'tools','fresh-install.ps1'));
   candidates.push(path.resolve(__dirname,'..','tools','fresh-install.ps1'));
   return candidates.find(file => fs.existsSync(file)) || '';
 }
-
 function runPowerShell(payload, timeoutMs = 120000) {
   const runner = resolveRunnerPath();
   if (!runner) return Promise.reject(new Error('Thiếu tools/fresh-install.ps1.'));
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe',[
       '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',runner
-    ],{
-      windowsHide:true,
-      stdio:['pipe','pipe','pipe']
-    });
+    ],{ windowsHide:true, stdio:['pipe','pipe','pipe'] });
     let stdout = '', stderr = '', settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -123,25 +110,21 @@ function runPowerShell(payload, timeoutMs = 120000) {
       }
       resolve(body);
     });
-    try {
-      child.stdin.end(JSON.stringify(payload));
-    } catch (error) {
+    try { child.stdin.end(JSON.stringify(payload)); }
+    catch (error) {
       clearTimeout(timer);
       try { child.kill(); } catch {}
       reject(error);
     }
   });
 }
-
 async function httpJson(url, token, payload, timeoutMs = 360000) {
   let response;
   try {
     response = await fetch(url, {
       method:'POST',
       headers:{ 'content-type':'application/json', 'x-chatcode-token':token, 'cache-control':'no-store' },
-      body:JSON.stringify(payload),
-      redirect:'follow',
-      signal:AbortSignal.timeout(timeoutMs)
+      body:JSON.stringify(payload), redirect:'follow', signal:AbortSignal.timeout(timeoutMs)
     });
   } catch (error) {
     const wrapped = new Error(`Không gọi được bootstrap qua HTTPS: ${error?.message || error}`);
@@ -159,12 +142,10 @@ async function httpJson(url, token, payload, timeoutMs = 360000) {
   }
   return body;
 }
-
 async function verifyPublicUrl(url, timeoutMs = 20000) {
   try {
     const response = await fetch(url, {
-      method:'GET',
-      redirect:'manual',
+      method:'GET', redirect:'manual',
       headers:{ 'cache-control':'no-cache', 'user-agent':'ChatCode-Fresh/1.0' },
       signal:AbortSignal.timeout(timeoutMs)
     });
@@ -187,21 +168,16 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     try {
       const parsed = JSON.parse(fs.readFileSync(stateFile,'utf8'));
       return parsed && Array.isArray(parsed.tasks) ? parsed : { schema:1, tasks:[] };
-    } catch {
-      return { schema:1, tasks:[] };
-    }
+    } catch { return { schema:1, tasks:[] }; }
   }
-
   function writeState(state) {
     atomicWrite(stateFile,{ schema:1, tasks:Array.isArray(state.tasks) ? state.tasks.slice(-120) : [] });
   }
-
   function taskById(id, state = readState()) {
     const task = state.tasks.find(item => item.id === id);
     if (!task) throw new Error('Không tìm thấy Fresh Install task.');
     return task;
   }
-
   function mutate(id, updater) {
     const state = readState();
     const task = taskById(id,state);
@@ -213,12 +189,10 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     onChanged?.(output);
     return output;
   }
-
   function appendLog(task, message) {
     const line = `${new Date().toLocaleTimeString('vi-VN',{hour12:false})} · ${message}`;
     task.logs = [...(Array.isArray(task.logs) ? task.logs : []).slice(-79), line];
   }
-
   function progress(id, stage, percent, message, current = '') {
     return mutate(id, task => {
       task.stage = stage;
@@ -228,7 +202,6 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       appendLog(task,`${stage} · ${message}${current ? ` · ${current}` : ''}`);
     });
   }
-
   function setCheckpoint(id, checkpoint, extra = {}) {
     return mutate(id, task => {
       task.checkpoint = checkpoint;
@@ -236,7 +209,6 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       appendLog(task,`checkpoint · ${checkpoint}`);
     });
   }
-
   function recoverInterrupted() {
     const state = readState();
     let changed = false;
@@ -253,35 +225,25 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     if (changed) writeState(state);
   }
   recoverInterrupted();
-
   function list() {
-    return readState().tasks
-      .slice()
-      .sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))
+    return readState().tasks.slice().sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))
       .map(task => publicTask({ ...task, credentials_available:vault.has(task.id) }));
   }
-
   function status(id) {
     const task = taskById(id);
     return publicTask({ ...task, credentials_available:vault.has(id) });
   }
-
-  function catalog() {
-    return packages.catalog();
-  }
-
+  function catalog() { return packages.catalog(); }
   async function importTheme(filePath, options = {}) {
     const result = await packages.importTheme(filePath,options);
     onChanged?.({ type:'catalog', catalog:catalog() });
     return result;
   }
-
   async function importPlugin(filePath, options = {}) {
     const result = await packages.importPlugin(filePath,options);
     onChanged?.({ type:'catalog', catalog:catalog() });
     return result;
   }
-
   function create(input = {}) {
     const domain = normalizeDomain(input.domain);
     const username = normalizeUsername(input.username);
@@ -296,7 +258,6 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const state = readState();
     const duplicate = state.tasks.find(item => item.domain === domain && ACTIVE_STATUSES.has(item.status));
     if (duplicate) throw new Error('Domain này đang có Fresh Install task chạy.');
-
     const id = crypto.randomUUID();
     const short = id.replace(/-/g,'').slice(0,10);
     const installId = crypto.randomBytes(16).toString('hex');
@@ -309,78 +270,38 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const plugin = {
       ...DEFAULT_CATALOG.plugins[0],
       fallback_package:pluginFallback ? {
-        id:pluginFallback.id,
-        version:pluginFallback.version,
-        slug:pluginFallback.slug,
-        entry:pluginFallback.entry,
-        path:pluginFallback.path,
-        sha256:pluginFallback.sha256,
-        bytes:pluginFallback.bytes,
-        remote_name:`.chatcode-plugin-${short}.zip`
+        id:pluginFallback.id, version:pluginFallback.version, slug:pluginFallback.slug,
+        entry:pluginFallback.entry, path:pluginFallback.path, sha256:pluginFallback.sha256,
+        bytes:pluginFallback.bytes, remote_name:`.chatcode-plugin-${short}.zip`
       } : null
     };
     const now = new Date().toISOString();
     const task = {
-      id,
-      type:'wordpress_fresh_install',
-      domain,
-      site_url:`https://${domain}`,
-      status:'ready',
-      stage:'created',
-      checkpoint:'created',
-      percent:0,
-      message:'Sẵn sàng cài WordPress',
-      current:'',
-      error:'',
-      error_code:'',
-      created_at:now,
-      updated_at:now,
-      connection:null,
-      remote_policy:{
-        clear_remote:input.clearRemote === true,
-        preserve:['.well-known','.ftpquota']
-      },
-      bootstrap:{
-        name:bridgeName
-      },
+      id, type:'wordpress_fresh_install', domain, site_url:`https://${domain}`,
+      status:'ready', stage:'created', checkpoint:'created', percent:0,
+      message:'Sẵn sàng cài WordPress', current:'', error:'', error_code:'',
+      created_at:now, updated_at:now, connection:null,
+      remote_policy:{ clear_remote:input.clearRemote === true, preserve:['.well-known','.ftpquota'] },
+      bootstrap:{ name:bridgeName },
       manifest:{
-        schema:1,
-        install_id:installId,
+        schema:1, install_id:installId,
         wordpress:{ source:'wordpress.org', version:'latest', fallback_remote_name:'' },
         theme:{
-          id:theme.id,
-          source:theme.source,
-          version:theme.version,
-          latest_stable:theme.latest_stable || '',
-          active_theme:theme.active_theme || '',
+          id:theme.id, source:theme.source, version:theme.version,
+          latest_stable:theme.latest_stable || '', active_theme:theme.active_theme || '',
           generated_child:theme.generated_child || '',
-          package:theme.package ? {
-            ...theme.package,
-            remote_name:themeRemoteName
-          } : null
+          package:theme.package ? { ...theme.package, remote_name:themeRemoteName } : null
         },
         plugins:[plugin],
-        database:{
-          host:'localhost',
-          name:`${safeUser}_${dbSuffix}`,
-          user:`${safeUser}_${dbSuffix}`,
-          table_prefix:tablePrefix
-        },
-        admin:{
-          username:'chatcode',
-          email:`admin@${domain}`
-        }
+        database:{ host:'localhost', name:`${safeUser}_${dbSuffix}`, user:`${safeUser}_${dbSuffix}`, table_prefix:tablePrefix },
+        admin:{ username:'chatcode', email:`admin@${domain}` }
       },
-      result:{},
-      logs:[]
+      result:{}, logs:[]
     };
     vault.set(id,{
-      hostingUsername:username,
-      hostingPassword:password,
-      databasePassword:randomSecret(24),
-      adminPassword:randomSecret(24),
-      bootstrapToken:randomInstallToken(),
-      bricksLicenseKey:String(input.bricksLicenseKey || '').trim()
+      hostingUsername:username, hostingPassword:password,
+      databasePassword:randomSecret(24), adminPassword:randomSecret(24),
+      bootstrapToken:randomInstallToken(), bricksLicenseKey:String(input.bricksLicenseKey || '').trim()
     });
     task.credentials_available = true;
     appendLog(task,'Đã tạo immutable install manifest');
@@ -389,30 +310,23 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     onChanged?.(publicTask(task));
     return publicTask(task);
   }
-
   function runtimeDir(id) {
     const dir = path.join(runtimeRoot,id);
     fs.mkdirSync(dir,{ recursive:true });
     return dir;
   }
-
   function writeBootstrap(task,secrets) {
     const theme = task.manifest.theme;
     const file = path.join(runtimeDir(task.id),task.bootstrap.name);
     const php = buildFreshInstallBootstrap({
-      token:secrets.bootstrapToken,
-      installId:task.manifest.install_id,
-      bridgeName:task.bootstrap.name,
-      themePackageName:theme.package?.remote_name || '',
-      themeSha256:theme.package?.sha256 || '',
-      themeSlug:theme.package?.slug || '',
-      themeEntry:theme.package?.expected_entry || '',
+      token:secrets.bootstrapToken, installId:task.manifest.install_id, bridgeName:task.bootstrap.name,
+      themePackageName:theme.package?.remote_name || '', themeSha256:theme.package?.sha256 || '',
+      themeSlug:theme.package?.slug || '', themeEntry:theme.package?.expected_entry || '',
       themeArchiveLayout:theme.package?.archive_layout || 'wrapped'
     });
     fs.writeFileSync(file,php,'utf8');
     return file;
   }
-
   async function downloadWordPressFallback(id) {
     await fsp.mkdir(cacheRoot,{ recursive:true });
     const file = path.join(cacheRoot,'wordpress-latest.zip');
@@ -422,9 +336,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     } catch {}
     progress(id,'fallback',45,'Hosting không tải được WordPress; ChatCode đang tải fallback','wordpress.org/latest.zip');
     const response = await fetch('https://wordpress.org/latest.zip',{
-      headers:{ 'user-agent':'ChatCode-Fresh/1.0' },
-      redirect:'follow',
-      signal:AbortSignal.timeout(240000)
+      headers:{ 'user-agent':'ChatCode-Fresh/1.0' }, redirect:'follow', signal:AbortSignal.timeout(240000)
     });
     if (!response.ok) throw new Error(`Không tải được WordPress fallback: HTTP ${response.status}`);
     const host = new URL(response.url).hostname.toLowerCase();
@@ -436,111 +348,43 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     await fsp.rename(temp,file);
     return file;
   }
-
   function runnerPayload(task,secrets,action,extra = {}) {
     return {
-      action,
-      domain:task.domain,
-      username:secrets.hostingUsername,
-      password:secrets.hostingPassword,
+      action, domain:task.domain, username:secrets.hostingUsername, password:secrets.hostingPassword,
       ...(task.connection ? {
-        host:task.connection.host,
-        port:task.connection.port,
-        protocol:task.connection.protocol,
+        host:task.connection.host, port:task.connection.port, protocol:task.connection.protocol,
         remotePath:task.connection.remotePath
       } : {}),
       ...extra
     };
   }
-
-  async function probeUploadWorkers(task,secrets) {
-    const saved = Math.floor(Number(task.connection?.workers) || 0);
-    if (saved >= 1 && saved <= MAX_PARALLEL_UPLOAD_WORKERS) return saved;
-    if (!task.connection) return 1;
-
-    const cap = MAX_PARALLEL_UPLOAD_WORKERS;
-    const currentPercent = Number(taskById(task.id).percent || 0);
-    progress(task.id,'probe',currentPercent,'Đang đo số luồng FTP/FTPS chạy song song',`tối đa ${cap} luồng`);
-
-    const probes = await Promise.all(Array.from({ length:cap }, async (_,index) => {
-      try {
-        await runPowerShell(runnerPayload(task,secrets,'probe-worker',{
-          holdMs:1200,
-          probeIndex:index + 1
-        }),25000);
-        return true;
-      } catch {
-        return false;
-      }
-    }));
-
-    const confirmed = probes.filter(Boolean).length;
-    const workers = Math.max(1, Math.min(cap, confirmed || 1));
-    mutate(task.id,current => {
-      if (current.connection) {
-        current.connection.workers = workers;
-        current.connection.worker_probe = {
-          cap,
-          confirmed,
-          probed_at:new Date().toISOString()
-        };
-      }
-      appendLog(current,`FTP parallel probe · ${workers}/${cap} worker`);
-    });
-    progress(task.id,'probe',currentPercent,`Hosting sẵn sàng ${workers} luồng upload song song`,task.connection.remotePath || '');
-    return workers;
-  }
-
-  function bootstrapUrl(task) {
-    return `${task.site_url}/${encodeURIComponent(task.bootstrap.name)}`;
-  }
-
+  function bootstrapUrl(task) { return `${task.site_url}/${encodeURIComponent(task.bootstrap.name)}`; }
   async function uploadBootstrapVerified(task,secrets,bootstrapFile) {
     let runnerError = null;
     try {
       await runPowerShell(runnerPayload(task,secrets,'upload',{
         files:[{ localPath:bootstrapFile, remoteName:task.bootstrap.name }]
       }),90000);
-    } catch (error) {
-      runnerError = error;
-    }
+    } catch (error) { runnerError = error; }
     try {
       await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{ action:'probe' },30000);
       return true;
-    } catch (probeError) {
-      if (runnerError) throw runnerError;
-      throw probeError;
-    }
+    } catch (probeError) { if (runnerError) throw runnerError; throw probeError; }
   }
-
+  // Compatibility only for interrupted tasks with a pre-prepare-parts bootstrap.
   async function uploadFileVerified(task,secrets,{ localPath,remoteName,sha256='',bytes=0,timeoutMs=180000 }) {
     const expectedBytes = Number(bytes || (await fsp.stat(localPath)).size);
     const expectedSha256 = String(sha256 || '').toLowerCase();
     let lastError = null;
-
     for (let attempt=1; attempt<=2; attempt++) {
       let runnerError = null;
       try {
-        const result = await runPowerShell(runnerPayload(task,secrets,'upload',{
-          files:[{ localPath,remoteName }]
-        }),timeoutMs);
-        const item = Array.isArray(result?.files) ? result.files[0] : null;
-        if (item?.status === 'sent-unconfirmed') {
-          const currentPercent = Number(taskById(task.id).percent || 0);
-          progress(task.id,'upload',currentPercent,'FTPS đã gửi xong dữ liệu; đang xác minh package trên hosting',remoteName);
-        }
-      } catch (error) {
-        runnerError = error;
-      }
-
+        await runPowerShell(runnerPayload(task,secrets,'upload',{ files:[{ localPath,remoteName }] }),timeoutMs);
+      } catch (error) { runnerError = error; }
       try {
-        const verified = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
-          action:'inspect-upload',
-          name:remoteName,
-          expectedBytes,
-          expectedSha256
+        return await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
+          action:'inspect-upload', name:remoteName, expectedBytes, expectedSha256
         },90000);
-        return verified;
       } catch (verifyError) {
         lastError = verifyError;
         if (attempt >= 2) {
@@ -549,145 +393,65 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
           error.detail = {
             runner:runnerError ? { code:runnerError.code || '', message:String(runnerError.message || runnerError) } : null,
             verify:verifyError.detail || { code:verifyError.code || '', message:String(verifyError.message || verifyError) },
-            remoteName,
-            expectedBytes,
-            expectedSha256
+            remoteName, expectedBytes, expectedSha256
           };
           throw error;
         }
-        try {
-          await runPowerShell(runnerPayload(task,secrets,'delete',{ files:[remoteName] }),45000);
-        } catch {}
+        try { await runPowerShell(runnerPayload(task,secrets,'delete',{ files:[remoteName] }),45000); } catch {}
         await new Promise(resolve => setTimeout(resolve,1000));
       }
     }
     throw lastError || new Error('Upload package verify failed.');
   }
-
   async function uploadFileFast(task,secrets,{ localPath,remoteName,sha256='',bytes=0,timeoutMs=180000 }) {
-    const expectedBytes = Number(bytes || (await fsp.stat(localPath)).size);
-    if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) {
-      throw new Error(`Package upload rỗng hoặc không đọc được: ${remoteName}`);
-    }
-
-    const workers = await probeUploadWorkers(task,secrets);
-    const ranges = buildUploadRanges(expectedBytes,workers);
-    if (ranges.length <= 1) {
-      return uploadFileVerified(task,secrets,{ localPath,remoteName,sha256,bytes:expectedBytes,timeoutMs });
-    }
-
-    const count = ranges.length;
-    const width = 3;
-    const parts = ranges.map(range => ({
-      ...range,
-      remoteName:`${remoteName}.part-${String(range.index + 1).padStart(width,'0')}-of-${String(count).padStart(width,'0')}`
-    }));
-    const currentPercent = Number(taskById(task.id).percent || 0);
-    progress(task.id,'upload',currentPercent,`Đang chia package qua ${count} luồng FTP/FTPS`,remoteName);
-
-    async function sendPart(part) {
-      try {
-        const result = await runPowerShell(runnerPayload(task,secrets,'upload',{
-          files:[{
-            localPath,
-            remoteName:part.remoteName,
-            offset:part.offset,
-            length:part.length,
-            fast:true
-          }]
-        }),timeoutMs);
-        return { ok:true, part, result };
-      } catch (error) {
-        return { ok:false, part, error };
-      }
-    }
-
-    async function sendParts(selected) {
-      const results = await Promise.all(selected.map(sendPart));
-      const completed = results.filter(item => item.ok).length;
-      progress(
-        task.id,
-        'upload',
-        currentPercent,
-        `Đã gửi ${completed}/${selected.length} phần; hosting đang ghép package`,
-        remoteName
-      );
-      return results;
-    }
-
-    async function assemble() {
-      return httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
-        action:'assemble-upload',
-        name:remoteName,
-        parts:parts.map(part => part.remoteName),
-        expectedBytes,
-        expectedSha256:String(sha256 || '').toLowerCase()
-      },120000);
-    }
-
-    await sendParts(parts);
+    const basePercent = Number(taskById(task.id).percent || 0);
     try {
-      return await assemble();
-    } catch (firstError) {
-      const missing = Array.isArray(firstError?.detail?.missingParts)
-        ? new Set(firstError.detail.missingParts.map(String))
-        : null;
-      const retryParts = missing?.size
-        ? parts.filter(part => missing.has(part.remoteName))
-        : parts;
-      progress(
-        task.id,
-        'upload',
-        currentPercent,
-        `Ghép package chưa đạt; retry nhanh ${retryParts.length} phần`,
-        remoteName
-      );
-      await sendParts(retryParts);
-      try {
-        return await assemble();
-      } catch (finalError) {
-        const error = new Error(`Parallel upload failed: ${finalError.message}`);
-        error.code = 'UPLOAD_PARALLEL_FAILED';
-        error.detail = {
-          workers:count,
-          remoteName,
-          first:firstError?.detail || { message:String(firstError?.message || firstError) },
-          final:finalError?.detail || { message:String(finalError?.message || finalError) }
-        };
-        throw error;
-      }
+      const result = await uploadPackage({
+        connection:{ ...task.connection, username:secrets.hostingUsername, password:secrets.hostingPassword },
+        localPath, remoteName, expectedSha256:sha256,
+        bootstrap:payload => httpJson(bootstrapUrl(task),secrets.bootstrapToken,payload,120000),
+        onProgress:event => {
+          const transferred = Number(event.bytes || 0), total = Number(event.total || 0);
+          const labels = {
+            probe:`Đang đo kết nối đồng thời: ${event.workers}/${event.requested}`,
+            upload:`Đang upload bằng ${event.workers} luồng`,
+            retry:`Đang gửi lại phần lỗi: ${(event.parts || []).join(', ')}`,
+            assemble:'Hosting đang ghép ZIP và kiểm tra dữ liệu'
+          };
+          mutate(task.id,current => {
+            current.stage = event.phase === 'probe' ? 'probe' : 'upload';
+            current.percent = Math.min(85,basePercent + (total ? Math.floor(9 * transferred / total) : 0));
+            current.message = labels[event.phase] || 'Đang upload package';
+            current.current = total ? `${(transferred/1048576).toFixed(1)}/${(total/1048576).toFixed(1)} MB · ${remoteName}` : remoteName;
+            current.transfer = { ...event, package:remoteName };
+            if (event.phase === 'probe' && current.connection) {
+              current.connection.workers = event.workers;
+              current.connection.worker_probe = { cap:16, confirmed:event.workers, exact_limit_known:false, probed_at:new Date().toISOString() };
+            }
+            if (event.phase !== 'upload') appendLog(current,current.message);
+          });
+        }
+      });
+      mutate(task.id,current => { current.transfer = { ...result.transfer, package:remoteName, phase:'complete' }; });
+      return result;
+    } catch (error) {
+      if (error.code !== 'ACTION_UNSUPPORTED') throw error;
+      return uploadFileVerified(task,secrets,{ localPath,remoteName,sha256,bytes,timeoutMs });
     }
   }
-
   function installPayload(task,secrets,extra = {}) {
     const plugin = task.manifest.plugins[0];
     return {
-      action:'install',
-      panelUser:secrets.hostingUsername,
-      panelPassword:secrets.hostingPassword,
-      dbName:task.manifest.database.name,
-      dbUser:task.manifest.database.user,
-      dbPassword:secrets.databasePassword,
-      dbHost:task.manifest.database.host,
-      tablePrefix:task.manifest.database.table_prefix,
-      siteTitle:task.domain,
-      adminUser:task.manifest.admin.username,
-      adminEmail:task.manifest.admin.email,
-      adminPassword:secrets.adminPassword,
-      siteUrl:task.site_url,
-      bricksLicenseKey:secrets.bricksLicenseKey || '',
-      clearRemote:allowsRemoteClear(task),
-      theme:{
-        id:task.manifest.theme.id,
-        version:task.manifest.theme.version,
-        active_theme:task.manifest.theme.active_theme,
-        generated_child:task.manifest.theme.generated_child
-      },
+      action:'install', panelUser:secrets.hostingUsername, panelPassword:secrets.hostingPassword,
+      dbName:task.manifest.database.name, dbUser:task.manifest.database.user,
+      dbPassword:secrets.databasePassword, dbHost:task.manifest.database.host,
+      tablePrefix:task.manifest.database.table_prefix, siteTitle:task.domain,
+      adminUser:task.manifest.admin.username, adminEmail:task.manifest.admin.email,
+      adminPassword:secrets.adminPassword, siteUrl:task.site_url,
+      bricksLicenseKey:secrets.bricksLicenseKey || '', clearRemote:allowsRemoteClear(task),
+      theme:{ id:task.manifest.theme.id, version:task.manifest.theme.version, active_theme:task.manifest.theme.active_theme, generated_child:task.manifest.theme.generated_child },
       plugin:{
-        id:plugin.id,
-        slug:plugin.slug,
-        entry:plugin.entry,
-        fallback_version:plugin.fallback_version,
+        id:plugin.id, slug:plugin.slug, entry:plugin.entry, fallback_version:plugin.fallback_version,
         manifest_url:plugin.manifest_url,
         fallback_package:extra.pluginFallbackUploaded ? plugin.fallback_package?.remote_name || '' : '',
         fallback_sha256:extra.pluginFallbackUploaded ? plugin.fallback_package?.sha256 || '' : ''
@@ -695,23 +459,18 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       ...extra
     };
   }
-
   async function cleanupRemote(task,secrets,names = []) {
     try {
       await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
-        action:'cleanup',
-        corePackage:task.manifest.wordpress.fallback_remote_name || '',
+        action:'cleanup', corePackage:task.manifest.wordpress.fallback_remote_name || '',
         plugin:{ fallback_package:task.manifest.plugins[0]?.fallback_package?.remote_name || '' }
       },60000);
       return;
     } catch {}
     const safeNames = [...new Set(names.filter(Boolean).map(name => path.posix.basename(name)))];
     if (!safeNames.length || !task.connection) return;
-    try {
-      await runPowerShell(runnerPayload(task,secrets,'delete',{ files:safeNames }),90000);
-    } catch {}
+    try { await runPowerShell(runnerPayload(task,secrets,'delete',{ files:safeNames }),90000); } catch {}
   }
-
   async function execute(id) {
     let task = taskById(id);
     const secrets = vault.get(id);
@@ -723,54 +482,33 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         const remotePath = String(discovered.remotePath || '');
         if (!remotePath || remotePath === '/') {
           const error = new Error('Fresh Install từ chối dùng FTP account root làm thư mục website.');
-          error.code = 'UNSAFE_REMOTE_PATH';
-          error.detail = discovered;
-          throw error;
+          error.code = 'UNSAFE_REMOTE_PATH'; error.detail = discovered; throw error;
         }
         if (discovered.siteNotEmpty && !allowsRemoteClear(task)) {
           const error = new Error('Thư mục website đang có nội dung. Cần xác nhận dọn nội dung cũ trước khi cài.');
-          error.code = 'SITE_NOT_EMPTY';
-          error.detail = discovered;
-          throw error;
+          error.code = 'SITE_NOT_EMPTY'; error.detail = discovered; throw error;
         }
         setCheckpoint(id,'discovered',{
-          connection:{
-            host:discovered.host,
-            port:Number(discovered.port || 21),
-            protocol:discovered.protocol,
-            passive:true,
-            remotePath
-          },
-          remote_scan:{
-            site_not_empty:!!discovered.siteNotEmpty,
-            blocking_entries:Array.isArray(discovered.blockingEntries) ? discovered.blockingEntries.slice(0,20) : []
-          }
+          connection:{ host:discovered.host, port:Number(discovered.port || 21), protocol:discovered.protocol, passive:true, remotePath },
+          remote_scan:{ site_not_empty:!!discovered.siteNotEmpty, blocking_entries:Array.isArray(discovered.blockingEntries) ? discovered.blockingEntries.slice(0,20) : [] }
         });
-        if (discovered.siteNotEmpty && allowsRemoteClear(task)) {
-          progress(id,'wipe',8,'Đã xác nhận dọn nội dung cũ trên hosting',remotePath);
-        }
+        if (discovered.siteNotEmpty && allowsRemoteClear(task)) progress(id,'wipe',8,'Đã xác nhận dọn nội dung cũ trên hosting',remotePath);
       }
-
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'uploaded')) {
         progress(id,'upload',12,'Đang upload bootstrap');
         const bootstrapFile = writeBootstrap(task,secrets);
         await uploadBootstrapVerified(task,secrets,bootstrapFile);
-
         const themePackage = task.manifest.theme.package;
         if (themePackage?.path) {
           progress(id,'upload',14,'Đang upload private theme package',themePackage.remote_name);
           await uploadFileFast(task,secrets,{
-            localPath:themePackage.path,
-            remoteName:themePackage.remote_name,
-            sha256:themePackage.sha256,
-            bytes:themePackage.bytes,
-            timeoutMs:180000
+            localPath:themePackage.path, remoteName:themePackage.remote_name, sha256:themePackage.sha256,
+            bytes:themePackage.bytes, timeoutMs:180000
           });
         }
         setCheckpoint(id,'uploaded');
       }
-
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'installed')) {
         progress(id,'install',25,'Hosting đang tải WordPress và plugin rồi cài đặt','server-side fast path');
@@ -782,12 +520,8 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             const localCore = await downloadWordPressFallback(id);
             task = taskById(id);
             const remoteCore = `.chatcode-wordpress-${task.id.replace(/-/g,'').slice(0,10)}.zip`;
-            progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
-            await uploadFileFast(task,secrets,{
-              localPath:localCore,
-              remoteName:remoteCore,
-              timeoutMs:240000
-            });
+            progress(id,'fallback',52,'Đang upload WordPress ZIP fallback song song',remoteCore);
+            await uploadFileFast(task,secrets,{ localPath:localCore, remoteName:remoteCore, timeoutMs:240000 });
             mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
             try {
               installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
@@ -801,175 +535,87 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             const fallback = task.manifest.plugins[0]?.fallback_package;
             if (!fallback?.path || !fallback?.remote_name || !fallback?.sha256) {
               const missing = new Error('Update server DuyAnhWebPro không truy cập được và chưa có fallback 1.9.4 trong Package Cache.');
-              missing.code = 'PLUGIN_FALLBACK_REQUIRED';
-              throw missing;
+              missing.code = 'PLUGIN_FALLBACK_REQUIRED'; throw missing;
             }
             progress(id,'fallback',58,'Vendor updater lỗi; đang upload DuyAnhWebPro 1.9.4 fallback',fallback.remote_name);
-            await uploadFileFast(task,secrets,{
-              localPath:fallback.path,
-              remoteName:fallback.remote_name,
-              sha256:fallback.sha256,
-              bytes:fallback.bytes,
-              timeoutMs:180000
-            });
-            installed = await httpJson(
-              bootstrapUrl(task),
-              secrets.bootstrapToken,
-              installPayload(task,secrets,{
-                corePackage:task.manifest.wordpress.fallback_remote_name || '',
-                pluginFallbackUploaded:true
-              }),
-              420000
-            );
-          } else if (error.code !== 'CORE_DOWNLOAD_FAILED') {
-            throw error;
-          }
+            await uploadFileFast(task,secrets,{ localPath:fallback.path, remoteName:fallback.remote_name, sha256:fallback.sha256, bytes:fallback.bytes, timeoutMs:180000 });
+            installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,
+              installPayload(task,secrets,{ corePackage:task.manifest.wordpress.fallback_remote_name || '', pluginFallbackUploaded:true }),420000);
+          } else if (error.code !== 'CORE_DOWNLOAD_FAILED') throw error;
         }
         setCheckpoint(id,'installed',{ result:{ ...(task.result || {}), install:installed } });
       }
-
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'verified')) {
         progress(id,'verify',90,'Đang kiểm tra WordPress/theme/plugin trên hosting');
         const verified = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
-          action:'verify',
-          theme:{ active_theme:task.manifest.theme.active_theme },
-          plugin:{ entry:task.manifest.plugins[0].entry }
+          action:'verify', theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry }
         },90000);
-        const [home,login] = await Promise.all([
-          verifyPublicUrl(task.site_url),
-          verifyPublicUrl(`${task.site_url}/wp-login.php`)
-        ]);
+        const [home,login] = await Promise.all([verifyPublicUrl(task.site_url),verifyPublicUrl(`${task.site_url}/wp-login.php`)]);
         if (!home.ok || !login.ok) {
           const error = new Error(`HTTP verify chưa đạt: home=${home.status}, wp-login=${login.status}`);
-          error.code = 'HTTP_VERIFY_FAILED';
-          error.detail = { home,login };
-          throw error;
+          error.code = 'HTTP_VERIFY_FAILED'; error.detail = { home,login }; throw error;
         }
-        setCheckpoint(id,'verified',{
-          result:{ ...(task.result || {}), verify:verified, http:{ home,login } }
-        });
+        setCheckpoint(id,'verified',{ result:{ ...(task.result || {}), verify:verified, http:{ home,login } } });
       }
-
       task = taskById(id);
       progress(id,'cleanup',98,'Đang dọn bootstrap/package tạm');
-      await cleanupRemote(task,secrets,[
-        task.bootstrap.name,
-        task.manifest.theme.package?.remote_name,
-        task.manifest.plugins[0]?.fallback_package?.remote_name,
-        task.manifest.wordpress.fallback_remote_name
-      ]);
+      await cleanupRemote(task,secrets,[task.bootstrap.name,task.manifest.theme.package?.remote_name,task.manifest.plugins[0]?.fallback_package?.remote_name,task.manifest.wordpress.fallback_remote_name]);
       mutate(id,current => {
-        current.status='completed';
-        current.stage='completed';
-        current.checkpoint='completed';
-        current.percent=100;
-        current.message='Cài WordPress hoàn tất';
-        current.current=current.site_url;
-        current.error='';
-        current.error_code='';
-        current.completed_at=new Date().toISOString();
-        appendLog(current,'SITE_READY');
+        current.status='completed'; current.stage='completed'; current.checkpoint='completed'; current.percent=100;
+        current.message='Cài WordPress hoàn tất'; current.current=current.site_url; current.error=''; current.error_code='';
+        current.completed_at=new Date().toISOString(); appendLog(current,'SITE_READY');
       });
       return status(id);
     } catch (error) {
       mutate(id,current => {
-        current.status='failed';
-        current.stage='failed';
+        current.status='failed'; current.stage='failed';
         current.error=String(error?.message || error || 'Fresh Install failed').slice(0,1200);
         current.error_code=String(error?.code || 'FRESH_INSTALL_FAILED').slice(0,120);
-        current.message='Cài WordPress chưa hoàn tất';
-        current.current='';
+        current.message='Cài WordPress chưa hoàn tất'; current.current='';
         current.failure_detail=error?.detail && typeof error.detail === 'object' ? error.detail : null;
         appendLog(current,`FAILED · ${current.error_code} · ${current.error}`);
       });
       throw error;
     }
   }
-
   function start(id) {
     const current = taskById(id);
     if (running.has(id) || current.status === 'running') return status(id);
     mutate(id,task => {
-      task.status='running';
-      task.stage=task.checkpoint === 'created' ? 'queued' : 'resuming';
+      task.status='running'; task.stage=task.checkpoint === 'created' ? 'queued' : 'resuming';
       task.message=task.checkpoint === 'created' ? 'Đang bắt đầu Fresh Install' : `Đang resume từ ${task.checkpoint}`;
-      task.error='';
-      task.error_code='';
-      task.started_at=task.started_at || new Date().toISOString();
+      task.error=''; task.error_code=''; task.started_at=task.started_at || new Date().toISOString();
       task.attempt_count=Number(task.attempt_count || 0)+1;
       appendLog(task,`Start attempt ${task.attempt_count} từ checkpoint ${task.checkpoint}`);
     });
     const promise = execute(id).finally(() => running.delete(id));
-    running.set(id,promise);
-    promise.catch(() => {});
+    running.set(id,promise); promise.catch(() => {});
     return status(id);
   }
-
-  function retry(id) {
-    const task = taskById(id);
-    if (task.status === 'completed') return status(id);
-    return start(id);
-  }
-
+  function retry(id) { const task = taskById(id); return task.status === 'completed' ? status(id) : start(id); }
   function confirmRemoteClear(id) {
     const current = taskById(id);
     if (running.has(id) || current.status === 'running') throw new Error('Task đang chạy; chưa thể thay đổi xác nhận dọn hosting.');
     return mutate(id,task => {
-      task.clear_remote_confirmed = true;
-      task.clear_remote_confirmed_at = new Date().toISOString();
-      task.error = '';
-      task.error_code = '';
-      task.failure_detail = null;
+      task.clear_remote_confirmed = true; task.clear_remote_confirmed_at = new Date().toISOString();
+      task.error = ''; task.error_code = ''; task.failure_detail = null;
       task.message = 'Đã xác nhận dọn nội dung cũ; sẵn sàng thử lại';
       appendLog(task,'Đã xác nhận dọn nội dung cũ trong thư mục website; giữ .well-known và .ftpquota');
     });
   }
-
   function remove(id) {
     const task = taskById(id);
     if (running.has(id) || task.status === 'running') throw new Error('Task đang chạy; chưa thể xóa.');
-    const state = readState();
-    state.tasks = state.tasks.filter(item => item.id !== id);
-    writeState(state);
+    const state = readState(); state.tasks = state.tasks.filter(item => item.id !== id); writeState(state);
     vault.remove(id);
     try { fs.rmSync(path.join(runtimeRoot,id),{ recursive:true, force:true }); } catch {}
-    onChanged?.({ type:'removed', id });
-    return true;
+    onChanged?.({ type:'removed', id }); return true;
   }
-
   function credentials(id) {
-    const task = taskById(id);
-    const secrets = vault.get(id);
-    return {
-      site_url:task.site_url,
-      wp_admin_url:`${task.site_url}/wp-admin/`,
-      username:task.manifest.admin.username,
-      password:secrets.adminPassword
-    };
+    const task = taskById(id); const secrets = vault.get(id);
+    return { site_url:task.site_url, wp_admin_url:`${task.site_url}/wp-admin/`, username:task.manifest.admin.username, password:secrets.adminPassword };
   }
-
-  return {
-    catalog,
-    list,
-    status,
-    create,
-    start,
-    retry,
-    confirmRemoteClear,
-    remove,
-    credentials,
-    importTheme,
-    importPlugin,
-    packageService:packages
-  };
+  return { catalog,list,status,create,start,retry,confirmRemoteClear,remove,credentials,importTheme,importPlugin,packageService:packages };
 }
-
-module.exports = {
-  createFreshInstallService,
-  normalizeDomain,
-  checkpointAtLeast,
-  allowsRemoteClear,
-  runPowerShell,
-  buildUploadRanges
-};
+module.exports = { createFreshInstallService,normalizeDomain,checkpointAtLeast,allowsRemoteClear,runPowerShell,buildUploadRanges };

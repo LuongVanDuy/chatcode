@@ -47,8 +47,11 @@ jobs:
             'core/fresh-install-vault.js',
             'core/fresh-install-bootstrap.js',
             'core/fresh-install-runtime.js',
+            'core/fresh-install-transfer.js',
+            'core/fresh-install-transfer-bootstrap.js',
             'renderer/fresh-install.js',
             'scripts/smoke-fresh-install.cjs',
+            'scripts/fresh-install-e2e-transfer.cjs',
             'main.js',
             'preload.js'
           )
@@ -245,6 +248,11 @@ jobs:
           php -m | grep -q '^mysqli$'
           php -m | grep -q '^zip$'
           php -m | grep -q '^curl$'
+
+      - name: Native FTP FTPS parallel transfer and recovery
+        shell: bash
+        timeout-minutes: 3
+        run: node scripts/fresh-install-e2e-transfer.cjs
 
       - name: Validate E2E scripts
         shell: bash

@@ -5,6 +5,7 @@ const path = require('path');
 const { createFreshInstallService, normalizeDomain, checkpointAtLeast, allowsRemoteClear, buildUploadRanges } = require('../core/fresh-install-runtime');
 const { buildFreshInstallBootstrap } = require('../core/fresh-install-bootstrap');
 const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require('../core/fresh-install-packages');
+const { splitRanges, probeWorkers, uploadPackage } = require('../core/fresh-install-transfer');
 
 (async () => {
   assert.equal(normalizeDomain('https://Example.COM/'), 'example.com');
@@ -17,6 +18,12 @@ const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require(
     assert.equal(ranges[index].offset,ranges[index - 1].offset + ranges[index - 1].length);
   }
   assert.equal(buildUploadRanges(512 * 1024,16).length,1);
+  assert.equal(typeof probeWorkers,'function');
+  assert.equal(typeof uploadPackage,'function');
+  const nativeRanges=splitRanges(29000508,6);
+  assert.equal(nativeRanges.length,6);
+  assert.equal(nativeRanges.reduce((sum,part) => sum + part.bytes,0),29000508);
+  assert.equal(nativeRanges.at(-1).offset + nativeRanges.at(-1).bytes,29000508);
   assert.equal(detectThemeRoot(['style.css','functions.php']), '');
   assert.equal(detectThemeRoot(['bricks/style.css','bricks/functions.php']), 'bricks');
   assert.equal(parsePackageHeaderVersion(`/*
@@ -55,6 +62,12 @@ Version: 2.4
     'UPLOAD_VERIFY_FAILED',
     'UPLOAD_PART_MISSING',
     'UPLOAD_ASSEMBLY_FAILED',
+    'UPLOAD_PARTS_INVALID',
+    'prepare-parts',
+    'assemble-parts',
+    'cc_transfer_action($action,$data)',
+    'basename(cc_transfer_root())',
+    'cc_remove_tree(cc_transfer_root())',
     "if ($action === 'probe')",
     "if ($action === 'inspect-upload')",
     "if ($action === 'assemble-upload')",
@@ -152,11 +165,11 @@ Version: 2.4
   const runtimeSource = fs.readFileSync(path.join(__dirname,'..','core','fresh-install-runtime.js'),'utf8');
   assert.ok(runtimeSource.includes("uploadBootstrapVerified"));
   assert.ok(runtimeSource.includes("uploadFileVerified"));
-  assert.ok(runtimeSource.includes("probeUploadWorkers"));
+  assert.ok(runtimeSource.includes("require('./fresh-install-transfer')"));
   assert.ok(runtimeSource.includes("uploadFileFast"));
-  assert.ok(runtimeSource.includes("fast:true"));
+  assert.ok(runtimeSource.includes("await uploadPackage("));
   assert.ok(runtimeSource.includes("action:'inspect-upload'"));
-  assert.ok(runtimeSource.includes("action:'assemble-upload'"));
+  assert.equal(runtimeSource.includes("async function probeUploadWorkers"),false);
 
   assert.equal(service.remove(task.id), true);
   assert.equal(service.remove(guardedTask.id), true);
