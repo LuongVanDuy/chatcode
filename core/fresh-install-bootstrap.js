@@ -376,7 +376,7 @@ define('DB_COLLATE','');
   if (!empty($data['bricksLicenseKey'])) $config.="define('BRICKS_LICENSE_KEY','".cc_config_quote($data['bricksLicenseKey'])."');
 ";
   $config.="
-\$table_prefix='".cc_config_quote($data['tablePrefix'])."';
+\\$table_prefix='".cc_config_quote($data['tablePrefix'])."';
 define('WP_DEBUG',false);
 define('DISALLOW_FILE_EDIT',true);
 if (!defined('ABSPATH')) define('ABSPATH',__DIR__.'/');
