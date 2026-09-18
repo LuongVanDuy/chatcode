@@ -7,6 +7,7 @@ const { buildFreshInstallBootstrap, randomInstallToken } = require('./fresh-inst
 const { createFreshInstallPackageService, DEFAULT_CATALOG } = require('./fresh-install-packages');
 const { createFreshInstallVault } = require('./fresh-install-vault');
 const { uploadPackage } = require('./fresh-install-transfer');
+const { httpJson, isUncertain, requiresReconciliation, reconcileInstall, installWithReconciliation } = require('./fresh-install-http');
 
 const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const CHECKPOINTS = ['created','discovered','uploaded','installed','verified','completed'];
@@ -117,30 +118,6 @@ function runPowerShell(payload, timeoutMs = 120000) {
       reject(error);
     }
   });
-}
-async function httpJson(url, token, payload, timeoutMs = 360000) {
-  let response;
-  try {
-    response = await fetch(url, {
-      method:'POST',
-      headers:{ 'content-type':'application/json', 'x-chatcode-token':token, 'cache-control':'no-store' },
-      body:JSON.stringify(payload), redirect:'follow', signal:AbortSignal.timeout(timeoutMs)
-    });
-  } catch (error) {
-    const wrapped = new Error(`Không gọi được bootstrap qua HTTPS: ${error?.message || error}`);
-    wrapped.code = 'BOOTSTRAP_HTTP_FAILED';
-    throw wrapped;
-  }
-  const text = await response.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch {}
-  if (!body || body.ok !== true) {
-    const error = new Error(String(body?.message || `Bootstrap HTTP ${response.status}`));
-    error.code = String(body?.code || 'BOOTSTRAP_FAILED');
-    error.detail = body || { status:response.status, response:text.slice(0,1000) };
-    throw error;
-  }
-  return body;
 }
 async function verifyPublicUrl(url, timeoutMs = 20000) {
   try {
@@ -280,6 +257,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       id, type:'wordpress_fresh_install', domain, site_url:`https://${domain}`,
       status:'ready', stage:'created', checkpoint:'created', percent:0,
       message:'Sẵn sàng cài WordPress', current:'', error:'', error_code:'',
+      install_request_pending:false,
       created_at:now, updated_at:now, connection:null,
       remote_policy:{ clear_remote:input.clearRemote === true, preserve:['.well-known','.ftpquota'] },
       bootstrap:{ name:bridgeName },
@@ -459,6 +437,41 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       ...extra
     };
   }
+  async function installOnHosting(task,secrets,extra = {}) {
+    const existing = taskById(task.id);
+    const options = {
+      request:(payload,timeout) => httpJson(bootstrapUrl(task),secrets.bootstrapToken,payload,timeout),
+      installPayload:installPayload(task,secrets,extra),
+      verifyPayload:{ theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry } },
+      siteUrl:task.site_url,
+      originalError:{ code:existing.error_code || '', detail:existing.install_response_error || existing.failure_detail },
+      onProgress:event => {
+        progress(task.id,'reconcile',Math.max(25,Number(taskById(task.id).percent || 0)),
+          'Đang xác nhận kết quả trên hosting; không cài lại',`Lần kiểm tra ${event.attempt} · ${task.domain}`);
+        if (event.original) mutate(task.id,current => { current.install_response_error=event.original; });
+      }
+    };
+    let result;
+    if (existing.install_request_pending) {
+      // Works with the v1.0.62 bootstrap already on the user's hosting.
+      // Only authenticated verify calls; never replace PHP or replay install.
+      result = await reconcileInstall(options);
+    } else {
+      mutate(task.id,current => { current.install_request_pending=true; current.install_dispatched_at=new Date().toISOString(); });
+      try { result = await installWithReconciliation(options); }
+      catch (error) {
+        if (!isUncertain(error) && !error.reconciliationOnly) {
+          mutate(task.id,current => { current.install_request_pending=false; });
+        }
+        throw error;
+      }
+    }
+    mutate(task.id,current => {
+      current.install_request_pending=false;
+      if (result.recoveredAfterDisconnect) appendLog(current,'Đã xác nhận WordPress của phiên này trên hosting; không cài lại');
+    });
+    return result;
+  }
   async function cleanupRemote(task,secrets,names = []) {
     try {
       await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
@@ -514,7 +527,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         progress(id,'install',25,'Hosting đang tải WordPress và plugin rồi cài đặt','server-side fast path');
         let installed;
         try {
-          installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets),420000);
+          installed = await installOnHosting(task,secrets);
         } catch (error) {
           if (error.code === 'CORE_DOWNLOAD_FAILED') {
             const localCore = await downloadWordPressFallback(id);
@@ -524,7 +537,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             await uploadFileFast(task,secrets,{ localPath:localCore, remoteName:remoteCore, timeoutMs:240000 });
             mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
             try {
-              installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
+              installed = await installOnHosting(task,secrets,{ corePackage:remoteCore });
             } catch (retryError) {
               if (retryError.code !== 'PLUGIN_DOWNLOAD_FAILED') throw retryError;
               error = retryError;
@@ -539,8 +552,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             }
             progress(id,'fallback',58,'Vendor updater lỗi; đang upload DuyAnhWebPro 1.9.4 fallback',fallback.remote_name);
             await uploadFileFast(task,secrets,{ localPath:fallback.path, remoteName:fallback.remote_name, sha256:fallback.sha256, bytes:fallback.bytes, timeoutMs:180000 });
-            installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,
-              installPayload(task,secrets,{ corePackage:task.manifest.wordpress.fallback_remote_name || '', pluginFallbackUploaded:true }),420000);
+            installed = await installOnHosting(task,secrets,{ corePackage:task.manifest.wordpress.fallback_remote_name || '', pluginFallbackUploaded:true });
           } else if (error.code !== 'CORE_DOWNLOAD_FAILED') throw error;
         }
         setCheckpoint(id,'installed',{ result:{ ...(task.result || {}), install:installed } });
@@ -572,9 +584,9 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         current.status='failed'; current.stage='failed';
         current.error=String(error?.message || error || 'Fresh Install failed').slice(0,1200);
         current.error_code=String(error?.code || 'FRESH_INSTALL_FAILED').slice(0,120);
-        current.message='Cài WordPress chưa hoàn tất'; current.current='';
+        current.message=error.code === 'INSTALL_RESULT_UNCONFIRMED' ? 'Chưa xác nhận kết quả cài trên hosting' : 'Cài WordPress chưa hoàn tất'; current.current='';
         current.failure_detail=error?.detail && typeof error.detail === 'object' ? error.detail : null;
-        appendLog(current,`FAILED · ${current.error_code} · ${current.error}`);
+        appendLog(current,`${error.code === 'INSTALL_RESULT_UNCONFIRMED' ? 'UNCONFIRMED' : 'FAILED'} · ${current.error_code} · ${current.error}`);
       });
       throw error;
     }
@@ -583,6 +595,8 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const current = taskById(id);
     if (running.has(id) || current.status === 'running') return status(id);
     mutate(id,task => {
+      // Migrate a v1.0.62 HTTP-failed task BEFORE clearing its visible error.
+      if (requiresReconciliation(current)) task.install_request_pending=true;
       task.status='running'; task.stage=task.checkpoint === 'created' ? 'queued' : 'resuming';
       task.message=task.checkpoint === 'created' ? 'Đang bắt đầu Fresh Install' : `Đang resume từ ${task.checkpoint}`;
       task.error=''; task.error_code=''; task.started_at=task.started_at || new Date().toISOString();

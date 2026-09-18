@@ -177,6 +177,7 @@ Version: 2.4
   assert.ok(changes.length >= 2);
 
   fs.rmSync(root,{recursive:true,force:true});
+  await require('./fresh-install-e2e-http.cjs').run();
   console.log('Fresh Install smoke PASS');
 })().catch(error => {
   console.error(error);
