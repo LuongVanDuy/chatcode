@@ -16,7 +16,8 @@ const { createConnectionService } = require('./core/connection');
 const { createApprovalService } = require('./core/approvals');
 const { createBackupService } = require('./core/backups');
 const { createSafeToolApi } = require('./core/safety-tools');
-const { createUpdateService } = require('./core/updater');\nconst { createFreshInstallService } = require('./core/fresh-install-runtime');
+const { createUpdateService } = require('./core/updater');
+const { createFreshInstallService } = require('./core/fresh-install-runtime');
 const { guardianStop, guardianResume, guardianSnapshot } = require('./core/machine-access');
 
 const PORT = 47820;
@@ -25,7 +26,8 @@ let tray = null;
 let isQuitting = false;
 let mcpRuntime = null;
 let connection = null;
-let updater = null;\nlet freshInstall = null;
+let updater = null;
+let freshInstall = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -92,7 +94,12 @@ async function resetMcpServer() {
 }
 function connectionChanged(value) { send('connection:changed', value); updateTrayMenu(); }
 connection = createConnectionService({ app, safeStorage, store, port: PORT, ensureMcpServer, resetMcpServer, getMcpRuntime: () => mcpRuntime, onChanged: connectionChanged });
-updater = createUpdateService(app, shell, store, { onChanged: value => send('update:changed', value) });\n\nfunction requireFreshInstall() {\n  if (!freshInstall) throw new Error('Fresh Install runtime chưa sẵn sàng.');\n  return freshInstall;\n}
+updater = createUpdateService(app, shell, store, { onChanged: value => send('update:changed', value) });
+
+function requireFreshInstall() {
+  if (!freshInstall) throw new Error('Fresh Install runtime chưa sẵn sàng.');
+  return freshInstall;
+}
 
 function applyLogin(enabled) {
   try {
@@ -399,6 +406,7 @@ if (gotLock) {
     if (process.platform === 'win32') app.setAppUserModelId('com.personal.chatcode');
     Menu.setApplicationMenu(null);
     const state = store.ensure();
+    freshInstall = createFreshInstallService({ app, safeStorage, onChanged:value => send('fresh-install:changed', value) });
     applyLogin(state.settings.launchAtLogin);
     createTray();
     createWindow(!process.argv.includes('--background'));
