@@ -180,3 +180,184 @@ jobs:
       - name: Fresh Install smoke
         shell: pwsh
         run: node scripts/smoke-fresh-install.cjs
+
+  fresh-install-server-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: rootpass
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install PHP and MariaDB client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y php-cli php-mysql php-zip php-curl mariadb-client
+          php -m | grep -q '^mysqli$'
+          php -m | grep -q '^zip$'
+          php -m | grep -q '^curl$'
+
+      - name: Validate E2E scripts
+        shell: bash
+        run: |
+          node --check scripts/fresh-install-e2e-bootstrap.cjs
+          python3 -m py_compile scripts/fresh-install-e2e-fixtures.py scripts/fake-directadmin.py
+
+      - name: Prepare Bricks and DuyAnh fixtures
+        shell: bash
+        run: |
+          SITE="$RUNNER_TEMP/chatcode-fresh-site"
+          echo "SITE=$SITE" >> "$GITHUB_ENV"
+          python3 scripts/fresh-install-e2e-fixtures.py prepare "$SITE"
+          node scripts/fresh-install-e2e-bootstrap.cjs "$SITE" > "$RUNNER_TEMP/bootstrap-meta.json"
+          test -f "$SITE/chatcode-install-e2e.php"
+          test -f "$SITE/.chatcode-theme-e2e.zip"
+          test -f "$SITE/.chatcode-plugin-e2e.zip"
+
+      - name: Start fake DirectAdmin and PHP hosting
+        shell: bash
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_ROOT_PASSWORD: rootpass
+          PANEL_USER: tester
+          PANEL_PASSWORD: testpanel
+        run: |
+          python3 scripts/fake-directadmin.py > "$RUNNER_TEMP/fake-da.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/fake-da.pid"
+          php -S 127.0.0.1:8080 -t "$SITE" > "$RUNNER_TEMP/php-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/php-server.pid"
+          for i in $(seq 1 30); do
+            if curl -s -o /dev/null --connect-timeout 1 http://127.0.0.1:8080/chatcode-install-e2e.php; then break; fi
+            sleep 1
+          done
+          curl -s -o /dev/null --connect-timeout 2 http://127.0.0.1:8080/chatcode-install-e2e.php
+
+      - name: Verify SITE_NOT_EMPTY guard
+        shell: bash
+        run: |
+          TOKEN=$(jq -r .token "$RUNNER_TEMP/bootstrap-meta.json")
+          PLUGIN_SHA=$(jq -r .plugin_sha256 "$SITE/fixture-meta.json")
+          jq -n --arg pluginSha "$PLUGIN_SHA" '{
+            action:"install",
+            panelUser:"tester", panelPassword:"testpanel",
+            dbName:"tester_ccitest", dbUser:"tester_ccitest", dbPassword:"DbPass123!", dbHost:"127.0.0.1",
+            tablePrefix:"wp_ci_", siteTitle:"Fresh E2E", adminUser:"chatcode",
+            adminEmail:"admin@example.test", adminPassword:"AdminPass123!",
+            siteUrl:"http://127.0.0.1:8080", clearRemote:false,
+            bricksLicenseKey:"",
+            theme:{id:"bricks",version:"2.4",active_theme:"bricks-child",generated_child:"bricks-child"},
+            plugin:{id:"duyanhwebpro",slug:"duyanhwebpro",entry:"duyanhwebpro/duyanhwebpro.php",
+              fallback_version:"1.9.4",manifest_url:"",
+              fallback_package:".chatcode-plugin-e2e.zip",fallback_sha256:$pluginSha}
+          }' > "$RUNNER_TEMP/install-guard.json"
+          CODE=$(curl -sS --max-time 60 -o "$RUNNER_TEMP/guard-response.json" -w '%{http_code}'             -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json'             --data-binary @"$RUNNER_TEMP/install-guard.json"             http://127.0.0.1:8080/chatcode-install-e2e.php)
+          test "$CODE" = "409"
+          jq -e '.ok == false and .code == "SITE_NOT_EMPTY"' "$RUNNER_TEMP/guard-response.json"
+          test -f "$SITE/legacy-index.html"
+          test -f "$SITE/.well-known/acme.txt"
+
+      - name: Full server-side Fresh Install
+        shell: bash
+        run: |
+          TOKEN=$(jq -r .token "$RUNNER_TEMP/bootstrap-meta.json")
+          PLUGIN_SHA=$(jq -r .plugin_sha256 "$SITE/fixture-meta.json")
+          jq -n --arg pluginSha "$PLUGIN_SHA" '{
+            action:"install",
+            panelUser:"tester", panelPassword:"testpanel",
+            dbName:"tester_ccitest", dbUser:"tester_ccitest", dbPassword:"DbPass123!", dbHost:"127.0.0.1",
+            tablePrefix:"wp_ci_", siteTitle:"Fresh E2E", adminUser:"chatcode",
+            adminEmail:"admin@example.test", adminPassword:"AdminPass123!",
+            siteUrl:"http://127.0.0.1:8080", clearRemote:true,
+            bricksLicenseKey:"",
+            theme:{id:"bricks",version:"2.4",active_theme:"bricks-child",generated_child:"bricks-child"},
+            plugin:{id:"duyanhwebpro",slug:"duyanhwebpro",entry:"duyanhwebpro/duyanhwebpro.php",
+              fallback_version:"1.9.4",manifest_url:"",
+              fallback_package:".chatcode-plugin-e2e.zip",fallback_sha256:$pluginSha}
+          }' > "$RUNNER_TEMP/install.json"
+          CODE=$(curl -sS --max-time 420 -o "$RUNNER_TEMP/install-response.json" -w '%{http_code}'             -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json'             --data-binary @"$RUNNER_TEMP/install.json"             http://127.0.0.1:8080/chatcode-install-e2e.php)
+          cat "$RUNNER_TEMP/install-response.json"
+          test "$CODE" = "200"
+          jq -e '.ok == true and .activeTheme == "bricks-child" and .pluginVersion == "1.9.4"' "$RUNNER_TEMP/install-response.json"
+          test ! -e "$SITE/legacy-index.html"
+          test ! -e "$SITE/legacy-dir"
+          test -f "$SITE/.well-known/acme.txt"
+          test -f "$SITE/.ftpquota"
+          test -f "$SITE/wp-includes/version.php"
+          test -f "$SITE/wp-content/themes/bricks/style.css"
+          test -f "$SITE/wp-content/themes/bricks-child/style.css"
+          test -f "$SITE/wp-content/plugins/duyanhwebpro/duyanhwebpro.php"
+          test -f "$SITE/.chatcode-install-id"
+          test ! -e "$SITE/.chatcode-theme-e2e.zip"
+          test ! -e "$SITE/.chatcode-plugin-e2e.zip"
+
+      - name: Verify database, theme, plugin, idempotency and HTTP
+        shell: bash
+        run: |
+          TOKEN=$(jq -r .token "$RUNNER_TEMP/bootstrap-meta.json")
+          MARKER=$(mariadb -h127.0.0.1 -P3306 -uroot -prootpass tester_ccitest -N -e "SHOW TABLES LIKE 'wp_ci_chatcode_install_marker';")
+          test -z "$MARKER"
+          OPTIONS=$(mariadb -h127.0.0.1 -P3306 -uroot -prootpass tester_ccitest -N -e "SELECT option_name,option_value FROM wp_ci_options WHERE option_name IN ('template','stylesheet','active_plugins','siteurl') ORDER BY option_name;")
+          echo "$OPTIONS"
+          echo "$OPTIONS" | grep -Eq '^template[[:space:]]+bricks$'
+          echo "$OPTIONS" | grep -Eq '^stylesheet[[:space:]]+bricks-child$'
+          echo "$OPTIONS" | grep -q 'duyanhwebpro/duyanhwebpro.php'
+          echo "$OPTIONS" | grep -Eq '^siteurl[[:space:]]+http://127.0.0.1:8080$'
+
+          CODE=$(curl -sS --max-time 60 -o "$RUNNER_TEMP/reinstall.json" -w '%{http_code}'             -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json'             --data-binary @"$RUNNER_TEMP/install.json"             http://127.0.0.1:8080/chatcode-install-e2e.php)
+          test "$CODE" = "200"
+          jq -e '.ok == true and .alreadyInstalled == true' "$RUNNER_TEMP/reinstall.json"
+
+          jq -n '{action:"verify",theme:{active_theme:"bricks-child"},plugin:{entry:"duyanhwebpro/duyanhwebpro.php"}}' > "$RUNNER_TEMP/verify.json"
+          CODE=$(curl -sS --max-time 60 -o "$RUNNER_TEMP/verify-response.json" -w '%{http_code}'             -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json'             --data-binary @"$RUNNER_TEMP/verify.json"             http://127.0.0.1:8080/chatcode-install-e2e.php)
+          test "$CODE" = "200"
+          jq -e '.ok == true and .activeTheme == "bricks-child" and .pluginActive == true' "$RUNNER_TEMP/verify-response.json"
+
+          curl -fsS --max-time 30 http://127.0.0.1:8080/ | grep -q 'Bricks E2E'
+          curl -fsS --max-time 30 http://127.0.0.1:8080/wp-login.php > /dev/null
+
+      - name: Cleanup bootstrap and installer files
+        shell: bash
+        run: |
+          TOKEN=$(jq -r .token "$RUNNER_TEMP/bootstrap-meta.json")
+          jq -n '{action:"cleanup",corePackage:"",plugin:{fallback_package:".chatcode-plugin-e2e.zip"}}' > "$RUNNER_TEMP/cleanup.json"
+          curl -fsS --max-time 60             -H "X-ChatCode-Token: $TOKEN" -H 'Content-Type: application/json'             --data-binary @"$RUNNER_TEMP/cleanup.json"             http://127.0.0.1:8080/chatcode-install-e2e.php | jq -e '.ok == true'
+          test ! -e "$SITE/chatcode-install-e2e.php"
+          test ! -e "$SITE/.chatcode-theme-e2e.zip"
+          test ! -e "$SITE/.chatcode-plugin-e2e.zip"
+          test -z "$(find "$SITE" -maxdepth 1 -name '.chatcode-install-*' -type d -print -quit)"
+
+      - name: Dump E2E logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '--- fake DirectAdmin ---'
+          cat "$RUNNER_TEMP/fake-da.log" || true
+          echo '--- PHP server ---'
+          cat "$RUNNER_TEMP/php-server.log" || true
+          echo '--- guard response ---'
+          cat "$RUNNER_TEMP/guard-response.json" || true
+          echo '--- install response ---'
+          cat "$RUNNER_TEMP/install-response.json" || true
+
+      - name: Stop E2E background processes
+        if: always()
+        shell: bash
+        run: |
+          test -f "$RUNNER_TEMP/php-server.pid" && kill "$(cat "$RUNNER_TEMP/php-server.pid")" || true
+          test -f "$RUNNER_TEMP/fake-da.pid" && kill "$(cat "$RUNNER_TEMP/fake-da.pid")" || true
