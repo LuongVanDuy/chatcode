@@ -32,94 +32,6 @@ function Safe-Dispose($Value) {
   try { $Value.Dispose() } catch {}
 }
 
-function Config-Line([string]$Key, [string]$Value) {
-  if ($Value -match '[\r\n\x00]') { throw "Invalid control character in curl option: $Key" }
-  return $Key + ' = "' + $Value.Replace('\','\\').Replace('"','\"') + '"'
-}
-
-function Resolve-CurlPath {
-  $candidates = New-Object System.Collections.Generic.List[string]
-  try {
-    $cmd = Get-Command curl.exe -CommandType Application -ErrorAction Stop
-    if ($cmd.Source) { $candidates.Add([string]$cmd.Source) }
-  } catch {}
-  if ($env:SystemRoot) { $candidates.Add((Join-Path $env:SystemRoot 'System32\curl.exe')) }
-  if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'Git\mingw64\bin\curl.exe')) }
-  if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'Git\mingw32\bin\curl.exe')) }
-  $seen = @{}
-  foreach ($candidate in $candidates) {
-    if (-not $candidate -or $seen.ContainsKey($candidate)) { continue }
-    $seen[$candidate] = $true
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) { return (Resolve-Path -LiteralPath $candidate).ProviderPath }
-  }
-  throw 'curl.exe was not found'
-}
-
-function Curl-RemoteUrl([string]$FtpHost, [int]$Port, [string]$RemotePath) {
-  $normalized = Normalize-Path $RemotePath
-  $encoded = (($normalized.TrimStart('/') -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
-  return "ftp://" + $FtpHost + ":" + $Port + "/%2F" + $encoded
-}
-
-function Invoke-CurlUpload(
-  [string]$FtpHost,
-  [int]$Port,
-  [string]$RemotePath,
-  [string]$LocalPath,
-  [string]$Username,
-  [string]$Password,
-  [bool]$Tls
-) {
-  $local = [IO.Path]::GetFullPath($LocalPath)
-  if (-not [IO.File]::Exists($local)) { throw "Local file not found: $local" }
-  $curlPath = Resolve-CurlPath
-  $utf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false
-  if ($utf8.GetPreamble().Length -ne 0) { throw 'UTF-8 encoder unexpectedly emits BOM' }
-  $maxAttempts = 4
-  $transientCodes = @(6,7,18,28,35,52,55,56)
-  for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
-    $lines = @(
-      'silent',
-      'show-error',
-      'fail',
-      'globoff',
-      'noproxy = "*"',
-      'connect-timeout = "12"',
-      'max-time = "300"',
-      'proto = "=ftp"',
-      (Config-Line 'url' (Curl-RemoteUrl $FtpHost $Port $RemotePath)),
-      (Config-Line 'user' ($Username + ':' + $Password)),
-      'ftp-create-dirs',
-      (Config-Line 'upload-file' $local)
-    )
-    if ($Tls) { $lines += 'ssl-reqd' }
-
-    $configText = ($lines -join [Environment]::NewLine) + [Environment]::NewLine
-    $previousOutputEncoding = $OutputEncoding
-    try {
-      $OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
-      if ($OutputEncoding.GetPreamble().Length -ne 0) { throw 'Native pipeline encoder unexpectedly emits BOM' }
-      $nativeOutput = @($configText | & $curlPath --disable --config - 2>&1)
-      $code = [int]$LASTEXITCODE
-      $errorText = [string]::Join(' ', [string[]]$nativeOutput)
-    } finally {
-      $OutputEncoding = $previousOutputEncoding
-    }
-    if ($code -eq 0) {
-      return (Get-Item -LiteralPath $local).Length
-    }
-    $safeError = ($errorText -replace '[\r\n]+',' ').Trim()
-    foreach ($secretValue in @($Password,$Username,$FtpHost)) {
-      if ($secretValue) { $safeError = $safeError.Replace([string]$secretValue,'[redacted]') }
-    }
-    if ($attempt -ge $maxAttempts -or $code -notin $transientCodes) {
-      throw "curl FTP upload failed (exit $code): $safeError"
-    }
-    Start-Sleep -Seconds ([Math]::Min($attempt,3))
-  }
-  throw 'curl FTP upload failed'
-}
-
 function Ftp-Uri([string]$FtpHost, [int]$Port, [string]$RemotePath) {
   $pathValue = Normalize-Path $RemotePath
   $segments = $pathValue.TrimStart('/').Split('/') | ForEach-Object { [Uri]::EscapeDataString($_) }
@@ -203,6 +115,26 @@ function Ensure-Directory(
   }
 }
 
+function Get-RemoteFileSize(
+  [string]$FtpHost,
+  [int]$Port,
+  [string]$RemotePath,
+  [string]$Username,
+  [string]$Password,
+  [bool]$Tls
+) {
+  $response = $null
+  try {
+    $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::GetFileSize) $Username $Password $Tls 15000
+    $response = $request.GetResponse()
+    return [long]$response.ContentLength
+  } catch {
+    return [long]-1
+  } finally {
+    Safe-Dispose $response
+  }
+}
+
 function Upload-File(
   [string]$FtpHost,
   [int]$Port,
@@ -212,7 +144,58 @@ function Upload-File(
   [string]$Password,
   [bool]$Tls
 ) {
-  return Invoke-CurlUpload $FtpHost $Port $RemotePath $LocalPath $Username $Password $Tls
+  $local = [IO.Path]::GetFullPath($LocalPath)
+  if (-not [IO.File]::Exists($local)) { throw "Local file not found: $local" }
+  $parent = (Normalize-Path ([IO.Path]::GetDirectoryName((Normalize-Path $RemotePath)).Replace('\','/')))
+  if ($parent -and $parent -ne '/' -and $parent -ne '.') {
+    Ensure-Directory $FtpHost $Port $parent $Username $Password $Tls
+  }
+  $size = [long](Get-Item -LiteralPath $local).Length
+  $maxAttempts = 4
+  $lastError = ''
+  for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
+    $inputStream = $null
+    $outputStream = $null
+    $response = $null
+    try {
+      $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
+      $request.ContentLength = $size
+      $inputStream = [IO.File]::OpenRead($local)
+      $outputStream = $request.GetRequestStream()
+      $buffer = New-Object byte[] (1024 * 1024)
+      while (($read = $inputStream.Read($buffer,0,$buffer.Length)) -gt 0) {
+        $outputStream.Write($buffer,0,$read)
+      }
+      Safe-Dispose $outputStream
+      $outputStream = $null
+      Safe-Dispose $inputStream
+      $inputStream = $null
+      try {
+        $response = $request.GetResponse()
+        return $size
+      } catch {
+        $lastError = [string]$_.Exception.Message
+        if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
+          return $size
+        }
+        throw
+      }
+    } catch {
+      $lastError = [string]$_.Exception.Message
+      if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
+        return $size
+      }
+      if ($attempt -ge $maxAttempts) {
+        throw "FTP upload failed after $maxAttempts attempts: $lastError"
+      }
+      Start-Sleep -Seconds ([Math]::Min($attempt,3))
+    } finally {
+      Safe-Dispose $response
+      Safe-Dispose $outputStream
+      Safe-Dispose $inputStream
+    }
+  }
+  throw "FTP upload failed: $lastError"
 }
 function Delete-File(
   [string]$FtpHost,
@@ -249,8 +232,7 @@ try {
     $protocolName = if ($tls) { 'ftps' } else { 'ftp' }
     $selftestUri = Ftp-Uri $FtpHost $port $remoteRoot
     $selftestRequest = New-FtpRequest $FtpHost $port $remoteRoot ([Net.WebRequestMethods+Ftp]::ListDirectory) $username $password $tls
-    $selftestCurl = Resolve-CurlPath
-    if (-not $selftestRequest -or -not $selftestUri -or -not $selftestCurl) { Fail 'Selftest request construction failed' 'SELFTEST_REQUEST_FAILED' }
+    if (-not $selftestRequest -or -not $selftestUri) { Fail 'Selftest request construction failed' 'SELFTEST_REQUEST_FAILED' }
     Out-Json @{
       ok=$true
       action='selftest'
@@ -259,7 +241,6 @@ try {
       protocol=$protocolName
       remotePath=$remoteRoot
       uri=$selftestUri.AbsoluteUri
-      uploadTransport='curl'
     }
     exit 0
   }
