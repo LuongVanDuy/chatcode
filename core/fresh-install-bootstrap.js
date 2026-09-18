@@ -416,19 +416,19 @@ try {
 
   if ($action === 'verify') {
     if (!cc_same_install_live()) cc_fail('Website chưa ở trạng thái live của install task này.',409,'VERIFY_INSTALL_MARKER_FAILED');
+    $ccVerifyPlugin=(array)($data['plugin'] ?? array());
+    $ccVerifyEntry=(string)($ccVerifyPlugin['entry'] ?? '');
+    $ccExpectedTheme=(string)($data['theme']['active_theme'] ?? '');
     require_once __DIR__.'/wp-load.php';
     require_once ABSPATH.'wp-admin/includes/plugin.php';
-    $active=(string)get_option('stylesheet');
-    $plugin=(array)($data['plugin'] ?? array());
-    $entry=(string)($plugin['entry'] ?? '');
-    $pluginOk=$entry === '' ? true : is_plugin_active($entry);
-    if (!$pluginOk) cc_fail('Plugin mặc định chưa active.',409,'VERIFY_PLUGIN_FAILED');
-    $expectedTheme=(string)($data['theme']['active_theme'] ?? '');
-    if ($expectedTheme !== '' && $active !== $expectedTheme) cc_fail('Theme active không đúng manifest.',409,'VERIFY_THEME_FAILED',array('activeTheme'=>$active));
+    $ccActive=(string)get_option('stylesheet');
+    $ccPluginOk=$ccVerifyEntry === '' ? true : is_plugin_active($ccVerifyEntry);
+    if (!$ccPluginOk) cc_fail('Plugin mặc định chưa active.',409,'VERIFY_PLUGIN_FAILED');
+    if ($ccExpectedTheme !== '' && $ccActive !== $ccExpectedTheme) cc_fail('Theme active không đúng manifest.',409,'VERIFY_THEME_FAILED',array('activeTheme'=>$ccActive));
     cc_answer(true,'Remote verify PASS.',array(
       'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),
-      'activeTheme'=>$active,
-      'pluginActive'=>$pluginOk,
+      'activeTheme'=>$ccActive,
+      'pluginActive'=>$ccPluginOk,
       'siteUrl'=>(string)get_option('siteurl')
     ));
   }
@@ -457,34 +457,50 @@ try {
   $pluginVersion=cc_prepare_duyanh($stage,$plugin);
   cc_write_wp_config($stage,$data);
 
+  $ccStage=$stage;
+  $ccMysqli=$mysqli;
+  $ccMarkerTable=$markerTable;
+  $ccSiteTitle=(string)$data['siteTitle'];
+  $ccAdminUser=(string)$data['adminUser'];
+  $ccAdminEmail=(string)$data['adminEmail'];
+  $ccAdminPassword=(string)$data['adminPassword'];
+  $ccSiteUrl=(string)$data['siteUrl'];
+  $ccActiveTheme=(string)$activeTheme;
+  $ccPluginEntry=(string)($plugin['entry'] ?? '');
+  $ccPluginFallback=basename((string)($plugin['fallback_package'] ?? ''));
+  $ccPluginVersion=(string)$pluginVersion;
+  $ccDatabase=array('name'=>$data['dbName'],'user'=>$data['dbUser'],'host'=>$data['dbHost']);
+  $ccClearedEntries=$removedEntries;
+  if ($ccPluginEntry === '') throw new Exception('Plugin entrypoint không hợp lệ.');
+
   define('WP_INSTALLING',true);
-  require $stage.'/wp-load.php';
-  require_once $stage.'/wp-admin/includes/upgrade.php';
-  require_once $stage.'/wp-admin/includes/plugin.php';
+  require $ccStage.'/wp-load.php';
+  require_once $ccStage.'/wp-admin/includes/upgrade.php';
+  require_once $ccStage.'/wp-admin/includes/plugin.php';
 
   if (!is_blog_installed()) {
-    wp_install((string)$data['siteTitle'],(string)$data['adminUser'],(string)$data['adminEmail'],true,'',(string)$data['adminPassword'],'vi');
+    wp_install($ccSiteTitle,$ccAdminUser,$ccAdminEmail,true,'',$ccAdminPassword,'vi');
   }
-  update_option('siteurl',(string)$data['siteUrl']);
-  update_option('home',(string)$data['siteUrl']);
+  update_option('siteurl',$ccSiteUrl);
+  update_option('home',$ccSiteUrl);
   update_option('timezone_string','Asia/Ho_Chi_Minh');
   update_option('permalink_structure','/%postname%/');
-  if ($activeTheme !== '') switch_theme($activeTheme);
-  $activated=activate_plugin((string)$plugin['entry']);
+  if ($ccActiveTheme !== '') switch_theme($ccActiveTheme);
+  $activated=activate_plugin($ccPluginEntry);
   if (is_wp_error($activated)) throw new Exception('Không kích hoạt được DuyAnhWebPro: '.$activated->get_error_message());
   flush_rewrite_rules(true);
 
-  $mysqli->query('DROP TABLE IF EXISTS '.$markerTable);
-  cc_publish($stage);
+  $ccMysqli->query('DROP TABLE IF EXISTS '.$ccMarkerTable);
+  cc_publish($ccStage);
   if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
-  if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));
+  if ($ccPluginFallback !== '') @unlink(__DIR__.'/'.$ccPluginFallback);
 
   cc_answer(true,'Đã cài WordPress.',array(
-    'database'=>array('name'=>$data['dbName'],'user'=>$data['dbUser'],'host'=>$data['dbHost']),
-    'activeTheme'=>$activeTheme,
-    'pluginVersion'=>$pluginVersion,
+    'database'=>$ccDatabase,
+    'activeTheme'=>$ccActiveTheme,
+    'pluginVersion'=>$ccPluginVersion,
     'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),
-    'clearedEntries'=>array_slice($removedEntries,0,20)
+    'clearedEntries'=>array_slice($ccClearedEntries,0,20)
   ));
 } catch (Throwable $error) {
   cc_fail($error->getMessage(),500,'INSTALL_FAILED');
