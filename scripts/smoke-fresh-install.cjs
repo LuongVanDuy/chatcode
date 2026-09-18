@@ -4,12 +4,20 @@ const os = require('os');
 const path = require('path');
 const { createFreshInstallService, normalizeDomain, checkpointAtLeast } = require('../core/fresh-install-runtime');
 const { buildFreshInstallBootstrap } = require('../core/fresh-install-bootstrap');
-const { DEFAULT_CATALOG } = require('../core/fresh-install-packages');
+const { DEFAULT_CATALOG, parsePackageHeaderVersion } = require('../core/fresh-install-packages');
 
 (async () => {
   assert.equal(normalizeDomain('https://Example.COM/'), 'example.com');
   assert.equal(checkpointAtLeast('installed','uploaded'), true);
   assert.equal(checkpointAtLeast('uploaded','verified'), false);
+  assert.equal(parsePackageHeaderVersion("/*
+Theme Name: Bricks
+Version: 2.4
+*/"),'2.4');
+  assert.equal(parsePackageHeaderVersion("/**
+ * Plugin Name: Duy Anh Web Pro
+ * Version:     1.9.4
+ */"),'1.9.4');
 
   const plugin = DEFAULT_CATALOG.plugins.find(item => item.id === 'duyanhwebpro');
   assert.equal(plugin.fallback_version, '1.9.4');
