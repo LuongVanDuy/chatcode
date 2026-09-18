@@ -218,7 +218,7 @@ try {
     if ($recentAttempts.Count -gt 0) {
       $detail = [string]::Join(' | ', [string[]]$recentAttempts)
     }
-    $message = 'Không tự phát hiện được FTP/FTPS và thư mục website.'
+    $message = 'FTP/FTPS and website path auto-discovery failed.'
     if ($detail) { $message += ' ' + $detail }
     Fail $message 'FTP_DISCOVERY_FAILED'
   }
