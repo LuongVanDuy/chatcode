@@ -27,16 +27,16 @@ function Normalize-Path([string]$Path) {
   return $value
 }
 
-function Ftp-Uri([string]$Host, [int]$Port, [string]$RemotePath) {
+function Ftp-Uri([string]$FtpHost, [int]$Port, [string]$RemotePath) {
   $pathValue = Normalize-Path $RemotePath
   $segments = $pathValue.TrimStart('/').Split('/') | ForEach-Object { [Uri]::EscapeDataString($_) }
   $escaped = [string]::Join('/', $segments)
   $suffix = if ($escaped) { '/' + $escaped } else { '/' }
-  return [Uri]("ftp://" + $Host + ":" + $Port + $suffix)
+  return [Uri]("ftp://" + $FtpHost + ":" + $Port + $suffix)
 }
 
 function New-FtpRequest(
-  [string]$Host,
+  [string]$FtpHost,
   [int]$Port,
   [string]$RemotePath,
   [string]$Method,
@@ -45,7 +45,7 @@ function New-FtpRequest(
   [bool]$Tls,
   [int]$TimeoutMs = 12000
 ) {
-  $request = [Net.FtpWebRequest]::Create((Ftp-Uri $Host $Port $RemotePath))
+  $request = [Net.FtpWebRequest]::Create((Ftp-Uri $FtpHost $Port $RemotePath))
   $request.Method = $Method
   $request.Credentials = New-Object Net.NetworkCredential($Username, $Password)
   $request.EnableSsl = $Tls
@@ -58,14 +58,14 @@ function New-FtpRequest(
 }
 
 function List-Directory(
-  [string]$Host,
+  [string]$FtpHost,
   [int]$Port,
   [string]$RemotePath,
   [string]$Username,
   [string]$Password,
   [bool]$Tls
 ) {
-  $request = New-FtpRequest $Host $Port $RemotePath ([Net.WebRequestMethods+Ftp]::ListDirectory) $Username $Password $Tls
+  $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::ListDirectory) $Username $Password $Tls
   $response = $request.GetResponse()
   try {
     $reader = New-Object IO.StreamReader($response.GetResponseStream())
@@ -81,7 +81,7 @@ function List-Directory(
 }
 
 function Ensure-Directory(
-  [string]$Host,
+  [string]$FtpHost,
   [int]$Port,
   [string]$RemotePath,
   [string]$Username,
@@ -96,14 +96,14 @@ function Ensure-Directory(
     if ([string]::IsNullOrWhiteSpace($part)) { continue }
     $current += '/' + $part
     try {
-      [void](List-Directory $Host $Port $current $Username $Password $Tls)
+      [void](List-Directory $FtpHost $Port $current $Username $Password $Tls)
     } catch {
       try {
-        $request = New-FtpRequest $Host $Port $current ([Net.WebRequestMethods+Ftp]::MakeDirectory) $Username $Password $Tls
+        $request = New-FtpRequest $FtpHost $Port $current ([Net.WebRequestMethods+Ftp]::MakeDirectory) $Username $Password $Tls
         $response = $request.GetResponse()
         $response.Dispose()
       } catch {
-        try { [void](List-Directory $Host $Port $current $Username $Password $Tls) }
+        try { [void](List-Directory $FtpHost $Port $current $Username $Password $Tls) }
         catch { throw }
       }
     }
@@ -111,7 +111,7 @@ function Ensure-Directory(
 }
 
 function Upload-File(
-  [string]$Host,
+  [string]$FtpHost,
   [int]$Port,
   [string]$RemotePath,
   [string]$LocalPath,
@@ -123,28 +123,28 @@ function Upload-File(
   if (-not [IO.File]::Exists($local)) { throw "Local file not found: $local" }
   $parent = (Normalize-Path ([IO.Path]::GetDirectoryName((Normalize-Path $RemotePath)).Replace('\','/')))
   if ($parent -and $parent -ne '/' -and $parent -ne '.') {
-    Ensure-Directory $Host $Port $parent $Username $Password $Tls
+    Ensure-Directory $FtpHost $Port $parent $Username $Password $Tls
   }
-  $request = New-FtpRequest $Host $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
+  $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
   $size = (Get-Item -LiteralPath $local).Length
   $request.ContentLength = $size
-  $input = [IO.File]::OpenRead($local)
+  $inputStream = [IO.File]::OpenRead($local)
   try {
     $output = $request.GetRequestStream()
     try {
       $buffer = New-Object byte[] (1024 * 1024)
-      while (($read = $input.Read($buffer,0,$buffer.Length)) -gt 0) {
+      while (($read = $inputStream.Read($buffer,0,$buffer.Length)) -gt 0) {
         $output.Write($buffer,0,$read)
       }
     } finally { $output.Dispose() }
-  } finally { $input.Dispose() }
+  } finally { $inputStream.Dispose() }
   $response = $request.GetResponse()
   $response.Dispose()
   return $size
 }
 
 function Delete-File(
-  [string]$Host,
+  [string]$FtpHost,
   [int]$Port,
   [string]$RemotePath,
   [string]$Username,
@@ -152,7 +152,7 @@ function Delete-File(
   [bool]$Tls
 ) {
   try {
-    $request = New-FtpRequest $Host $Port $RemotePath ([Net.WebRequestMethods+Ftp]::DeleteFile) $Username $Password $Tls
+    $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::DeleteFile) $Username $Password $Tls
     $response = $request.GetResponse()
     $response.Dispose()
     return $true
@@ -167,6 +167,29 @@ $action = [string]$payload.action
 if (-not $action) { Fail 'Missing action' 'ACTION_MISSING' }
 
 try {
+  if ($action -eq 'selftest') {
+    $FtpHost = [string]$payload.host
+    $port = if ($payload.port) { [int]$payload.port } else { 21 }
+    $username = [string]$payload.username
+    $password = [string]$payload.password
+    $tls = ([string]$payload.protocol).ToLowerInvariant() -ne 'ftp'
+    $remoteRoot = Normalize-Path ([string]$payload.remotePath)
+    if (-not $FtpHost -or -not $username -or -not $password) { Fail 'Selftest connection data missing' 'SELFTEST_INVALID' }
+    $protocolName = if ($tls) { 'ftps' } else { 'ftp' }
+    $selftestUri = Ftp-Uri $FtpHost $port $remoteRoot
+    $selftestRequest = New-FtpRequest $FtpHost $port $remoteRoot ([Net.WebRequestMethods+Ftp]::ListDirectory) $username $password $tls
+    if (-not $selftestRequest -or -not $selftestUri) { Fail 'Selftest request construction failed' 'SELFTEST_REQUEST_FAILED' }
+    Out-Json @{
+      ok=$true
+      action='selftest'
+      host=$FtpHost
+      port=$port
+      protocol=$protocolName
+      remotePath=$remoteRoot
+      uri=$selftestUri.AbsoluteUri
+    }
+    exit 0
+  }
   if ($action -eq 'discover') {
     $domain = ([string]$payload.domain).Trim().ToLowerInvariant()
     $username = [string]$payload.username
@@ -175,11 +198,11 @@ try {
 
     $hosts = @($domain, "ftp.$domain") | Select-Object -Unique
     $attempts = @()
-    foreach ($host in $hosts) {
+    foreach ($FtpHost in $hosts) {
       foreach ($tls in @($true,$false)) {
         $protocol = if ($tls) { 'ftps' } else { 'ftp' }
         try {
-          [void](List-Directory $host 21 '/' $username $password $tls)
+          [void](List-Directory $FtpHost 21 '/' $username $password $tls)
           $paths = @(
             "/domains/$domain/public_html",
             '/public_html',
@@ -189,11 +212,11 @@ try {
           ) | Select-Object -Unique
           foreach ($candidate in $paths) {
             try {
-              $entries = @(List-Directory $host 21 $candidate $username $password $tls)
+              $entries = @(List-Directory $FtpHost 21 $candidate $username $password $tls)
               $blocking = @($entries | Where-Object { $_ -and $_ -notin @('.well-known','.ftpquota') })
               Out-Json @{
                 ok=$true
-                host=$host
+                host=$FtpHost
                 port=21
                 protocol=$protocol
                 passive=$true
@@ -205,11 +228,11 @@ try {
               }
               exit 0
             } catch {
-              $attempts += ($protocol + '://' + $host + $candidate + ' => ' + $_.Exception.Message)
+              $attempts += ($protocol + '://' + $FtpHost + $candidate + ' => ' + $_.Exception.Message)
             }
           }
         } catch {
-          $attempts += ($protocol + '://' + $host + '/ => ' + $_.Exception.Message)
+          $attempts += ($protocol + '://' + $FtpHost + '/ => ' + $_.Exception.Message)
         }
       }
     }
@@ -223,13 +246,13 @@ try {
     Fail $message 'FTP_DISCOVERY_FAILED'
   }
 
-  $host = [string]$payload.host
+  $FtpHost = [string]$payload.host
   $port = if ($payload.port) { [int]$payload.port } else { 21 }
   $username = [string]$payload.username
   $password = [string]$payload.password
   $tls = ([string]$payload.protocol).ToLowerInvariant() -ne 'ftp'
   $remoteRoot = Normalize-Path ([string]$payload.remotePath)
-  if (-not $host -or -not $username -or -not $password) { Fail 'FTP connection data missing' 'CREDENTIALS_MISSING' }
+  if (-not $FtpHost -or -not $username -or -not $password) { Fail 'FTP connection data missing' 'CREDENTIALS_MISSING' }
 
   if ($action -eq 'upload') {
     $results = @()
@@ -240,7 +263,7 @@ try {
         throw "Unsafe remote file name: $remoteName"
       }
       $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $remoteName.TrimStart('/')))
-      $bytes = Upload-File $host $port $remotePath $localPath $username $password $tls
+      $bytes = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls
       $results += @{ file=$remoteName; bytes=$bytes; status='uploaded' }
     }
     Out-Json @{ ok=$true; action='upload'; files=$results }
@@ -255,7 +278,7 @@ try {
         throw "Unsafe remote file name: $name"
       }
       $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $name))
-      $deleted = Delete-File $host $port $remotePath $username $password $tls
+      $deleted = Delete-File $FtpHost $port $remotePath $username $password $tls
       $results += @{ file=$name; deleted=$deleted }
     }
     Out-Json @{ ok=$true; action='delete'; files=$results }
