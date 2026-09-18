@@ -114,7 +114,7 @@ async function runRuntimeTests() {
       calls.push(payload.action || 'public-get');
       assert.notEqual(payload.action,'install','Retry must not reinstall the already-published site');
       if (payload.action==='verify') return new Response(JSON.stringify(verified));
-      if (payload.action==='cleanup') return new Response('{"ok":true}');
+      if (payload.action==='cleanup') return new Response('{"ok":true,"markerRemoved":true}');
       assert.equal(options.method,'GET'); return new Response('public-page');
     };
     service.retry(task.id);

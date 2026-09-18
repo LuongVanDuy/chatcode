@@ -1,0 +1,65 @@
+name: Fresh Install Finalize
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/fresh-install-*.js'
+      - 'tools/fresh-install.ps1'
+      - 'scripts/fresh-install-e2e-finalize.cjs'
+      - '.github/workflows/fresh-install-finalize.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/fresh-install-*.js'
+      - 'tools/fresh-install.ps1'
+      - 'scripts/fresh-install-e2e-finalize.cjs'
+permissions:
+  contents: read
+jobs:
+  marker-ftp:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install --disable-pip-version-check --quiet pyftpdlib
+      - run: node scripts/fresh-install-e2e-finalize.cjs --ftp
+  wordpress-login-cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: rootpass
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update -qq && sudo apt-get install -y php-cli php-mysql php-zip php-curl mariadb-client
+      - name: PHP marker lifecycle and real WordPress login
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_ROOT_PASSWORD: rootpass
+          PANEL_USER: tester
+          PANEL_PASSWORD: 'FTP!a+b&c%5\d"e''f'
+        run: |
+          SITE="$RUNNER_TEMP/chatcode-finalize-site"
+          python3 scripts/fresh-install-e2e-fixtures.py prepare "$SITE"
+          python3 scripts/fake-directadmin.py > "$RUNNER_TEMP/finalize-panel.log" 2>&1 &
+          PANEL_PID=$!
+          trap 'kill "$PANEL_PID" || true' EXIT
+          sleep 1
+          node scripts/fresh-install-e2e-finalize.cjs --php --live "$SITE"

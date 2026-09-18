@@ -347,12 +347,23 @@ try {
     cc_answer(true,'Đã ghép package upload song song.',array('file'=>$name,'bytes'=>$written,'parts'=>count($safeParts)));
   }
   if ($action === 'cleanup') {
+    // Retain the marker through verify/reconciliation; remove it only at cleanup.
+    $marker=cc_marker();
+    if (file_exists($marker) || is_link($marker)) {
+      if (is_link($marker) || !is_file($marker) || !hash_equals(CC_INSTALL_ID,trim((string)@file_get_contents($marker)))) {
+        cc_fail('Marker thuộc phiên cài khác; không xóa.',409,'CLEANUP_MARKER_MISMATCH');
+      }
+    }
     cc_remove_tree(cc_stage()); cc_cleanup_upload_artifacts(); cc_remove_tree(cc_transfer_root());
     if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
     $plugin=(array)($data['plugin'] ?? array());
     if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));
     if (!empty($data['corePackage'])) @unlink(__DIR__.'/'.basename((string)$data['corePackage']));
-    @unlink(__FILE__); cc_answer(true,'Đã dọn file cài đặt tạm.');
+    if (is_file($marker) && !@unlink($marker)) cc_fail('Không xóa được .chatcode-install-id.',500,'CLEANUP_MARKER_FAILED');
+    clearstatcache(true,$marker);
+    if (file_exists($marker)) cc_fail('Marker vẫn còn trên hosting.',500,'CLEANUP_MARKER_FAILED');
+    if (!@unlink(__FILE__)) cc_fail('Không xóa được bootstrap.',500,'CLEANUP_FAILED');
+    cc_answer(true,'Đã dọn file cài đặt tạm.',array('markerRemoved'=>true));
   }
   if ($action === 'verify') {
     if (!cc_same_install_live()) cc_fail('Website chưa ở trạng thái live của install task này.',409,'VERIFY_INSTALL_MARKER_FAILED');
