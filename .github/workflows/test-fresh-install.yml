@@ -1,0 +1,60 @@
+name: Fresh Install Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'core/fresh-install-*.js'
+      - 'renderer/fresh-install.js'
+      - 'renderer/index.html'
+      - 'renderer/styles.css'
+      - 'tools/fresh-install.ps1'
+      - 'scripts/smoke-fresh-install.cjs'
+      - 'main.js'
+      - 'preload.js'
+      - 'package.json'
+      - '.github/workflows/test-fresh-install.yml'
+  push:
+    branches:
+      - main
+      - 'feature/fresh-install-*'
+    paths:
+      - 'core/fresh-install-*.js'
+      - 'renderer/fresh-install.js'
+      - 'renderer/index.html'
+      - 'renderer/styles.css'
+      - 'tools/fresh-install.ps1'
+      - 'scripts/smoke-fresh-install.cjs'
+      - 'main.js'
+      - 'preload.js'
+      - 'package.json'
+      - '.github/workflows/test-fresh-install.yml'
+  workflow_dispatch:
+
+jobs:
+  fresh-install:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check core/fresh-install-packages.js
+          node --check core/fresh-install-vault.js
+          node --check core/fresh-install-bootstrap.js
+          node --check core/fresh-install-runtime.js
+          node --check renderer/fresh-install.js
+          node --check scripts/smoke-fresh-install.cjs
+          node --check main.js
+          node --check preload.js
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $text = Get-Content -Raw tools/fresh-install.ps1
+          [void][ScriptBlock]::Create($text)
+      - name: Fresh Install smoke
+        shell: pwsh
+        run: node scripts/smoke-fresh-install.cjs
