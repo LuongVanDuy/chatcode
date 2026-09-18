@@ -175,13 +175,18 @@ try {
     $tls = ([string]$payload.protocol).ToLowerInvariant() -ne 'ftp'
     $remoteRoot = Normalize-Path ([string]$payload.remotePath)
     if (-not $FtpHost -or -not $username -or -not $password) { Fail 'Selftest connection data missing' 'SELFTEST_INVALID' }
+    $protocolName = if ($tls) { 'ftps' } else { 'ftp' }
+    $selftestUri = Ftp-Uri $FtpHost $port $remoteRoot
+    $selftestRequest = New-FtpRequest $FtpHost $port $remoteRoot ([Net.WebRequestMethods+Ftp]::ListDirectory) $username $password $tls
+    if (-not $selftestRequest -or -not $selftestUri) { Fail 'Selftest request construction failed' 'SELFTEST_REQUEST_FAILED' }
     Out-Json @{
       ok=$true
       action='selftest'
       host=$FtpHost
       port=$port
-      protocol=(if ($tls) { 'ftps' } else { 'ftp' })
+      protocol=$protocolName
       remotePath=$remoteRoot
+      uri=$selftestUri.AbsoluteUri
     }
     exit 0
   }
