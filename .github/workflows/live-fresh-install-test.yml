@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   live-fresh-install:
@@ -33,7 +33,14 @@ jobs:
             $public = [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
             [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'live-private-key.b64'), $private)
             Write-Host "CHATCODE_LIVE_PUBLIC_KEY_B64=$public"
-            Write-Host 'Waiting for an RSA-OAEP-SHA256 encrypted credential payload.'
+            New-Item -ItemType Directory -Force -Path 'live-test' | Out-Null
+            [IO.File]::WriteAllText((Join-Path (Get-Location) 'live-test/public-key.b64'), $public)
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add live-test/public-key.b64
+            git commit -m 'test: publish ephemeral live-test public key'
+            git push origin HEAD:$env:GITHUB_REF_NAME
+            Write-Host 'Published ephemeral public key. Waiting for encrypted credential payload.'
           } finally {
             $rsa.Dispose()
           }
