@@ -1,0 +1,106 @@
+name: Core / Runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bootstrap-main.js'
+      - 'main.js'
+      - 'preload.js'
+      - 'mcp-server.mjs'
+      - 'core/**'
+      - '!core/skill-*.js'
+      - '!core/bricks-*.js'
+      - '!core/wordpress*.js'
+      - '!core/ui-knowledge.js'
+      - '!core/builtin-skills-project.js'
+      - '!core/browser-*.js'
+      - 'tools/deploy-ftp.ps1'
+      - 'scripts/smoke-mcp.mjs'
+      - 'scripts/smoke-safety.cjs'
+      - 'scripts/smoke-trusted.cjs'
+      - 'scripts/smoke-terminal.cjs'
+      - 'scripts/smoke-windows-terminal-guard.cjs'
+      - 'scripts/smoke-patch-parser.cjs'
+      - 'scripts/smoke-editing.cjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-brain.cjs'
+      - 'scripts/smoke-fastpath.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-support.cjs'
+      - 'scripts/smoke-notifications.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
+      - 'scripts/smoke-machine-access.cjs'
+      - 'scripts/smoke-ftp-deploy.cjs'
+      - 'scripts/smoke-completion-deploy-policy.cjs'
+      - '.github/workflows/core-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap-main.js'
+      - 'main.js'
+      - 'preload.js'
+      - 'mcp-server.mjs'
+      - 'core/**'
+      - '!core/skill-*.js'
+      - '!core/bricks-*.js'
+      - '!core/wordpress*.js'
+      - '!core/ui-knowledge.js'
+      - '!core/builtin-skills-project.js'
+      - '!core/browser-*.js'
+      - 'tools/deploy-ftp.ps1'
+      - 'scripts/smoke-mcp.mjs'
+      - 'scripts/smoke-safety.cjs'
+      - 'scripts/smoke-trusted.cjs'
+      - 'scripts/smoke-terminal.cjs'
+      - 'scripts/smoke-windows-terminal-guard.cjs'
+      - 'scripts/smoke-patch-parser.cjs'
+      - 'scripts/smoke-editing.cjs'
+      - 'scripts/smoke-agent.cjs'
+      - 'scripts/smoke-brain.cjs'
+      - 'scripts/smoke-fastpath.cjs'
+      - 'scripts/smoke-regression.cjs'
+      - 'scripts/smoke-support.cjs'
+      - 'scripts/smoke-notifications.cjs'
+      - 'scripts/smoke-database-runtime.cjs'
+      - 'scripts/smoke-machine-access.cjs'
+      - 'scripts/smoke-ftp-deploy.cjs'
+      - 'scripts/smoke-completion-deploy-policy.cjs'
+      - '.github/workflows/core-runtime.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Core regression suite
+        shell: pwsh
+        run: |
+          npm run test:mcp
+          npm run test:safety
+          npm run test:trusted
+          npm run test:terminal
+          npm run test:editing
+          npm run test:agent
+          npm run test:brain
+          npm run test:fastpath
+          npm run test:regression
+          npm run test:support
+          npm run test:notifications
+          npm run test:database
+          npm run test:ftp-deploy
