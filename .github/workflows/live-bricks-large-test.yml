@@ -34,7 +34,7 @@ jobs:
             'payload = os.urandom(29000000)',
             'z = zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED)',
             'z.writestr("style.css", "/*\\nTheme Name: Bricks\\nVersion: 2.4\\n*/\\n")',
-            'z.writestr("index.php", "<?php echo \'Bricks Large Live Test\';\\n")',
+            'z.writestr("index.php", "<?php echo chr(66);\\n")',
             'z.writestr("functions.php", "<?php\\n")',
             'z.writestr("assets/live-upload-probe.bin", payload)',
             'z.close()',
