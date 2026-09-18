@@ -52,6 +52,7 @@ Version: 2.4
     'CMD_API_DATABASES',
     'chatcode_install_marker',
     'BRICKS_LICENSE_KEY',
+    "\\$table_prefix='",
     "const CC_THEME_LAYOUT = 'flat';",
     "$themeTarget=$themesRoot.'/'.CC_THEME_SLUG",
     'wordpress.org/latest.zip',
