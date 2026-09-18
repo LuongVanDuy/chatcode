@@ -33,10 +33,10 @@ def create_database(name_suffix: str, user_suffix: str, password: str) -> None:
     user = valid_name(f"{PANEL_USER}_{valid_name(user_suffix)}")
     pw = sql_quote(password)
     sql = (
-        f"CREATE DATABASE IF NOT EXISTS \`{db}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        f"CREATE DATABASE IF NOT EXISTS `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
         f"CREATE USER IF NOT EXISTS '{user}'@'%' IDENTIFIED BY '{pw}';"
         f"ALTER USER '{user}'@'%' IDENTIFIED BY '{pw}';"
-        f"GRANT ALL PRIVILEGES ON \`{db}\`.* TO '{user}'@'%';"
+        f"GRANT ALL PRIVILEGES ON `{db}`.* TO '{user}'@'%';"
         "FLUSH PRIVILEGES;"
     )
     subprocess.run(
