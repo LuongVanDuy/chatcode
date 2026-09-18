@@ -131,13 +131,18 @@ jobs:
 
             echo "CLEAN: $name ($path)"
             while true; do
-              runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$id/runs?per_page=100")
+              runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$id/runs?per_page=100" 2>/dev/null || true)
+              if [ -z "$runs" ]; then
+                echo "DONE: $name"
+                break
+              fi
               count=$(echo "$runs" | jq '.workflow_runs | length')
               if [ "$count" -eq 0 ]; then
+                echo "DONE: $name"
                 break
               fi
               echo "$runs" | jq -r '.workflow_runs[].id' | while read -r run_id; do
-                gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" >/dev/null || true
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" >/dev/null 2>&1 || true
               done
             done
           done
