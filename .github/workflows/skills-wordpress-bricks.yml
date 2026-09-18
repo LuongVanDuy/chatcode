@@ -29,7 +29,6 @@ on:
       - 'scripts/smoke-wordpress*.cjs'
       - 'scripts/smoke-bricks*.cjs'
       - 'scripts/smoke-builtin-skills-project.cjs'
-      - '.github/workflows/skills-wordpress-bricks.yml'
 
 permissions:
   contents: read
