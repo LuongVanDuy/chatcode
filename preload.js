@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   createFreshInstall: input => ipcRenderer.invoke('fresh-install:create', input || {}),
   startFreshInstall: id => ipcRenderer.invoke('fresh-install:start', id),
   retryFreshInstall: id => ipcRenderer.invoke('fresh-install:retry', id),
+  confirmFreshInstallClear: id => ipcRenderer.invoke('fresh-install:confirm-clear', id),
   removeFreshInstall: id => ipcRenderer.invoke('fresh-install:remove', id),
   pickBricksPackage: () => ipcRenderer.invoke('fresh-install:pick-bricks'),
   pickDuyAnhPackage: () => ipcRenderer.invoke('fresh-install:pick-duyanh'),
