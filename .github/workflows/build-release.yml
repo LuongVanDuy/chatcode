@@ -19,9 +19,12 @@ jobs:
   fresh-install-release-gate:
     uses: ./.github/workflows/fresh-install.yml
 
+  database-release-gate:
+    uses: ./.github/workflows/fresh-install-database.yml
+
   release:
-    needs: [fresh-install-release-gate]
-    if: ${{ needs.fresh-install-release-gate.result == 'success' }}
+    needs: [fresh-install-release-gate, database-release-gate]
+    if: ${{ needs.fresh-install-release-gate.result == 'success' && needs.database-release-gate.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
