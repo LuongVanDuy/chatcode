@@ -21,7 +21,6 @@ on:
       - 'scripts/smoke-renderer-foundation.cjs'
       - 'scripts/smoke-browser-workspace.cjs'
       - 'scripts/smoke-notifications.cjs'
-      - '.github/workflows/ui-renderer.yml'
 
 permissions:
   contents: read
