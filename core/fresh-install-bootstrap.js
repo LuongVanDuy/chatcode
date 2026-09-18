@@ -287,26 +287,46 @@ defined('ABSPATH') || exit;
   return (string)($theme['active_theme'] ?? CC_THEME_SLUG);
 }
 function cc_prepare_duyanh($stage,$plugin) {
-  $manifestUrl=(string)($plugin['manifest_url'] ?? '');
-  if ($manifestUrl === '') throw new Exception('Thiếu DuyAnhWebPro update manifest.');
-  $manifest=cc_fetch_json($manifestUrl);
-  $download=(string)($manifest['download_url'] ?? $manifest['package'] ?? '');
-  $checksum=strtolower((string)($manifest['checksum_sha256'] ?? $manifest['sha256'] ?? ''));
-  $version=(string)($manifest['version'] ?? $plugin['fallback_version'] ?? '');
-  $manifestHost=strtolower((string)(parse_url($manifestUrl,PHP_URL_HOST) ?: ''));
-  $downloadHost=strtolower((string)(parse_url($download,PHP_URL_HOST) ?: ''));
-  if ($download === '' || strtolower((string)parse_url($download,PHP_URL_SCHEME)) !== 'https' || $downloadHost === '' || $downloadHost !== $manifestHost) {
-    throw new Exception('DuyAnhWebPro update manifest trả download_url không an toàn.');
+  $entry=(string)($plugin['entry'] ?? '');
+  $fallbackName=basename((string)($plugin['fallback_package'] ?? ''));
+  $fallbackSha=strtolower((string)($plugin['fallback_sha256'] ?? ''));
+  $vendorError='';
+  try {
+    $manifestUrl=(string)($plugin['manifest_url'] ?? '');
+    if ($manifestUrl === '') throw new Exception('Thiếu DuyAnhWebPro update manifest.');
+    $manifest=cc_fetch_json($manifestUrl);
+    $download=(string)($manifest['download_url'] ?? $manifest['package'] ?? '');
+    $checksum=strtolower((string)($manifest['checksum_sha256'] ?? $manifest['sha256'] ?? ''));
+    $version=(string)($manifest['version'] ?? $plugin['fallback_version'] ?? '');
+    $manifestHost=strtolower((string)(parse_url($manifestUrl,PHP_URL_HOST) ?: ''));
+    $downloadHost=strtolower((string)(parse_url($download,PHP_URL_HOST) ?: ''));
+    if ($download === '' || strtolower((string)parse_url($download,PHP_URL_SCHEME)) !== 'https' || $downloadHost === '' || $downloadHost !== $manifestHost) {
+      throw new Exception('DuyAnhWebPro update manifest trả download_url không an toàn.');
+    }
+    if (!preg_match('/^[a-f0-9]{64}$/',$checksum)) throw new Exception('DuyAnhWebPro manifest thiếu SHA256 hợp lệ.');
+    $zip=$stage.'/.duyanhwebpro-'.$version.'.zip';
+    cc_download_https($download,$zip,52428800);
+    if (!hash_equals($checksum,strtolower(hash_file('sha256',$zip)))) throw new Exception('DuyAnhWebPro checksum không khớp.');
+    cc_validate_zip($zip,array($entry));
+    $target=$stage.'/wp-content/plugins'; if (!is_dir($target)) @mkdir($target,0755,true);
+    cc_extract_zip($zip,$target); @unlink($zip);
+    if (!is_file($stage.'/wp-content/plugins/'.$entry)) throw new Exception('DuyAnhWebPro sau giải nén thiếu entrypoint.');
+    return $version;
+  } catch (Throwable $error) {
+    $vendorError=$error->getMessage();
   }
-  if (!preg_match('/^[a-f0-9]{64}$/',$checksum)) throw new Exception('DuyAnhWebPro manifest thiếu SHA256 hợp lệ.');
-  $zip=$stage.'/.duyanhwebpro-'.$version.'.zip';
-  cc_download_https($download,$zip,52428800);
-  if (!hash_equals($checksum,strtolower(hash_file('sha256',$zip)))) throw new Exception('DuyAnhWebPro checksum không khớp.');
-  cc_validate_zip($zip,array((string)$plugin['entry']));
-  $target=$stage.'/wp-content/plugins'; if (!is_dir($target)) @mkdir($target,0755,true);
-  cc_extract_zip($zip,$target); @unlink($zip);
-  if (!is_file($stage.'/wp-content/plugins/'.(string)$plugin['entry'])) throw new Exception('DuyAnhWebPro sau giải nén thiếu entrypoint.');
-  return $version;
+  if ($fallbackName !== '' && preg_match('/^[a-f0-9]{64}$/',$fallbackSha)) {
+    $fallback=__DIR__.'/'.$fallbackName;
+    if (!is_file($fallback) || !hash_equals($fallbackSha,strtolower(hash_file('sha256',$fallback)))) {
+      cc_fail('Fallback DuyAnhWebPro checksum không khớp.',409,'PLUGIN_FALLBACK_INVALID');
+    }
+    cc_validate_zip($fallback,array($entry));
+    $target=$stage.'/wp-content/plugins'; if (!is_dir($target)) @mkdir($target,0755,true);
+    cc_extract_zip($fallback,$target);
+    if (!is_file($stage.'/wp-content/plugins/'.$entry)) cc_fail('Fallback DuyAnhWebPro thiếu entrypoint.',409,'PLUGIN_FALLBACK_INVALID');
+    return (string)($plugin['fallback_version'] ?? '1.9.4');
+  }
+  cc_fail('Hosting không tự tải được DuyAnhWebPro: '.$vendorError,502,'PLUGIN_DOWNLOAD_FAILED');
 }
 function cc_write_wp_config($stage,$data) {
   $config="<?php
@@ -357,6 +377,8 @@ try {
   if ($action === 'cleanup') {
     cc_remove_tree(cc_stage());
     if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
+    $plugin=(array)($data['plugin'] ?? array());
+    if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));
     @unlink(__FILE__);
     cc_answer(true,'Đã dọn file cài đặt tạm.');
   }
@@ -425,6 +447,7 @@ try {
   $mysqli->query('DROP TABLE IF EXISTS '.$markerTable);
   cc_publish($stage);
   if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
+  if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));
 
   cc_answer(true,'Đã cài WordPress.',array(
     'database'=>array('name'=>$data['dbName'],'user'=>$data['dbUser'],'host'=>$data['dbHost']),
