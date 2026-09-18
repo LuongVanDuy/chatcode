@@ -234,12 +234,12 @@ function cc_prepare_database($data) {
   $exists=in_array($marker,$tables,true);
   if (count($tables)>0 && !$exists) throw new Exception('Database đã có bảng dùng tiền tố này.');
   if ($exists) {
-    $res=$mysqli->query('SELECT install_id FROM `'.$marker.'` LIMIT 1'); $row=$res?$res->fetch_assoc():null;
+    $res=$mysqli->query('SELECT install_id FROM '.$marker.' LIMIT 1'); $row=$res?$res->fetch_assoc():null;
     if (!$row || !hash_equals(CC_INSTALL_ID,(string)$row['install_id'])) throw new Exception('Database thuộc một phiên cài đặt khác.');
   } else {
-    if (!$mysqli->query('CREATE TABLE `'.$marker.'` (install_id VARCHAR(64) NOT NULL PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')) throw new Exception('Không tạo được DB checkpoint.');
+    if (!$mysqli->query('CREATE TABLE '.$marker.' (install_id VARCHAR(64) NOT NULL PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4')) throw new Exception('Không tạo được DB checkpoint.');
     $id=$mysqli->real_escape_string(CC_INSTALL_ID);
-    if (!$mysqli->query("INSERT INTO `".$marker."` (install_id) VALUES ('".$id."')")) throw new Exception('Không lưu được DB checkpoint.');
+    if (!$mysqli->query("INSERT INTO ".$marker." (install_id) VALUES ('".$id."')")) throw new Exception('Không lưu được DB checkpoint.');
   }
   return array($mysqli,$marker,$selected);
 }
@@ -422,7 +422,7 @@ try {
   if (is_wp_error($activated)) throw new Exception('Không kích hoạt được DuyAnhWebPro: '.$activated->get_error_message());
   flush_rewrite_rules(true);
 
-  $mysqli->query('DROP TABLE IF EXISTS `'.$markerTable.'`');
+  $mysqli->query('DROP TABLE IF EXISTS '.$markerTable);
   cc_publish($stage);
   if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
 
