@@ -139,6 +139,10 @@ function Get-RemoteFileSize(
   }
 }
 
+function Test-DefinitiveFtpError([string]$Message) {
+  return [bool]($Message -match '\\([45][0-9][0-9]\\)')
+}
+
 function Upload-File(
   [string]$FtpHost,
   [int]$Port,
@@ -155,14 +159,15 @@ function Upload-File(
     Ensure-Directory $FtpHost $Port $parent $Username $Password $Tls
   }
   $size = [long](Get-Item -LiteralPath $local).Length
-  $maxAttempts = 4
+  $maxAttempts = 2
   $lastError = ''
   for ($attempt=1; $attempt -le $maxAttempts; $attempt++) {
     $inputStream = $null
     $outputStream = $null
     $response = $null
+    $writeCompleted = $false
     try {
-      $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 30000
+      $request = New-FtpRequest $FtpHost $Port $RemotePath ([Net.WebRequestMethods+Ftp]::UploadFile) $Username $Password $Tls 45000
       $request.ContentLength = $size
       $inputStream = [IO.File]::OpenRead($local)
       $outputStream = $request.GetRequestStream()
@@ -170,29 +175,41 @@ function Upload-File(
       while (($read = $inputStream.Read($buffer,0,$buffer.Length)) -gt 0) {
         $outputStream.Write($buffer,0,$read)
       }
+      $outputStream.Flush()
       Safe-Dispose $outputStream
       $outputStream = $null
       Safe-Dispose $inputStream
       $inputStream = $null
+      $writeCompleted = $true
       try {
         $response = $request.GetResponse()
-        return $size
+        return @{ bytes=$size; status='confirmed'; ftpConfirmed=$true; attempts=$attempt }
       } catch {
         $lastError = [string]$_.Exception.Message
-        if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
-          return $size
+        $remoteSize = Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls
+        if ($remoteSize -eq $size) {
+          return @{ bytes=$size; status='confirmed-size'; ftpConfirmed=$true; attempts=$attempt }
+        }
+        if (-not (Test-DefinitiveFtpError $lastError)) {
+          return @{ bytes=$size; status='sent-unconfirmed'; ftpConfirmed=$false; attempts=$attempt; error=$lastError }
         }
         throw
       }
     } catch {
       $lastError = [string]$_.Exception.Message
-      if ((Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls) -eq $size) {
-        return $size
+      if ($writeCompleted) {
+        $remoteSize = Get-RemoteFileSize $FtpHost $Port $RemotePath $Username $Password $Tls
+        if ($remoteSize -eq $size) {
+          return @{ bytes=$size; status='confirmed-size'; ftpConfirmed=$true; attempts=$attempt }
+        }
+        if (-not (Test-DefinitiveFtpError $lastError)) {
+          return @{ bytes=$size; status='sent-unconfirmed'; ftpConfirmed=$false; attempts=$attempt; error=$lastError }
+        }
       }
       if ($attempt -ge $maxAttempts) {
         throw "FTP upload failed after $maxAttempts attempts: $lastError"
       }
-      Start-Sleep -Seconds ([Math]::Min($attempt,3))
+      Start-Sleep -Seconds 1
     } finally {
       Safe-Dispose $response
       Safe-Dispose $outputStream
@@ -320,8 +337,14 @@ try {
         throw "Unsafe remote file name: $remoteName"
       }
       $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $remoteName.TrimStart('/')))
-      $bytes = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls
-      $results += @{ file=$remoteName; bytes=$bytes; status='uploaded' }
+      $upload = Upload-File $FtpHost $port $remotePath $localPath $username $password $tls
+      $results += @{
+        file=$remoteName
+        bytes=[long]$upload.bytes
+        status=[string]$upload.status
+        ftpConfirmed=[bool]$upload.ftpConfirmed
+        attempts=[int]$upload.attempts
+      }
     }
     Out-Json @{ ok=$true; action='upload'; files=$results }
     exit 0
