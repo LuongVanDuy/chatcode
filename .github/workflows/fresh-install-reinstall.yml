@@ -1,0 +1,31 @@
+name: Fresh Install Reinstall
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/fresh-install-*.js'
+      - 'scripts/fresh-install-e2e-*'
+      - '.github/workflows/fresh-install-reinstall.yml'
+permissions:
+  contents: read
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export source used for reinstall regression
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-source
+          include-hidden-files: true
+          path: |
+            core/
+            tools/
+            scripts/
+            renderer/
+            .github/workflows/
+            package.json
+            package-lock.json
+          retention-days: 1
