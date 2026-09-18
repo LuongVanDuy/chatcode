@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('personalCode', {
   retryFreshInstall: id => ipcRenderer.invoke('fresh-install:retry', id),
   removeFreshInstall: id => ipcRenderer.invoke('fresh-install:remove', id),
   pickBricksPackage: () => ipcRenderer.invoke('fresh-install:pick-bricks'),
+  pickDuyAnhPackage: () => ipcRenderer.invoke('fresh-install:pick-duyanh'),
   pickThemePackage: () => ipcRenderer.invoke('fresh-install:pick-theme'),
   copyFreshInstallCredentials: id => ipcRenderer.invoke('fresh-install:copy-credentials', id),
 
