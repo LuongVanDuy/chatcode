@@ -436,6 +436,84 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     return `${task.site_url}/${encodeURIComponent(task.bootstrap.name)}`;
   }
 
+  async function sha256File(file) {
+    return new Promise((resolve,reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(file);
+      stream.on('data',chunk => hash.update(chunk));
+      stream.once('error',reject);
+      stream.once('end',() => resolve(hash.digest('hex')));
+    });
+  }
+
+  async function uploadBootstrapVerified(task,secrets,bootstrapFile) {
+    let runnerError = null;
+    try {
+      await runPowerShell(runnerPayload(task,secrets,'upload',{
+        files:[{ localPath:bootstrapFile, remoteName:task.bootstrap.name }]
+      }),90000);
+    } catch (error) {
+      runnerError = error;
+    }
+    try {
+      await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{ action:'probe' },30000);
+      return true;
+    } catch (probeError) {
+      if (runnerError) throw runnerError;
+      throw probeError;
+    }
+  }
+
+  async function uploadFileVerified(task,secrets,{ localPath,remoteName,sha256='',bytes=0,timeoutMs=180000 }) {
+    const expectedBytes = Number(bytes || (await fsp.stat(localPath)).size);
+    const expectedSha256 = String(sha256 || await sha256File(localPath)).toLowerCase();
+    let lastError = null;
+
+    for (let attempt=1; attempt<=2; attempt++) {
+      let runnerError = null;
+      try {
+        const result = await runPowerShell(runnerPayload(task,secrets,'upload',{
+          files:[{ localPath,remoteName }]
+        }),timeoutMs);
+        const item = Array.isArray(result?.files) ? result.files[0] : null;
+        if (item?.status === 'sent-unconfirmed') {
+          progress(task.id,'upload',16,'FTPS đã gửi xong dữ liệu; đang xác minh package trên hosting',remoteName);
+        }
+      } catch (error) {
+        runnerError = error;
+      }
+
+      try {
+        const verified = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
+          action:'inspect-upload',
+          name:remoteName,
+          expectedBytes,
+          expectedSha256
+        },90000);
+        return verified;
+      } catch (verifyError) {
+        lastError = verifyError;
+        if (attempt >= 2) {
+          const error = new Error(`Upload package chưa được xác minh sau ${attempt} lần: ${verifyError.message}`);
+          error.code = 'UPLOAD_VERIFY_FAILED';
+          error.detail = {
+            runner:runnerError ? { code:runnerError.code || '', message:String(runnerError.message || runnerError) } : null,
+            verify:verifyError.detail || { code:verifyError.code || '', message:String(verifyError.message || verifyError) },
+            remoteName,
+            expectedBytes,
+            expectedSha256
+          };
+          throw error;
+        }
+        try {
+          await runPowerShell(runnerPayload(task,secrets,'delete',{ files:[remoteName] }),45000);
+        } catch {}
+        await new Promise(resolve => setTimeout(resolve,1000));
+      }
+    }
+    throw lastError || new Error('Upload package verify failed.');
+  }
+
   function installPayload(task,secrets,extra = {}) {
     const plugin = task.manifest.plugins[0];
     return {
@@ -530,12 +608,21 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
 
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'uploaded')) {
-        progress(id,'upload',12,'Đang upload bootstrap và private theme package');
+        progress(id,'upload',12,'Đang upload bootstrap');
         const bootstrapFile = writeBootstrap(task,secrets);
-        const files = [{ localPath:bootstrapFile, remoteName:task.bootstrap.name }];
+        await uploadBootstrapVerified(task,secrets,bootstrapFile);
+
         const themePackage = task.manifest.theme.package;
-        if (themePackage?.path) files.push({ localPath:themePackage.path, remoteName:themePackage.remote_name });
-        await runPowerShell(runnerPayload(task,secrets,'upload',{ files }),300000);
+        if (themePackage?.path) {
+          progress(id,'upload',14,'Đang upload private theme package',themePackage.remote_name);
+          await uploadFileVerified(task,secrets,{
+            localPath:themePackage.path,
+            remoteName:themePackage.remote_name,
+            sha256:themePackage.sha256,
+            bytes:themePackage.bytes,
+            timeoutMs:180000
+          });
+        }
         setCheckpoint(id,'uploaded');
       }
 
@@ -551,7 +638,11 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             task = taskById(id);
             const remoteCore = `.chatcode-wordpress-${task.id.replace(/-/g,'').slice(0,10)}.zip`;
             progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
-            await runPowerShell(runnerPayload(task,secrets,'upload',{ files:[{ localPath:localCore, remoteName:remoteCore }] }),300000);
+            await uploadFileVerified(task,secrets,{
+              localPath:localCore,
+              remoteName:remoteCore,
+              timeoutMs:240000
+            });
             mutate(id,current => { current.manifest.wordpress.fallback_remote_name = remoteCore; });
             try {
               installed = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,installPayload(task,secrets,{ corePackage:remoteCore }),420000);
@@ -569,9 +660,13 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
               throw missing;
             }
             progress(id,'fallback',58,'Vendor updater lỗi; đang upload DuyAnhWebPro 1.9.4 fallback',fallback.remote_name);
-            await runPowerShell(runnerPayload(task,secrets,'upload',{
-              files:[{ localPath:fallback.path, remoteName:fallback.remote_name }]
-            }),180000);
+            await uploadFileVerified(task,secrets,{
+              localPath:fallback.path,
+              remoteName:fallback.remote_name,
+              sha256:fallback.sha256,
+              bytes:fallback.bytes,
+              timeoutMs:180000
+            });
             installed = await httpJson(
               bootstrapUrl(task),
               secrets.bootstrapToken,

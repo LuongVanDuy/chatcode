@@ -404,6 +404,36 @@ try {
   if (!is_array($data)) cc_fail('Dữ liệu cài đặt không hợp lệ.',400,'PAYLOAD_INVALID');
   $action=(string)($data['action'] ?? 'install');
 
+  if ($action === 'probe') {
+    cc_answer(true,'Bootstrap ready.',array('installId'=>CC_INSTALL_ID));
+  }
+
+  if ($action === 'inspect-upload') {
+    $name=(string)($data['name'] ?? '');
+    $base=basename($name);
+    if ($name === '' || $base !== $name || strpos($name,'.chatcode-') !== 0 || !preg_match('/^[A-Za-z0-9._-]+$/',$name)) {
+      cc_fail('Tên upload cần kiểm tra không hợp lệ.',400,'UPLOAD_VERIFY_INVALID');
+    }
+    $expectedBytes=(int)($data['expectedBytes'] ?? 0);
+    $expectedSha=strtolower((string)($data['expectedSha256'] ?? ''));
+    if ($expectedBytes < 0 || ($expectedSha !== '' && !preg_match('/^[a-f0-9]{64}$/',$expectedSha))) {
+      cc_fail('Thông tin kiểm tra upload không hợp lệ.',400,'UPLOAD_VERIFY_INVALID');
+    }
+    $file=__DIR__.DIRECTORY_SEPARATOR.$name;
+    if (!is_file($file)) {
+      cc_fail('Upload chưa xuất hiện trên hosting.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>false));
+    }
+    $bytes=(int)@filesize($file);
+    if ($expectedBytes > 0 && $bytes !== $expectedBytes) {
+      cc_fail('Dung lượng upload không khớp.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>true,'bytes'=>$bytes,'expectedBytes'=>$expectedBytes));
+    }
+    $sha=strtolower((string)@hash_file('sha256',$file));
+    if ($expectedSha !== '' && !hash_equals($expectedSha,$sha)) {
+      cc_fail('SHA256 upload không khớp.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>true,'bytes'=>$bytes,'sha256'=>$sha));
+    }
+    cc_answer(true,'Upload verify PASS.',array('file'=>$name,'bytes'=>$bytes,'sha256'=>$sha));
+  }
+
   if ($action === 'cleanup') {
     cc_remove_tree(cc_stage());
     if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
