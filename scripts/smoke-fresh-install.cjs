@@ -150,8 +150,8 @@ Version: 2.4
   assert.ok(vaultText.includes('encrypted'));
 
   const credentials = service.credentials(task.id);
-  assert.equal(credentials.username,'chatcode');
-  assert.match(credentials.password,/^[A-Za-z0-9_-]{20,}$/);
+  assert.equal(credentials.username,'duyanhweb');
+  assert.equal(credentials.password,'hosting-password');
   assert.equal(credentials.wp_admin_url,'https://demo.example.com/wp-admin/');
 
   const runnerSource = fs.readFileSync(path.join(__dirname,'..','tools','fresh-install.ps1'),'utf8');
@@ -178,6 +178,7 @@ Version: 2.4
 
   fs.rmSync(root,{recursive:true,force:true});
   await require('./fresh-install-e2e-http.cjs').run();
+  await require('./fresh-install-e2e-finalize.cjs').runCommon();
   console.log('Fresh Install smoke PASS');
 })().catch(error => {
   console.error(error);

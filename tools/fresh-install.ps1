@@ -259,6 +259,36 @@ function Delete-File(
   }
 }
 
+# Only a verified task may request deletion of its own marker. A missing file
+# is success (lost cleanup acknowledgement); 550 permission errors are not.
+function Remove-InstallMarker($FtpHost,$Port,$RemoteRoot,$Username,$Password,$Tls,[string]$ExpectedInstallId) {
+  if ($ExpectedInstallId -cnotmatch '^[a-f0-9]{32}$') { throw 'Expected install ID is required for marker cleanup.' }
+  $markerPath = Normalize-Path ($RemoteRoot.TrimEnd('/') + '/.chatcode-install-id')
+  $response = $null
+  $reader = $null
+  try {
+    $request = New-FtpRequest $FtpHost $Port $markerPath ([Net.WebRequestMethods+Ftp]::DownloadFile) $Username $Password $Tls
+    $response = $request.GetResponse()
+    $reader = New-Object IO.StreamReader($response.GetResponseStream())
+    $buffer = New-Object char[] 65
+    $read = $reader.ReadBlock($buffer,0,$buffer.Length)
+    $actual = (-join $buffer[0..([Math]::Max(0,$read - 1))]).Trim()
+    if ($read -ge 65 -or $actual -cne $ExpectedInstallId) { throw 'Install marker belongs to another task; not deleted.' }
+  } catch {
+    if ($_.Exception.Message -notmatch '550') { throw }
+    if ('.chatcode-install-id' -in @(List-Directory $FtpHost $Port $RemoteRoot $Username $Password $Tls)) { throw }
+    return $false
+  } finally {
+    Safe-Dispose $reader
+    Safe-Dispose $response
+  }
+  $deleted = Delete-File $FtpHost $Port $markerPath $Username $Password $Tls
+  if (-not $deleted -and '.chatcode-install-id' -in @(List-Directory $FtpHost $Port $RemoteRoot $Username $Password $Tls)) {
+    throw 'Install marker still exists after deletion.'
+  }
+  return $deleted
+}
+
 $payload = Read-Payload
 $action = [string]$payload.action
 if (-not $action) { Fail 'Missing action' 'ACTION_MISSING' }
@@ -400,7 +430,11 @@ try {
         throw "Unsafe remote file name: $name"
       }
       $remotePath = (Normalize-Path ($remoteRoot.TrimEnd('/') + '/' + $name))
-      $deleted = Delete-File $FtpHost $port $remotePath $username $password $tls
+      if ($name -eq '.chatcode-install-id') {
+        $deleted = Remove-InstallMarker $FtpHost $port $remoteRoot $username $password $tls ([string]$payload.expectedInstallId)
+      } else {
+        $deleted = Delete-File $FtpHost $port $remotePath $username $password $tls
+      }
       $results += @{ file=$name; deleted=$deleted }
     }
     Out-Json @{ ok=$true; action='delete'; files=$results }

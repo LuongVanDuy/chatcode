@@ -4,7 +4,7 @@
 // Never replace an installer whose outcome is still pending reconciliation.
 function needsDatabaseBootstrapRefresh(task) {
   if (task.checkpoint !== 'uploaded' || task.install_request_pending) return false;
-  return /^DB_/.test(task.error_code || '') ||
+  return !!task.remote_policy?.clear_remote || !!task.clear_remote_confirmed || /^DB_/.test(task.error_code || '') ||
     (task.error_code === 'INSTALL_FAILED' &&
       /^Không tự tạo\/kết nối được database\./.test(task.error || ''));
 }
@@ -111,6 +111,10 @@ function cc_connect_database($data,&$selected,&$detail,$connect=null,$send=null)
   $candidate=array('name'=>$data['dbName'],'user'=>$data['dbUser'],'password'=>$data['dbPassword'],'host'=>$data['dbHost']);
   $first=call_user_func($connect,$candidate);
   if ($first['db']) { $selected=$candidate; return $first['db']; }
+  if (!empty($data['reuseExistingDatabase'])) {
+    $detail=array('code'=>'DB_REUSE_CONNECT_FAILED','phase'=>'database','mysql'=>array('errno'=>(int)$first['errno'],'message'=>'Không kết nối được database hiện tại. Không tạo database khác.'));
+    return null;
+  }
   $panel=array(); cc_directadmin_create_database($data,$panel,$send);
   // An error/timeout can arrive after CREATE has committed. Reconnect once with
   // identical credentials, not a second CREATE and not a password reset.

@@ -273,13 +273,13 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         },
         plugins:[plugin],
         database:{ host:'localhost', name:`${safeUser}_${dbSuffix}`, user:`${safeUser}_${dbSuffix}`, table_prefix:tablePrefix },
-        admin:{ username:'chatcode', email:`admin@${domain}` }
+        admin:{ username:'duyanhweb', email:`admin@${domain}` }
       },
       result:{}, logs:[]
     };
     vault.set(id,{
       hostingUsername:username, hostingPassword:password,
-      databasePassword:randomSecret(24), adminPassword:randomSecret(24),
+      databasePassword:randomSecret(24), adminPassword:password,
       bootstrapToken:randomInstallToken(), bricksLicenseKey:String(input.bricksLicenseKey || '').trim()
     });
     task.credentials_available = true;
@@ -474,16 +474,30 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     return result;
   }
   async function cleanupRemote(task,secrets,names = []) {
+    let httpError = null;
     try {
-      await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
+      const cleaned = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
         action:'cleanup', corePackage:task.manifest.wordpress.fallback_remote_name || '',
         plugin:{ fallback_package:task.manifest.plugins[0]?.fallback_package?.remote_name || '' }
       },60000);
-      return;
-    } catch {}
-    const safeNames = [...new Set(names.filter(Boolean).map(name => path.posix.basename(name)))];
-    if (!safeNames.length || !task.connection) return;
-    try { await runPowerShell(runnerPayload(task,secrets,'delete',{ files:safeNames }),90000); } catch {}
+      if (cleaned.markerRemoved === true) return;
+      // Pre-1.0.65 bootstraps remove themselves but leave the install marker.
+    } catch (error) {
+      httpError = error;
+      if (error.code === 'CLEANUP_MARKER_MISMATCH') throw error;
+    }
+    const safeNames = [...new Set([...names,'.chatcode-install-id'].filter(Boolean).map(name => path.posix.basename(name)))];
+    try {
+      if (!task.connection) throw new Error('Không có kết nối FTP để dọn file còn lại.');
+      await runPowerShell(runnerPayload(task,secrets,'delete',{
+        files:safeNames, expectedInstallId:task.manifest.install_id
+      }),90000);
+    } catch (cause) {
+      const error = new Error('WordPress đã được xác minh nhưng chưa dọn hết file cài đặt: ' + cause.message);
+      error.code = 'CLEANUP_FAILED';
+      error.detail = { http:httpError?.code || '', ftp:cause.code || '', checkpoint:task.checkpoint };
+      throw error;
+    }
   }
   async function execute(id) {
     let task = taskById(id);
@@ -591,7 +605,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         current.status='failed'; current.stage='failed';
         current.error=String(error?.message || error || 'Fresh Install failed').slice(0,1200);
         current.error_code=String(error?.code || 'FRESH_INSTALL_FAILED').slice(0,120);
-        current.message=error.code === 'INSTALL_RESULT_UNCONFIRMED' ? 'Chưa xác nhận kết quả cài trên hosting' : 'Cài WordPress chưa hoàn tất'; current.current='';
+        current.message=String(error.code || '').startsWith('CLEANUP_') ? 'WordPress đã cài; chưa dọn hết file tạm' : error.code === 'INSTALL_RESULT_UNCONFIRMED' ? 'Chưa xác nhận kết quả cài trên hosting' : 'Cài WordPress chưa hoàn tất'; current.current='';
         current.failure_detail=error?.detail && typeof error.detail === 'object' ? error.detail : null;
         appendLog(current,`${error.code === 'INSTALL_RESULT_UNCONFIRMED' ? 'UNCONFIRMED' : 'FAILED'} · ${current.error_code} · ${current.error}`);
       });

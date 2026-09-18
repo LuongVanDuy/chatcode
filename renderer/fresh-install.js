@@ -131,6 +131,7 @@
         <div class="fresh-task-stage"><b>${escapeHtml(task.message || checkpointLabel(task.checkpoint))}</b><span>${escapeHtml(task.current || checkpointLabel(task.checkpoint))}</span></div>
         <div class="fresh-progress"><div><span style="width:${percent}%"></span></div><b>${percent}%</b></div>
         <div class="fresh-checkpoint"><span>Checkpoint</span><strong>${escapeHtml(checkpointLabel(task.checkpoint))}</strong><span>Attempt</span><strong>${Number(task.attempt_count || 0)}</strong></div>
+        ${task.result?.install?.databaseMode === 'reused' ? `<div class="fresh-blocking">Dùng lại database ${escapeHtml(task.result.install.database?.name || '')} · đã thay ${Number(task.result.install.replacedTables || 0)} bảng cũ</div>` : ''}
         ${error}${detail}
         ${logs.length ? `<div class="fresh-task-logs">${logs.map(line => `<span>${escapeHtml(line)}</span>`).join('')}</div>` : ''}
         <div class="fresh-task-actions">${taskActions(task)}</div>
@@ -151,7 +152,7 @@
         const task = state.tasks.find(item => item.id === id);
         const items = task?.failure_detail?.blockingEntries || [];
         const detail = items.length ? `\n\nNội dung sẽ được dọn: ${items.slice(0,8).join(', ')}` : '';
-        if (!confirm(`Xóa nội dung cũ trong thư mục website của ${task?.domain || 'website'} và tiếp tục cài?\nChatCode sẽ giữ .well-known và .ftpquota.${detail}`)) return;
+        if (!confirm(`Cài đè và xóa dữ liệu WordPress cũ (bài viết, tài khoản, đơn hàng) của ${task?.domain || 'website'} và tiếp tục cài?\nChatCode dùng lại database trong wp-config.php, chỉ thay bảng của website này; giữ .well-known và .ftpquota.${detail}`)) return;
         button.disabled = true;
         try {
           await freshApi.confirmFreshInstallClear(id);
@@ -272,6 +273,11 @@
   function bind() {
     const form = byId('freshInstallForm');
     if (!form) return;
+    const overwrite = byId('freshClearRemote')?.closest('label');
+    const overwriteTitle = overwrite?.querySelector('strong');
+    const overwriteHelp = overwrite?.querySelector('small');
+    if (overwriteTitle) overwriteTitle.textContent = 'Cài đè: thay file và xóa dữ liệu WordPress cũ';
+    if (overwriteHelp) overwriteHelp.textContent = 'Dùng lại database trong wp-config.php; thay các bảng của website này. Bài viết, tài khoản và đơn hàng cũ sẽ bị xóa. Giữ .well-known và .ftpquota.';
     form.addEventListener('submit',submit);
     byId('freshPickBricks').onclick = pickBricks;
     byId('freshPickDuyAnh').onclick = pickDuyAnh;
