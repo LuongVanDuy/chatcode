@@ -15,6 +15,10 @@ function checkpointAtLeast(value, target) {
   return CHECKPOINTS.indexOf(String(value || 'created')) >= CHECKPOINTS.indexOf(target);
 }
 
+function allowsRemoteClear(task) {
+  return !!task?.remote_policy?.clear_remote || !!task?.clear_remote_confirmed;
+}
+
 function atomicWrite(file, payload) {
   fs.mkdirSync(path.dirname(file), { recursive:true });
   const temp = `${file}.tmp-${process.pid}-${Date.now()}`;
@@ -311,6 +315,10 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       created_at:now,
       updated_at:now,
       connection:null,
+      remote_policy:{
+        clear_remote:input.clearRemote === true,
+        preserve:['.well-known','.ftpquota']
+      },
       bootstrap:{
         name:bridgeName
       },
@@ -445,6 +453,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       adminPassword:secrets.adminPassword,
       siteUrl:task.site_url,
       bricksLicenseKey:secrets.bricksLicenseKey || '',
+      clearRemote:allowsRemoteClear(task),
       theme:{
         id:task.manifest.theme.id,
         version:task.manifest.theme.version,
@@ -488,8 +497,15 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       task = taskById(id);
       if (!checkpointAtLeast(task.checkpoint,'discovered')) {
         const discovered = await runPowerShell(runnerPayload(task,secrets,'discover'),70000);
-        if (discovered.siteNotEmpty) {
-          const error = new Error('Thư mục website đang có nội dung. Fresh Install không tự xóa site cũ.');
+        const remotePath = String(discovered.remotePath || '');
+        if (!remotePath || remotePath === '/') {
+          const error = new Error('Fresh Install từ chối dùng FTP account root làm thư mục website.');
+          error.code = 'UNSAFE_REMOTE_PATH';
+          error.detail = discovered;
+          throw error;
+        }
+        if (discovered.siteNotEmpty && !allowsRemoteClear(task)) {
+          const error = new Error('Thư mục website đang có nội dung. Cần xác nhận dọn nội dung cũ trước khi cài.');
           error.code = 'SITE_NOT_EMPTY';
           error.detail = discovered;
           throw error;
@@ -500,9 +516,16 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             port:Number(discovered.port || 21),
             protocol:discovered.protocol,
             passive:true,
-            remotePath:discovered.remotePath
+            remotePath
+          },
+          remote_scan:{
+            site_not_empty:!!discovered.siteNotEmpty,
+            blocking_entries:Array.isArray(discovered.blockingEntries) ? discovered.blockingEntries.slice(0,20) : []
           }
         });
+        if (discovered.siteNotEmpty && allowsRemoteClear(task)) {
+          progress(id,'wipe',8,'Đã xác nhận dọn nội dung cũ trên hosting',remotePath);
+        }
       }
 
       task = taskById(id);
@@ -649,6 +672,20 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     return start(id);
   }
 
+  function confirmRemoteClear(id) {
+    const current = taskById(id);
+    if (running.has(id) || current.status === 'running') throw new Error('Task đang chạy; chưa thể thay đổi xác nhận dọn hosting.');
+    return mutate(id,task => {
+      task.clear_remote_confirmed = true;
+      task.clear_remote_confirmed_at = new Date().toISOString();
+      task.error = '';
+      task.error_code = '';
+      task.failure_detail = null;
+      task.message = 'Đã xác nhận dọn nội dung cũ; sẵn sàng thử lại';
+      appendLog(task,'Đã xác nhận dọn nội dung cũ trong thư mục website; giữ .well-known và .ftpquota');
+    });
+  }
+
   function remove(id) {
     const task = taskById(id);
     if (running.has(id) || task.status === 'running') throw new Error('Task đang chạy; chưa thể xóa.');
@@ -679,6 +716,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     create,
     start,
     retry,
+    confirmRemoteClear,
     remove,
     credentials,
     importTheme,
@@ -691,5 +729,6 @@ module.exports = {
   createFreshInstallService,
   normalizeDomain,
   checkpointAtLeast,
+  allowsRemoteClear,
   runPowerShell
 };
