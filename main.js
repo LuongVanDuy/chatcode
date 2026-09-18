@@ -366,6 +366,20 @@ ipcMain.handle('fresh-install:pick-bricks', async () => {
   if (pick.canceled || !pick.filePaths[0]) return null;
   return requireFreshInstall().importTheme(pick.filePaths[0], { id:'bricks', version:'2.4' });
 });
+ipcMain.handle('fresh-install:pick-duyanh', async () => {
+  const pick = await dialog.showOpenDialog(mainWindow, {
+    title:'Chọn DuyAnhWebPro 1.9.4 ZIP fallback',
+    properties:['openFile'],
+    filters:[{ name:'Plugin ZIP', extensions:['zip'] }]
+  });
+  if (pick.canceled || !pick.filePaths[0]) return null;
+  return requireFreshInstall().importPlugin(pick.filePaths[0], {
+    id:'duyanhwebpro',
+    slug:'duyanhwebpro',
+    version:'1.9.4',
+    entry:'duyanhwebpro/duyanhwebpro.php'
+  });
+});
 ipcMain.handle('fresh-install:pick-theme', async () => {
   const pick = await dialog.showOpenDialog(mainWindow, {
     title:'Thêm theme ZIP',
