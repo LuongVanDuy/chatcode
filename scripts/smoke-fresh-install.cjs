@@ -30,6 +30,8 @@ const { DEFAULT_CATALOG } = require('../core/fresh-install-packages');
   });
   for (const required of [
     'CORE_DOWNLOAD_FAILED',
+    'PLUGIN_DOWNLOAD_FAILED',
+    'PLUGIN_FALLBACK_INVALID',
     'SITE_NOT_EMPTY',
     'CMD_API_DATABASES',
     'chatcode_install_marker',
@@ -59,6 +61,7 @@ const { DEFAULT_CATALOG } = require('../core/fresh-install-packages');
   const service = createFreshInstallService({ app, safeStorage, onChanged:value => changes.push(value) });
   const catalog = service.catalog();
   assert.equal(catalog.readiness.bricks_2_4, false);
+  assert.equal(catalog.readiness.duyanhwebpro_1_9_4, false);
   assert.ok(catalog.plugins.some(item => item.id === 'duyanhwebpro'));
 
   const task = service.create({
@@ -77,6 +80,8 @@ const { DEFAULT_CATALOG } = require('../core/fresh-install-packages');
   assert.equal(taskText.includes('hosting-password'), false);
   assert.equal(taskText.includes('databasePassword'), false);
   assert.equal(taskText.includes('adminPassword'), false);
+  assert.equal(taskText.includes('bootstrapToken'), false);
+  assert.equal(taskText.includes('bricksLicenseKey'), false);
 
   const vaultText = fs.readFileSync(path.join(root,'fresh-install-secrets.json'),'utf8');
   assert.equal(vaultText.includes('hosting-password'), false);
