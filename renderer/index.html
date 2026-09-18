@@ -6,7 +6,8 @@
   <aside class="sidebar">
     <div class="brand"><img src="../assets/icon.png" alt=""><div><strong>ChatCode</strong><span>Cá Nhân</span></div><span class="version-badge">v0.6</span></div>
     <nav class="nav">
-      <button class="nav-link active" data-route="dashboard"><span>⌂</span>Tổng quan</button>\n      <button class="nav-link" data-route="wordpress-install"><span>WP</span>Cài WordPress</button>
+      <button class="nav-link active" data-route="dashboard"><span>⌂</span>Tổng quan</button>
+      <button class="nav-link" data-route="wordpress-install"><span>WP</span>Cài WordPress</button>
     </nav>
     <div class="projects-block"><div class="section-title"><span>DỰ ÁN</span><button id="sidebarAddProject" class="section-action" aria-label="Thêm dự án" title="Thêm dự án">＋</button></div><div id="projects" class="project-list"></div></div>
     <div class="sidebar-spacer"></div>
@@ -88,6 +89,11 @@
               <div id="freshBricksStatus" class="fresh-package-status"></div>
               <button id="freshPickBricks" class="btn full" type="button">Chọn Bricks 2.4 ZIP</button>
               <div class="note">WordPress core không đi qua FTP ở fast path. Hosting tải trực tiếp từ wordpress.org.</div>
+              <div class="fresh-package-divider"></div>
+              <div class="card-head fresh-subhead"><div><span class="eyebrow">PLUGIN FALLBACK</span><h3>Duy Anh Web Pro 1.9.4</h3><p>Fast path tải bản mới từ vendor. ZIP 1.9.4 chỉ dùng khi vendor updater không truy cập được.</p></div></div>
+              <div id="freshDuyAnhStatus" class="fresh-package-status"></div>
+              <button id="freshPickDuyAnh" class="btn full" type="button">Chọn DuyAnhWebPro 1.9.4 ZIP</button>
+
             </article>
           </div>
 
@@ -118,5 +124,6 @@
 </div>
 <div id="projectMenu" class="project-menu hidden" role="menu"><button data-project-menu-action="reindex" role="menuitem">Re-index</button><button data-project-menu-action="remove" class="danger" role="menuitem">Xóa dự án</button></div>
 <div id="toastContainer" class="toasts"></div>
-<script src="app.js"></script>\n<script src="fresh-install.js"></script>
+<script src="app.js"></script>
+<script src="fresh-install.js"></script>
 </body></html>
