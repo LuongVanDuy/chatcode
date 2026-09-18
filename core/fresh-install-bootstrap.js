@@ -43,6 +43,14 @@ function cc_fail($message,$status=500,$code='INSTALL_FAILED',$extra=array()) {
 function cc_safe_name($value) {
   return preg_replace('/[^A-Za-z0-9_.-]/','',(string)$value);
 }
+function cc_cleanup_upload_artifacts() {
+  foreach ((array)@scandir(__DIR__) as $name) {
+    if (!is_string($name) || strpos($name,'.chatcode-') !== 0) continue;
+    if (preg_match('/\.part-[0-9]{3}-of-[0-9]{3}$/',$name) || substr($name,-11) === '.assembling') {
+      @unlink(__DIR__ . DIRECTORY_SEPARATOR . $name);
+    }
+  }
+}
 function cc_config_quote($value) {
   return str_replace(array('\\\\',"'"),array('\\\\\\\\',"\\'"),(string)$value);
 }
@@ -427,15 +435,99 @@ try {
     if ($expectedBytes > 0 && $bytes !== $expectedBytes) {
       cc_fail('Dung lượng upload không khớp.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>true,'bytes'=>$bytes,'expectedBytes'=>$expectedBytes));
     }
-    $sha=strtolower((string)@hash_file('sha256',$file));
-    if ($expectedSha !== '' && !hash_equals($expectedSha,$sha)) {
-      cc_fail('SHA256 upload không khớp.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>true,'bytes'=>$bytes,'sha256'=>$sha));
+    $sha='';
+    if ($expectedSha !== '') {
+      $sha=strtolower((string)@hash_file('sha256',$file));
+      if (!hash_equals($expectedSha,$sha)) {
+        cc_fail('SHA256 upload không khớp.',409,'UPLOAD_VERIFY_FAILED',array('file'=>$name,'exists'=>true,'bytes'=>$bytes,'sha256'=>$sha));
+      }
     }
     cc_answer(true,'Upload verify PASS.',array('file'=>$name,'bytes'=>$bytes,'sha256'=>$sha));
   }
 
+  if ($action === 'assemble-upload') {
+    $name=(string)($data['name'] ?? '');
+    $base=basename($name);
+    if ($name === '' || $base !== $name || strpos($name,'.chatcode-') !== 0 || !preg_match('/^[A-Za-z0-9._-]+$/',$name)) {
+      cc_fail('Tên package ghép không hợp lệ.',400,'UPLOAD_ASSEMBLY_INVALID');
+    }
+    $parts=$data['parts'] ?? array();
+    if (!is_array($parts) || count($parts) < 2 || count($parts) > 16) {
+      cc_fail('Danh sách part upload không hợp lệ.',400,'UPLOAD_ASSEMBLY_INVALID');
+    }
+    $expectedBytes=(int)($data['expectedBytes'] ?? 0);
+    $expectedSha=strtolower((string)($data['expectedSha256'] ?? ''));
+    if ($expectedBytes <= 0 || ($expectedSha !== '' && !preg_match('/^[a-f0-9]{64}$/',$expectedSha))) {
+      cc_fail('Thông tin package ghép không hợp lệ.',400,'UPLOAD_ASSEMBLY_INVALID');
+    }
+
+    $safeParts=array();
+    $missing=array();
+    $pattern='/^'.preg_quote($name,'/').'\.part-[0-9]{3}-of-[0-9]{3}$/';
+    foreach ($parts as $part) {
+      $partName=(string)$part;
+      if ($partName === '' || basename($partName) !== $partName || !preg_match($pattern,$partName)) {
+        cc_fail('Tên part upload không hợp lệ.',400,'UPLOAD_ASSEMBLY_INVALID');
+      }
+      $safeParts[]=$partName;
+      if (!is_file(__DIR__.DIRECTORY_SEPARATOR.$partName)) $missing[]=$partName;
+    }
+    if ($missing) {
+      cc_fail('Thiếu part upload trên hosting.',409,'UPLOAD_PART_MISSING',array('missingParts'=>$missing));
+    }
+
+    $target=__DIR__.DIRECTORY_SEPARATOR.$name;
+    $temporary=$target.'.assembling';
+    @unlink($temporary);
+    $output=@fopen($temporary,'wb');
+    if (!$output) cc_fail('Không tạo được file ghép tạm.',500,'UPLOAD_ASSEMBLY_FAILED');
+    $written=0;
+    try {
+      foreach ($safeParts as $partName) {
+        $input=@fopen(__DIR__.DIRECTORY_SEPARATOR.$partName,'rb');
+        if (!$input) throw new Exception('Không mở được part upload: '.$partName);
+        try {
+          while (!feof($input)) {
+            $block=fread($input,1048576);
+            if ($block === false) throw new Exception('Không đọc được part upload: '.$partName);
+            if ($block === '') continue;
+            $size=strlen($block);
+            if (fwrite($output,$block) !== $size) throw new Exception('Không ghi đủ dữ liệu khi ghép package.');
+            $written += $size;
+            if ($written > $expectedBytes) throw new Exception('Package ghép vượt dung lượng dự kiến.');
+          }
+        } finally { fclose($input); }
+      }
+    } catch (Throwable $error) {
+      fclose($output);
+      @unlink($temporary);
+      cc_fail($error->getMessage(),500,'UPLOAD_ASSEMBLY_FAILED');
+    }
+    fclose($output);
+
+    if ($written !== $expectedBytes || (int)@filesize($temporary) !== $expectedBytes) {
+      @unlink($temporary);
+      cc_fail('Dung lượng package sau khi ghép không khớp.',409,'UPLOAD_ASSEMBLY_FAILED',array('bytes'=>$written,'expectedBytes'=>$expectedBytes));
+    }
+    if ($expectedSha !== '') {
+      $assembledSha=strtolower((string)@hash_file('sha256',$temporary));
+      if (!hash_equals($expectedSha,$assembledSha)) {
+        @unlink($temporary);
+        cc_fail('Checksum package sau khi ghép không khớp.',409,'UPLOAD_ASSEMBLY_FAILED',array('sha256'=>$assembledSha));
+      }
+    }
+    @unlink($target);
+    if (!@rename($temporary,$target)) {
+      @unlink($temporary);
+      cc_fail('Không chốt được package sau khi ghép.',500,'UPLOAD_ASSEMBLY_FAILED');
+    }
+    foreach ($safeParts as $partName) @unlink(__DIR__.DIRECTORY_SEPARATOR.$partName);
+    cc_answer(true,'Đã ghép package upload song song.',array('file'=>$name,'bytes'=>$written,'parts'=>count($safeParts)));
+  }
+
   if ($action === 'cleanup') {
     cc_remove_tree(cc_stage());
+    cc_cleanup_upload_artifacts();
     if (CC_THEME_PACKAGE !== '') @unlink(__DIR__.'/'.CC_THEME_PACKAGE);
     $plugin=(array)($data['plugin'] ?? array());
     if (!empty($plugin['fallback_package'])) @unlink(__DIR__.'/'.basename((string)$plugin['fallback_package']));

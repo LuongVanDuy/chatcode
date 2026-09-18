@@ -2,7 +2,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createFreshInstallService, normalizeDomain, checkpointAtLeast, allowsRemoteClear } = require('../core/fresh-install-runtime');
+const { createFreshInstallService, normalizeDomain, checkpointAtLeast, allowsRemoteClear, buildUploadRanges } = require('../core/fresh-install-runtime');
 const { buildFreshInstallBootstrap } = require('../core/fresh-install-bootstrap');
 const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require('../core/fresh-install-packages');
 
@@ -10,6 +10,13 @@ const { DEFAULT_CATALOG, parsePackageHeaderVersion, detectThemeRoot } = require(
   assert.equal(normalizeDomain('https://Example.COM/'), 'example.com');
   assert.equal(checkpointAtLeast('installed','uploaded'), true);
   assert.equal(checkpointAtLeast('uploaded','verified'), false);
+  const ranges = buildUploadRanges(29 * 1024 * 1024,16);
+  assert.equal(ranges.length,16);
+  assert.equal(ranges.reduce((sum,item) => sum + item.length,0),29 * 1024 * 1024);
+  for (let index=1; index<ranges.length; index++) {
+    assert.equal(ranges[index].offset,ranges[index - 1].offset + ranges[index - 1].length);
+  }
+  assert.equal(buildUploadRanges(512 * 1024,16).length,1);
   assert.equal(detectThemeRoot(['style.css','functions.php']), '');
   assert.equal(detectThemeRoot(['bricks/style.css','bricks/functions.php']), 'bricks');
   assert.equal(parsePackageHeaderVersion(`/*
@@ -46,8 +53,11 @@ Version: 2.4
     'SITE_NOT_EMPTY',
     'REMOTE_WIPE_FAILED',
     'UPLOAD_VERIFY_FAILED',
+    'UPLOAD_PART_MISSING',
+    'UPLOAD_ASSEMBLY_FAILED',
     "if ($action === 'probe')",
     "if ($action === 'inspect-upload')",
+    "if ($action === 'assemble-upload')",
     'cc_prepare_remote_root',
     ".well-known",
     ".ftpquota",
@@ -135,10 +145,18 @@ Version: 2.4
   assert.equal(runnerSource.includes("            '/'\n          ) | Select-Object -Unique"), false);
   assert.ok(runnerSource.includes("status='sent-unconfirmed'"));
   assert.ok(runnerSource.includes("Test-DefinitiveFtpError"));
+  assert.ok(runnerSource.includes("if ($action -eq 'probe-worker')"));
+  assert.ok(runnerSource.includes("[long]$Offset = 0"));
+  assert.ok(runnerSource.includes("[long]$Length = 0"));
+  assert.ok(runnerSource.includes("[bool]$Fast = $false"));
   const runtimeSource = fs.readFileSync(path.join(__dirname,'..','core','fresh-install-runtime.js'),'utf8');
   assert.ok(runtimeSource.includes("uploadBootstrapVerified"));
   assert.ok(runtimeSource.includes("uploadFileVerified"));
+  assert.ok(runtimeSource.includes("probeUploadWorkers"));
+  assert.ok(runtimeSource.includes("uploadFileFast"));
+  assert.ok(runtimeSource.includes("fast:true"));
   assert.ok(runtimeSource.includes("action:'inspect-upload'"));
+  assert.ok(runtimeSource.includes("action:'assemble-upload'"));
 
   assert.equal(service.remove(task.id), true);
   assert.equal(service.remove(guardedTask.id), true);

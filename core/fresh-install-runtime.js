@@ -10,6 +10,8 @@ const { createFreshInstallVault } = require('./fresh-install-vault');
 const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const CHECKPOINTS = ['created','discovered','uploaded','installed','verified','completed'];
 const ACTIVE_STATUSES = new Set(['running']);
+const MAX_PARALLEL_UPLOAD_WORKERS = 16;
+const PARALLEL_UPLOAD_MIN_PART_BYTES = 1024 * 1024;
 
 function checkpointAtLeast(value, target) {
   return CHECKPOINTS.indexOf(String(value || 'created')) >= CHECKPOINTS.indexOf(target);
@@ -28,6 +30,25 @@ function atomicWrite(file, payload) {
 
 function randomSecret(bytes = 24) {
   return crypto.randomBytes(bytes).toString('base64url');
+}
+
+function buildUploadRanges(totalBytes, workerCount) {
+  const bytes = Math.max(0, Math.floor(Number(totalBytes) || 0));
+  const requested = Math.max(1, Math.min(MAX_PARALLEL_UPLOAD_WORKERS, Math.floor(Number(workerCount) || 1)));
+  if (bytes <= 0) return [{ index:0, offset:0, length:0 }];
+  const usefulWorkers = Math.max(1, Math.floor(bytes / PARALLEL_UPLOAD_MIN_PART_BYTES));
+  const count = Math.max(1, Math.min(requested, usefulWorkers));
+  const base = Math.floor(bytes / count);
+  let extra = bytes % count;
+  let offset = 0;
+  const ranges = [];
+  for (let index=0; index<count; index++) {
+    const length = base + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra--;
+    ranges.push({ index, offset, length });
+    offset += length;
+  }
+  return ranges;
 }
 
 function normalizeDomain(value) {
@@ -432,18 +453,46 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     };
   }
 
-  function bootstrapUrl(task) {
-    return `${task.site_url}/${encodeURIComponent(task.bootstrap.name)}`;
+  async function probeUploadWorkers(task,secrets) {
+    const saved = Math.floor(Number(task.connection?.workers) || 0);
+    if (saved >= 1 && saved <= MAX_PARALLEL_UPLOAD_WORKERS) return saved;
+    if (!task.connection) return 1;
+
+    const cap = MAX_PARALLEL_UPLOAD_WORKERS;
+    const currentPercent = Number(taskById(task.id).percent || 0);
+    progress(task.id,'probe',currentPercent,'Đang đo số luồng FTP/FTPS chạy song song',`tối đa ${cap} luồng`);
+
+    const probes = await Promise.all(Array.from({ length:cap }, async (_,index) => {
+      try {
+        await runPowerShell(runnerPayload(task,secrets,'probe-worker',{
+          holdMs:1200,
+          probeIndex:index + 1
+        }),25000);
+        return true;
+      } catch {
+        return false;
+      }
+    }));
+
+    const confirmed = probes.filter(Boolean).length;
+    const workers = Math.max(1, Math.min(cap, confirmed || 1));
+    mutate(task.id,current => {
+      if (current.connection) {
+        current.connection.workers = workers;
+        current.connection.worker_probe = {
+          cap,
+          confirmed,
+          probed_at:new Date().toISOString()
+        };
+      }
+      appendLog(current,`FTP parallel probe · ${workers}/${cap} worker`);
+    });
+    progress(task.id,'probe',currentPercent,`Hosting sẵn sàng ${workers} luồng upload song song`,task.connection.remotePath || '');
+    return workers;
   }
 
-  async function sha256File(file) {
-    return new Promise((resolve,reject) => {
-      const hash = crypto.createHash('sha256');
-      const stream = fs.createReadStream(file);
-      stream.on('data',chunk => hash.update(chunk));
-      stream.once('error',reject);
-      stream.once('end',() => resolve(hash.digest('hex')));
-    });
+  function bootstrapUrl(task) {
+    return `${task.site_url}/${encodeURIComponent(task.bootstrap.name)}`;
   }
 
   async function uploadBootstrapVerified(task,secrets,bootstrapFile) {
@@ -466,7 +515,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
 
   async function uploadFileVerified(task,secrets,{ localPath,remoteName,sha256='',bytes=0,timeoutMs=180000 }) {
     const expectedBytes = Number(bytes || (await fsp.stat(localPath)).size);
-    const expectedSha256 = String(sha256 || await sha256File(localPath)).toLowerCase();
+    const expectedSha256 = String(sha256 || '').toLowerCase();
     let lastError = null;
 
     for (let attempt=1; attempt<=2; attempt++) {
@@ -477,7 +526,8 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         }),timeoutMs);
         const item = Array.isArray(result?.files) ? result.files[0] : null;
         if (item?.status === 'sent-unconfirmed') {
-          progress(task.id,'upload',16,'FTPS đã gửi xong dữ liệu; đang xác minh package trên hosting',remoteName);
+          const currentPercent = Number(taskById(task.id).percent || 0);
+          progress(task.id,'upload',currentPercent,'FTPS đã gửi xong dữ liệu; đang xác minh package trên hosting',remoteName);
         }
       } catch (error) {
         runnerError = error;
@@ -512,6 +562,101 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       }
     }
     throw lastError || new Error('Upload package verify failed.');
+  }
+
+  async function uploadFileFast(task,secrets,{ localPath,remoteName,sha256='',bytes=0,timeoutMs=180000 }) {
+    const expectedBytes = Number(bytes || (await fsp.stat(localPath)).size);
+    if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) {
+      throw new Error(`Package upload rỗng hoặc không đọc được: ${remoteName}`);
+    }
+
+    const workers = await probeUploadWorkers(task,secrets);
+    const ranges = buildUploadRanges(expectedBytes,workers);
+    if (ranges.length <= 1) {
+      return uploadFileVerified(task,secrets,{ localPath,remoteName,sha256,bytes:expectedBytes,timeoutMs });
+    }
+
+    const count = ranges.length;
+    const width = 3;
+    const parts = ranges.map(range => ({
+      ...range,
+      remoteName:`${remoteName}.part-${String(range.index + 1).padStart(width,'0')}-of-${String(count).padStart(width,'0')}`
+    }));
+    const currentPercent = Number(taskById(task.id).percent || 0);
+    progress(task.id,'upload',currentPercent,`Đang chia package qua ${count} luồng FTP/FTPS`,remoteName);
+
+    async function sendPart(part) {
+      try {
+        const result = await runPowerShell(runnerPayload(task,secrets,'upload',{
+          files:[{
+            localPath,
+            remoteName:part.remoteName,
+            offset:part.offset,
+            length:part.length,
+            fast:true
+          }]
+        }),timeoutMs);
+        return { ok:true, part, result };
+      } catch (error) {
+        return { ok:false, part, error };
+      }
+    }
+
+    async function sendParts(selected) {
+      const results = await Promise.all(selected.map(sendPart));
+      const completed = results.filter(item => item.ok).length;
+      progress(
+        task.id,
+        'upload',
+        currentPercent,
+        `Đã gửi ${completed}/${selected.length} phần; hosting đang ghép package`,
+        remoteName
+      );
+      return results;
+    }
+
+    async function assemble() {
+      return httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
+        action:'assemble-upload',
+        name:remoteName,
+        parts:parts.map(part => part.remoteName),
+        expectedBytes,
+        expectedSha256:String(sha256 || '').toLowerCase()
+      },120000);
+    }
+
+    await sendParts(parts);
+    try {
+      return await assemble();
+    } catch (firstError) {
+      const missing = Array.isArray(firstError?.detail?.missingParts)
+        ? new Set(firstError.detail.missingParts.map(String))
+        : null;
+      const retryParts = missing?.size
+        ? parts.filter(part => missing.has(part.remoteName))
+        : parts;
+      progress(
+        task.id,
+        'upload',
+        currentPercent,
+        `Ghép package chưa đạt; retry nhanh ${retryParts.length} phần`,
+        remoteName
+      );
+      await sendParts(retryParts);
+      try {
+        return await assemble();
+      } catch (finalError) {
+        const error = new Error(`Parallel upload failed: ${finalError.message}`);
+        error.code = 'UPLOAD_PARALLEL_FAILED';
+        error.detail = {
+          workers:count,
+          remoteName,
+          first:firstError?.detail || { message:String(firstError?.message || firstError) },
+          final:finalError?.detail || { message:String(finalError?.message || finalError) }
+        };
+        throw error;
+      }
+    }
   }
 
   function installPayload(task,secrets,extra = {}) {
@@ -615,7 +760,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
         const themePackage = task.manifest.theme.package;
         if (themePackage?.path) {
           progress(id,'upload',14,'Đang upload private theme package',themePackage.remote_name);
-          await uploadFileVerified(task,secrets,{
+          await uploadFileFast(task,secrets,{
             localPath:themePackage.path,
             remoteName:themePackage.remote_name,
             sha256:themePackage.sha256,
@@ -638,7 +783,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
             task = taskById(id);
             const remoteCore = `.chatcode-wordpress-${task.id.replace(/-/g,'').slice(0,10)}.zip`;
             progress(id,'fallback',52,'Đang upload một WordPress ZIP fallback',remoteCore);
-            await uploadFileVerified(task,secrets,{
+            await uploadFileFast(task,secrets,{
               localPath:localCore,
               remoteName:remoteCore,
               timeoutMs:240000
@@ -660,7 +805,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
               throw missing;
             }
             progress(id,'fallback',58,'Vendor updater lỗi; đang upload DuyAnhWebPro 1.9.4 fallback',fallback.remote_name);
-            await uploadFileVerified(task,secrets,{
+            await uploadFileFast(task,secrets,{
               localPath:fallback.path,
               remoteName:fallback.remote_name,
               sha256:fallback.sha256,
@@ -825,5 +970,6 @@ module.exports = {
   normalizeDomain,
   checkpointAtLeast,
   allowsRemoteClear,
-  runPowerShell
+  runPowerShell,
+  buildUploadRanges
 };
