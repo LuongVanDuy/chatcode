@@ -45,6 +45,9 @@ Version: 2.4
     'PLUGIN_FALLBACK_INVALID',
     'SITE_NOT_EMPTY',
     'REMOTE_WIPE_FAILED',
+    'UPLOAD_VERIFY_FAILED',
+    "if ($action === 'probe')",
+    "if ($action === 'inspect-upload')",
     'cc_prepare_remote_root',
     ".well-known",
     ".ftpquota",
@@ -130,6 +133,12 @@ Version: 2.4
 
   const runnerSource = fs.readFileSync(path.join(__dirname,'..','tools','fresh-install.ps1'),'utf8');
   assert.equal(runnerSource.includes("            '/'\n          ) | Select-Object -Unique"), false);
+  assert.ok(runnerSource.includes("status='sent-unconfirmed'"));
+  assert.ok(runnerSource.includes("Test-DefinitiveFtpError"));
+  const runtimeSource = fs.readFileSync(path.join(__dirname,'..','core','fresh-install-runtime.js'),'utf8');
+  assert.ok(runtimeSource.includes("uploadBootstrapVerified"));
+  assert.ok(runtimeSource.includes("uploadFileVerified"));
+  assert.ok(runtimeSource.includes("action:'inspect-upload'"));
 
   assert.equal(service.remove(task.id), true);
   assert.equal(service.remove(guardedTask.id), true);
