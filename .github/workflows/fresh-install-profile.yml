@@ -1,0 +1,29 @@
+name: Fresh Install Profile
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/fresh-install-*'
+      - 'core/packages/**'
+      - 'scripts/fresh-install-*'
+      - '.github/workflows/fresh-install-profile.yml'
+permissions:
+  contents: read
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-profile-source
+          include-hidden-files: true
+          path: |
+            core/
+            scripts/
+            tools/
+            renderer/
+            .github/workflows/
+            package.json
+          retention-days: 1
