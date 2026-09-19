@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { buildInstallProfileBootstrap } = require('./fresh-install-profile');
 const { buildTransferBootstrap } = require('./fresh-install-transfer-bootstrap');
 const { buildDatabaseBootstrap } = require('./fresh-install-database');
 const { buildReinstallBootstrap } = require('./fresh-install-reinstall');
@@ -24,6 +25,7 @@ const CC_THEME_SLUG = '${phpString(themeSlug)}';
 const CC_THEME_ENTRY = '${phpString(themeEntry)}';
 const CC_THEME_LAYOUT = '${phpString(themeArchiveLayout === 'flat' ? 'flat' : 'wrapped')}';
 ${buildTransferBootstrap()}
+${buildInstallProfileBootstrap()}
 function cc_answer($ok, $message, $extra=array(), $status=200, $code='') {
   http_response_code($status);
   $base = array('ok'=>(bool)$ok,'message'=>(string)$message);
@@ -223,11 +225,7 @@ function cc_prepare_theme($stage,$data) {
     cc_extract_zip($package,$themeTarget);
   } else { cc_extract_zip($package,$themesRoot); }
   if (!is_file($themesRoot.'/'.CC_THEME_SLUG.'/style.css')) throw new Exception('Theme package không tạo đúng theme slug.');
-  if (!empty($theme['generated_child']) && CC_THEME_SLUG === 'bricks') {
-    $child=$themesRoot.'/bricks-child'; if (!is_dir($child)) @mkdir($child,0755,true);
-    file_put_contents($child.'/style.css',"/*\nTheme Name: Bricks Child\nTemplate: bricks\nVersion: 1.0.0\n*/\n",LOCK_EX);
-    file_put_contents($child.'/functions.php',"<?php\ndefined('ABSPATH') || exit;\n",LOCK_EX);
-  }
+  if (CC_THEME_SLUG === 'bricks') { cc_profile_install_child($stage); return 'bricks-child'; }
   return (string)($theme['active_theme'] ?? CC_THEME_SLUG);
 }
 function cc_prepare_duyanh($stage,$plugin) {
@@ -372,11 +370,13 @@ try {
     $ccVerifyPlugin=(array)($data['plugin'] ?? array()); $ccVerifyEntry=(string)($ccVerifyPlugin['entry'] ?? '');
     $ccExpectedTheme=(string)($data['theme']['active_theme'] ?? '');
     $ccVerifyPlan=cc_reinstall_read_plan();
+    $ccVerifyProfile=(int)($data['profileVersion'] ?? 0); $ccVerifyAdmin=(string)($data['adminUser'] ?? '');
     require_once __DIR__.'/wp-load.php'; require_once ABSPATH.'wp-admin/includes/plugin.php';
     $ccActive=(string)get_option('stylesheet'); $ccPluginOk=$ccVerifyEntry === '' ? true : is_plugin_active($ccVerifyEntry);
     if (!$ccPluginOk) cc_fail('Plugin mặc định chưa active.',409,'VERIFY_PLUGIN_FAILED');
     if ($ccExpectedTheme !== '' && $ccActive !== $ccExpectedTheme) cc_fail('Theme active không đúng manifest.',409,'VERIFY_THEME_FAILED',array('activeTheme'=>$ccActive));
-    cc_answer(true,'Remote verify PASS.',array_merge((array)($ccVerifyPlan['result'] ?? array()),array('wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),'activeTheme'=>$ccActive,'pluginActive'=>$ccPluginOk,'siteUrl'=>(string)get_option('siteurl'))));
+    $ccProfile=$ccVerifyProfile>=1 ? cc_profile_verify($ccVerifyAdmin) : array();
+    cc_answer(true,'Remote verify PASS.',array_merge($ccProfile,(array)($ccVerifyPlan['result'] ?? array()),array('wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''),'activeTheme'=>$ccActive,'pluginActive'=>$ccPluginOk,'siteUrl'=>(string)get_option('siteurl'))));
   }
   if ($action !== 'install') cc_fail('Action không được hỗ trợ.',400,'ACTION_UNSUPPORTED');
   if (cc_same_install_live()) {
@@ -407,6 +407,7 @@ try {
   if ($ccPluginEntry === '') throw new Exception('Plugin entrypoint không hợp lệ.');
   define('WP_INSTALLING',true);
   require $ccStage.'/wp-load.php'; require_once $ccStage.'/wp-admin/includes/upgrade.php'; require_once $ccStage.'/wp-admin/includes/plugin.php';
+  cc_profile_prepare_language();
   if (!is_blog_installed()) wp_install($ccSiteTitle,$ccAdminUser,$ccAdminEmail,true,'',wp_slash($ccAdminPassword),'vi');
   update_option('siteurl',$ccSiteUrl); update_option('home',$ccSiteUrl); update_option('timezone_string','Asia/Ho_Chi_Minh');
   update_option('permalink_structure','/%postname%/');
@@ -417,6 +418,7 @@ try {
   $ccUser=get_user_by('login',$ccAdminUser);
   if (!$ccUser || !user_can($ccUser,'manage_options') || !wp_check_password(wp_slash($ccAdminPassword),$ccUser->user_pass,$ccUser->ID)) throw new Exception('Chưa xác minh được tài khoản quản trị mới; giữ lại bản cũ.');
   if (!is_plugin_active($ccPluginEntry) || ($ccActiveTheme!=='' && get_option('stylesheet')!==$ccActiveTheme)) throw new Exception('Theme/plugin bản mới chưa sẵn sàng; giữ lại bản cũ.');
+  $ccProfile=cc_profile_finalize($ccAdminUser);
   flush_rewrite_rules(true);
   cc_reinstall_retire_tables($ccMysqli);
   $ccPlan=cc_reinstall_read_plan();
@@ -424,7 +426,7 @@ try {
   $ccResult=array('database'=>$ccDatabase,'databaseMode'=>$ccPlan ? 'reused' : 'created',
     'replacedTables'=>$ccPlan ? count($ccPlan['tables']) : 0,'tablePrefix'=>$ccInstallData['tablePrefix'],
     'activeTheme'=>$ccActiveTheme,'pluginVersion'=>$ccPluginVersion,'wordpressVersion'=>(string)($GLOBALS['wp_version'] ?? ''));
-  cc_reinstall_publish($ccInstallData,$ccResult);
+  cc_reinstall_publish($ccInstallData,array_merge($ccResult,$ccProfile));
 } catch (Throwable $error) { cc_fail($error->getMessage(),500,'INSTALL_FAILED'); }
 `;
 }

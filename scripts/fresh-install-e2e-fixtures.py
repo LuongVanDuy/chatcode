@@ -28,7 +28,8 @@ def prepare(root: Path) -> None:
     with zipfile.ZipFile(theme_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         add_text(zf, "style.css", "/*\nTheme Name: Bricks\nVersion: 2.4\n*/\n")
         add_text(zf, "index.php", "<?php echo 'Bricks E2E';\n")
-        add_text(zf, "functions.php", "<?php\n")
+        # Minimal parent API fixture for the user's unchanged child theme.
+        add_text(zf, "functions.php", "<?php\nnamespace Bricks { class Element {} class Elements { public static function register_element($file) { require_once $file; } } }\nnamespace { function bricks_is_builder_main() { return false; } }\n")
 
     plugin_zip = root / ".chatcode-plugin-e2e.zip"
     with zipfile.ZipFile(plugin_zip, "w", zipfile.ZIP_DEFLATED) as zf:

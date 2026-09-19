@@ -12,7 +12,8 @@ const DEFAULT_CATALOG = Object.freeze({
   wordpress: {
     source: 'wordpress.org',
     version: 'latest',
-    download_url: 'https://wordpress.org/latest.zip'
+    download_url: 'https://wordpress.org/latest.zip',
+    locale: 'vi'
   },
   themes: [
     {
@@ -25,6 +26,7 @@ const DEFAULT_CATALOG = Object.freeze({
       expected_entry: 'bricks/style.css',
       requires_package: true,
       generated_child: 'bricks-child',
+      child_template_version: '1.1',
       active_theme: 'bricks-child'
     },
     {
