@@ -263,8 +263,8 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       remote_policy:{ clear_remote:input.clearRemote === true, preserve:['.well-known','.ftpquota'] },
       bootstrap:{ name:bridgeName },
       manifest:{
-        schema:1, install_id:installId,
-        wordpress:{ source:'wordpress.org', version:'latest', fallback_remote_name:'' },
+        schema:1, install_id:installId, profile_version:1,
+        wordpress:{ source:'wordpress.org', version:'latest', locale:'vi', fallback_remote_name:'' },
         theme:{
           id:theme.id, source:theme.source, version:theme.version,
           latest_stable:theme.latest_stable || '', active_theme:theme.active_theme || '',
@@ -443,7 +443,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
     const options = {
       request:(payload,timeout) => httpJson(bootstrapUrl(task),secrets.bootstrapToken,payload,timeout),
       installPayload:installPayload(task,secrets,extra),
-      verifyPayload:{ theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry } },
+      verifyPayload:{ profileVersion:task.manifest.profile_version || 0, adminUser:task.manifest.admin.username, theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry } },
       siteUrl:task.site_url,
       originalError:{ code:existing.error_code || '', detail:existing.install_response_error || existing.failure_detail },
       onProgress:event => {
@@ -582,7 +582,7 @@ function createFreshInstallService({ app, safeStorage, onChanged }) {
       if (!checkpointAtLeast(task.checkpoint,'verified')) {
         progress(id,'verify',90,'Đang kiểm tra WordPress/theme/plugin trên hosting');
         const verified = await httpJson(bootstrapUrl(task),secrets.bootstrapToken,{
-          action:'verify', theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry }
+          action:'verify', profileVersion:task.manifest.profile_version || 0, adminUser:task.manifest.admin.username, theme:{ active_theme:task.manifest.theme.active_theme }, plugin:{ entry:task.manifest.plugins[0].entry }
         },90000);
         const [home,login] = await Promise.all([verifyPublicUrl(task.site_url),verifyPublicUrl(`${task.site_url}/wp-login.php`)]);
         if (!home.ok || !login.ok) {
